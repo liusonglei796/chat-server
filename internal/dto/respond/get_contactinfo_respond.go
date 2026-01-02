@@ -1,0 +1,19 @@
+package respond
+
+// GetContactInfoRespond 获取联系人信息响应
+// 使用位置:
+//   - internal/service/contact/service.go: GetContactInfo
+type GetContactInfoRespond struct {
+	ContactId        string `json:"contact_id"`
+	ContactName      string `json:"contact_name"`
+	ContactAvatar    string `json:"contact_avatar"`
+	ContactPhone     string `json:"contact_phone"`
+	ContactEmail     string `json:"contact_email"`
+	ContactGender    int8   `json:"contact_gender"`
+	ContactSignature string `json:"contact_signature"`
+	ContactBirthday  string `json:"contact_birthday"`
+	ContactNotice    string `json:"contact_notice"`
+	ContactMemberCnt int    `json:"contact_member_cnt"`
+	ContactOwnerId   string `json:"contact_owner_id"`
+	ContactAddMode   int8   `json:"contact_add_mode"`
+}
