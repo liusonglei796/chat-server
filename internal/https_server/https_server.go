@@ -14,7 +14,6 @@ var GE *gin.Engine
 // Init 初始化 HTTPS 服务器
 func Init() {
 	GE = gin.New()
-
 	// 使用自定义的 zap logger 和 recovery 中间件
 	GE.Use(logger.GinLogger())
 	GE.Use(logger.GinRecovery(true))
@@ -32,7 +31,6 @@ func Init() {
 	// 静态资源
 	GE.Static("/static/avatars", config.GetConfig().StaticAvatarPath)
 	GE.Static("/static/files", config.GetConfig().StaticFilePath)
-
 	// 注册所有路由
 	router.RegisterRoutes(GE)
 }

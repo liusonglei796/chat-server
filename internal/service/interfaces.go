@@ -52,7 +52,7 @@ type GroupService interface {
 // ContactService 联系人业务接口
 type ContactService interface {
 	GetUserList(userId string) ([]respond.MyUserListRespond, error)
-	LoadMyJoinedGroup(userId string) ([]respond.LoadMyJoinedGroupRespond, error)
+	GetJoinedGroupsExcludedOwn(userId string) ([]respond.LoadMyJoinedGroupRespond, error)
 	GetContactInfo(contactId string) (respond.GetContactInfoRespond, error)
 	DeleteContact(userId, contactId string) error
 	ApplyContact(req request.ApplyContactRequest) error

@@ -32,7 +32,7 @@ func NewServices(repos *repository.Repositories) *Services {
 
 	messageSvc := message.NewMessageService(repos)
 
-	chatRoomSvc := chatroom.NewChatRoomService()
+	chatRoomSvc := chatroom.NewChatRoomService(repos)
 
 	return &Services{
 		User:     userSvc,

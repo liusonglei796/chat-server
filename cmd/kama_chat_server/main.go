@@ -10,12 +10,11 @@ import (
 	"kama_chat_server/internal/config"
 	dao "kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
-	"kama_chat_server/internal/gateway/websocket"
 	"kama_chat_server/internal/https_server"
 	"kama_chat_server/internal/infrastructure/logger"
-	mq "kama_chat_server/internal/infrastructure/mq"
 	"kama_chat_server/internal/infrastructure/sms"
 	"kama_chat_server/internal/service"
+	"kama_chat_server/internal/service/chat"
 	"kama_chat_server/pkg/util/jwt"
 
 	"go.uber.org/zap"
@@ -54,23 +53,10 @@ func main() {
 	zap.L().Info("SMS Service 初始化成功")
 
 	// 6. 初始化 ChatServer
-	websocket.Init()
+	chat.Init()
 	if conf.KafkaConfig.MessageMode == "kafka" {
-		mq.KafkaService.KafkaInit()
-		mq.InitKafkaServer()
-		// 注入 MessageSender 接口实现 (依赖倒置: mq → websocket)
-		// mq.KafkaChatServer 实现了 mq.MessageSender 接口
-		mq.SetMessageSender(mq.KafkaChatServer)
-		// 注入 MessageWriter 接口实现 (依赖倒置: websocket → mq)
-		// mq.KafkaService 实现了 websocket.MessageWriter 接口
-		websocket.SetMessageWriter(mq.KafkaService)
-		// 注入 ClientManager 接口实现
-		websocket.SetClientManager(mq.KafkaChatServer)
-	} else {
-		// 注入 MessageSender 接口实现 (依赖倒置)
-		mq.SetMessageSender(websocket.ChatServer)
-		// 注入 ClientManager 接口实现
-		websocket.SetClientManager(websocket.ChatServer)
+		chat.GlobalKafkaClient.KafkaInit()
+		chat.InitKafkaServer()
 	}
 	zap.L().Info("ChatServer 初始化成功")
 
@@ -84,9 +70,9 @@ func main() {
 	kafkaConfig := conf.KafkaConfig
 
 	if kafkaConfig.MessageMode == "channel" {
-		go websocket.ChatServer.Start()
+		go chat.GlobalStandaloneServer.Start()
 	} else {
-		go mq.KafkaChatServer.Start()
+		go chat.GlobalMsgConsumer.Start()
 	}
 
 	go func() {
@@ -106,10 +92,10 @@ func main() {
 	<-quit
 
 	if kafkaConfig.MessageMode == "kafka" {
-		mq.KafkaService.KafkaClose()
+		chat.GlobalKafkaClient.KafkaClose()
 	}
 
-	websocket.ChatServer.Close()
+	chat.GlobalStandaloneServer.Close()
 
 	zap.L().Info("关闭服务器...")
 

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 )
 
 var redisClient *redis.Client
@@ -141,7 +141,7 @@ func DelKeysWithPattern(pattern string) error {
 		var keys []string
 		var err error
 		// 每次扫描 500 条，减少循环次数
-		keys, cursor, err = redisClient.Scan(ctx,cursor, pattern, 500).Result()
+		keys, cursor, err = redisClient.Scan(ctx, cursor, pattern, 500).Result()
 		if err != nil {
 			return errorx.Wrapf(err, errorx.CodeCacheError, "redis scan pattern %s", pattern)
 		}

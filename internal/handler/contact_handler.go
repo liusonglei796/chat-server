@@ -31,7 +31,7 @@ func LoadMyJoinedGroupHandler(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.Contact.LoadMyJoinedGroup(req.UserId)
+	data, err := service.Svc.Contact.GetJoinedGroupsExcludedOwn(req.UserId)
 	if err != nil {
 		HandleError(c, err)
 		return

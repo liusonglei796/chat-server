@@ -65,6 +65,10 @@ type JWTConfig struct {
 	RefreshTokenExpiry int    `toml:"refreshTokenExpiry"` // 小时
 }
 
+type SnowflakeConfig struct {
+	MachineID int64 `toml:"machineId"` // 雪花算法节点 ID (0-1023)
+}
+
 type Config struct {
 	MainConfig      `toml:"mainConfig"`
 	MysqlConfig     `toml:"mysqlConfig"`
@@ -74,6 +78,7 @@ type Config struct {
 	KafkaConfig     `toml:"kafkaConfig"`
 	StaticSrcConfig `toml:"staticSrcConfig"`
 	JWTConfig       `toml:"jwtConfig"`
+	SnowflakeConfig `toml:"snowflakeConfig"`
 }
 
 var config *Config

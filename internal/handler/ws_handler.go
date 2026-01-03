@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"kama_chat_server/internal/dto/request"
-	"kama_chat_server/internal/gateway/websocket"
+	"kama_chat_server/internal/service/chat"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +22,7 @@ func WsLoginHandler(c *gin.Context) {
 		})
 		return
 	}
-	websocket.NewClientInit(c, clientId)
+	chat.NewClientInit(c, clientId)
 }
 
 // WsLogout wss登出
@@ -32,7 +32,7 @@ func WsLogoutHandler(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := websocket.ClientLogout(req.OwnerId); err != nil {
+	if err := chat.ClientLogout(req.OwnerId); err != nil {
 		HandleError(c, err)
 		return
 	}

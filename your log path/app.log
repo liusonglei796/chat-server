@@ -1142,3 +1142,13 @@
 {"L":"INFO","time":"2026-01-02T20:01:47.365+0800","C":"logger/logger.go:146","M":"http request","status":200,"method":"GET","path":"/user/getUserInfoList","query":"owner_id=U2601020tnlnkRO8r4","ClientIP":"::1","user-agent":"go-wrk 0.1 benchmark","cost":"15.676287ms","errors":""}
 {"L":"INFO","time":"2026-01-02T20:01:47.365+0800","C":"logger/logger.go:146","M":"http request","status":200,"method":"GET","path":"/user/getUserInfoList","query":"owner_id=U2601020tnlnkRO8r4","ClientIP":"::1","user-agent":"go-wrk 0.1 benchmark","cost":"17.599983ms","errors":""}
 {"L":"INFO","time":"2026-01-02T20:01:47.366+0800","C":"logger/logger.go:146","M":"http request","status":200,"method":"GET","path":"/user/getUserInfoList","query":"owner_id=U2601020tnlnkRO8r4","ClientIP":"::1","user-agent":"go-wrk 0.1 benchmark","cost":"17.924209ms","errors":""}
+{"L":"INFO","time":"2026-01-03T20:36:40.061+0800","C":"kama_chat_server/main.go:31","M":"日志初始化成功"}
+{"L":"INFO","time":"2026-01-03T20:36:40.213+0800","C":"kama_chat_server/main.go:35","M":"数据库初始化成功"}
+{"L":"INFO","time":"2026-01-03T20:36:40.213+0800","C":"kama_chat_server/main.go:39","M":"Redis 初始化成功"}
+{"L":"INFO","time":"2026-01-03T20:36:40.213+0800","C":"kama_chat_server/main.go:43","M":"JWT 初始化成功"}
+{"L":"INFO","time":"2026-01-03T20:36:40.213+0800","C":"kama_chat_server/main.go:47","M":"Service 层初始化成功"}
+{"L":"INFO","time":"2026-01-03T20:36:40.213+0800","C":"kama_chat_server/main.go:53","M":"SMS Service 初始化成功"}
+{"L":"INFO","time":"2026-01-03T20:36:40.213+0800","C":"kama_chat_server/main.go:61","M":"ChatServer 初始化成功"}
+{"L":"INFO","time":"2026-01-03T20:36:40.213+0800","C":"kama_chat_server/main.go:65","M":"HTTPS 服务器初始化成功"}
+{"L":"INFO","time":"2026-01-03T20:38:26.882+0800","C":"kama_chat_server/main.go:100","M":"关闭服务器..."}
+{"L":"INFO","time":"2026-01-03T20:38:26.882+0800","C":"kama_chat_server/main.go:102","M":"服务器已关闭"}

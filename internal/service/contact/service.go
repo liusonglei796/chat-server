@@ -36,53 +36,55 @@ func NewContactService(repos *repository.Repositories) *userContactService {
 
 // GetUserList 获取指定用户的“好友（联系人）的用户信息列表”。
 func (u *userContactService) GetUserList(userId string) ([]respond.MyUserListRespond, error) {
-	cacheKey := "contact_user_list_" + userId
+	// Optimization: Use Redis Set to store Friend IDs (contact_relation:user:<uid>)
+	// This avoids storing huge JSON lists and ensures data consistency with UserInfo cache.
+	cacheKey := "contact_relation:user:" + userId
 
-	// 1. 尝试从 Redis 获取
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
-	if err == nil {
-		var rsp []respond.MyUserListRespond
-		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
-			return rsp, nil
+	// 1. Try to get Member IDs from Redis
+	memberIds, err := myredis.SMembers(cacheKey)
+	if err != nil || len(memberIds) == 0 {
+		// 2. Cache Miss or Empty: Fetch from DB
+		contactList, dbErr := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.USER)
+		if dbErr != nil {
+			zap.L().Error("Find contact list error", zap.Error(dbErr))
+			return nil, errorx.ErrServerBusy
 		}
-		zap.L().Error("Unmarshal user list cache error", zap.Error(err))
+
+		// Re-populate memberIds
+		memberIds = make([]string, 0, len(contactList))
+		for _, c := range contactList {
+			memberIds = append(memberIds, c.ContactId)
+		}
+
+		// Write back to Redis (If not empty)
+		if len(memberIds) > 0 {
+			membersArgs := make([]interface{}, len(memberIds))
+			for i, v := range memberIds {
+				membersArgs[i] = v
+			}
+			// Set expiration (e.g., 24 hours) - Set operations usually don't support EX in one command easily without pipeline,
+			// but we can use generic Expand or just let it persist and ensure invalidation works.
+			// Here we just SAdd.
+			_ = myredis.SAdd(cacheKey, membersArgs...)
+			// Optional: Set expiration if needed.
+		}
 	}
 
-	// 2. 检查是否是真正的 Redis 错误（非 Key 不存在）
-	if err != nil && !errorx.IsNotFound(err) {
-		zap.L().Error("Redis error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
-
-	// 3. 缓存未命中，查询数据库
-	// 获取联系人 ID 列表
-	contactList, err := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.USER)
-	if err != nil {
-		zap.L().Error("Find contact list error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
-
-	// 如果没有联系人，直接返回空切片并缓存（防止缓存穿透）
-	if len(contactList) == 0 {
-		u.setCache(cacheKey, []respond.MyUserListRespond{})
+	if len(memberIds) == 0 {
 		return []respond.MyUserListRespond{}, nil
 	}
 
-	// 4. 【优化关键】提取 UUID 列表，准备批量查询
-	uuids := make([]string, 0, len(contactList))
-	for _, c := range contactList {
-		uuids = append(uuids, c.ContactId)
-	}
-
-	// 5. 【优化关键】一次性批量查询用户信息
-	// 假设你已经在 userRepo 中实现了 FindByUuids(uuids []string)
-	users, err := u.repos.User.FindByUuids(uuids)
+	// 3. Batch fetch User Info (Source of Truth or User Cache)
+	// Ideally we should MGET "user_info:<id>" from Redis first, then fallback to DB.
+	// For simplicity and consistency, we use the Repo's FindByUuids which typically queries DB.
+	// If performance is critical, Repos should handle the caching of entities.
+	users, err := u.repos.User.FindByUuids(memberIds)
 	if err != nil {
 		zap.L().Error("Batch find users error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
-	// 6. 组装返回结果
+	// 4. Assemble Response
 	userListRsp := make([]respond.MyUserListRespond, 0, len(users))
 	for _, user := range users {
 		userListRsp = append(userListRsp, respond.MyUserListRespond{
@@ -92,13 +94,10 @@ func (u *userContactService) GetUserList(userId string) ([]respond.MyUserListRes
 		})
 	}
 
-	// 7. 异步或同步写入缓存
-	u.setCache(cacheKey, userListRsp)
-
 	return userListRsp, nil
 }
 
-// 辅助方法：统一设置缓存
+// 辅助方法：统一设置缓存 (已废弃，保留兼容性或用于其他简单Key)
 func (u *userContactService) setCache(key string, data interface{}) {
 	rspBytes, err := json.Marshal(data)
 	if err != nil {
@@ -108,59 +107,56 @@ func (u *userContactService) setCache(key string, data interface{}) {
 	_ = myredis.SetKeyEx(key, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
 }
 
-// LoadMyJoinedGroup 获取我加入的群组列表（不包含自己创建的）
-func (u *userContactService) LoadMyJoinedGroup(userId string) ([]respond.LoadMyJoinedGroupRespond, error) {
-	cacheKey := "my_joined_group_list_" + userId
+// GetJoinedGroupsExcludedOwn 获取我加入的群组列表（不包含自己创建的）
+// Renamed from LoadMyJoinedGroup to clarify logic.
+func (u *userContactService) GetJoinedGroupsExcludedOwn(userId string) ([]respond.LoadMyJoinedGroupRespond, error) {
+	// Optimization: Use Redis Set for Group IDs
+	cacheKey := "contact_relation:group:" + userId
 
-	// 1. 尝试从缓存获取
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
-	if err == nil {
-		var rsp []respond.LoadMyJoinedGroupRespond
-		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
-			return rsp, nil
+	// 1. Try to get Group IDs from Redis
+	groupUuids, err := myredis.SMembers(cacheKey)
+	if err != nil || len(groupUuids) == 0 {
+		// 2. Cache Miss: Fetch from DB
+		contactList, dbErr := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.GROUP)
+		if dbErr != nil {
+			zap.L().Error("Find joined groups error", zap.Error(dbErr))
+			return nil, errorx.ErrServerBusy
 		}
-		zap.L().Error("Unmarshal group list cache error", zap.Error(err))
+
+		// Filter IDs (Must safeguard against non-G prefixes just in case)
+		groupUuids = make([]string, 0, len(contactList))
+		for _, contact := range contactList {
+			if len(contact.ContactId) > 0 && contact.ContactId[0] == 'G' {
+				groupUuids = append(groupUuids, contact.ContactId)
+			}
+		}
+
+		// Write back to Redis
+		if len(groupUuids) > 0 {
+			args := make([]interface{}, len(groupUuids))
+			for i, v := range groupUuids {
+				args[i] = v
+			}
+			_ = myredis.SAdd(cacheKey, args...)
+		}
 	}
 
-	if err != nil && !errorx.IsNotFound(err) {
-		zap.L().Error("Redis error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
-
-	// 3. 从数据库获取关联关系
-	contactList, err := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.GROUP)
-	if err != nil {
-		zap.L().Error("Find contact list error", zap.Error(err), zap.String("userId", userId))
-		return nil, errorx.ErrServerBusy
-	}
-
-	// 如果没有加入任何群组
-	if len(contactList) == 0 {
-		u.setCache(cacheKey, []respond.LoadMyJoinedGroupRespond{})
+	if len(groupUuids) == 0 {
 		return []respond.LoadMyJoinedGroupRespond{}, nil
 	}
 
-	// 4. 【优化关键】提取群组 UUID 列表
-	groupUuids := make([]string, 0, len(contactList))
-	for _, contact := range contactList {
-		// 如果你的业务逻辑确实需要过滤非 'G' 开头的 ID
-		if len(contact.ContactId) > 0 && contact.ContactId[0] == 'G' {
-			groupUuids = append(groupUuids, contact.ContactId)
-		}
-	}
-
-	// 5. 【优化关键】批量查询群组信息
-	// 假设 groupRepo 实现了 FindByUuids
+	// 3. Batch fetch Group Info
 	groups, err := u.repos.Group.FindByUuids(groupUuids)
 	if err != nil {
 		zap.L().Error("Batch find groups error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
-	// 6. 构造返回结果并过滤掉自己创建的群
+	// 4. Assemble Response (Filter OwnerId here to be safe and strictly adhere to "ExcludedOwn")
+	// Although the Redis Set *should* theoretically only contain valid joined groups,
+	// enforcing the filter logic ensures consistency.
 	groupListRsp := make([]respond.LoadMyJoinedGroupRespond, 0, len(groups))
 	for _, group := range groups {
-		// 过滤逻辑：只添加非本人创建的群
 		if group.OwnerId != userId {
 			groupListRsp = append(groupListRsp, respond.LoadMyJoinedGroupRespond{
 				GroupId:   group.Uuid,
@@ -169,9 +165,6 @@ func (u *userContactService) LoadMyJoinedGroup(userId string) ([]respond.LoadMyJ
 			})
 		}
 	}
-
-	// 7. 写入缓存
-	u.setCache(cacheKey, groupListRsp)
 
 	return groupListRsp, nil
 }

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/dao/mysql/repository"
@@ -270,42 +270,42 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 
 // OpenSession 打开会话
 func (s *sessionService) OpenSession(req request.OpenSessionRequest) (string, error) {
-    cacheKey := "session_" + req.SendId + "_" + req.ReceiveId
-    
-    // 1. 查缓存
-    rspString, err := myredis.GetKeyWithPrefixNilIsErr(cacheKey)
-    if err == nil && rspString != "" {
-        var session model.Session
-        if err := json.Unmarshal([]byte(rspString), &session); err == nil {
-            return session.Uuid, nil
-        }
-        // 反序列化失败，记录日志并降级查库（不要直接返回空）
-        zap.L().Error("Unmarshal session cache failed", zap.Error(err))
-    }
+	cacheKey := "session_" + req.SendId + "_" + req.ReceiveId
 
-    // 2. 查库（缓存未命中或反序列化失败）
-    session, err := s.repos.Session.FindBySendIdAndReceiveId(req.SendId, req.ReceiveId)
-    if err != nil {
-        if errorx.GetCode(err) == errorx.CodeNotFound {
-            zap.L().Info("会话没有找到，将新建会话")
-            createReq := request.CreateSessionRequest{
-                SendId:    req.SendId,
-                ReceiveId: req.ReceiveId,
-            }
-            return s.CreateSession(createReq)
-        }
-        zap.L().Error(err.Error())
-        return "", errorx.ErrServerBusy
-    }
+	// 1. 查缓存
+	rspString, err := myredis.GetKeyWithPrefixNilIsErr(cacheKey)
+	if err == nil && rspString != "" {
+		var session model.Session
+		if err := json.Unmarshal([]byte(rspString), &session); err == nil {
+			return session.Uuid, nil
+		}
+		// 反序列化失败，记录日志并降级查库（不要直接返回空）
+		zap.L().Error("Unmarshal session cache failed", zap.Error(err))
+	}
 
-    // 3. 【优化点】缓存回写
-    go func() {
-        if data, err := json.Marshal(session); err == nil {
-            _ = myredis.SetKeyEx(cacheKey, string(data), time.Minute*constants.REDIS_TIMEOUT)
-        }
-    }()
+	// 2. 查库（缓存未命中或反序列化失败）
+	session, err := s.repos.Session.FindBySendIdAndReceiveId(req.SendId, req.ReceiveId)
+	if err != nil {
+		if errorx.GetCode(err) == errorx.CodeNotFound {
+			zap.L().Info("会话没有找到，将新建会话")
+			createReq := request.CreateSessionRequest{
+				SendId:    req.SendId,
+				ReceiveId: req.ReceiveId,
+			}
+			return s.CreateSession(createReq)
+		}
+		zap.L().Error(err.Error())
+		return "", errorx.ErrServerBusy
+	}
 
-    return session.Uuid, nil
+	// 3. 【优化点】缓存回写
+	go func() {
+		if data, err := json.Marshal(session); err == nil {
+			_ = myredis.SetKeyEx(cacheKey, string(data), time.Minute*constants.REDIS_TIMEOUT)
+		}
+	}()
+
+	return session.Uuid, nil
 }
 
 // GetUserSessionList 获取用户会话列表
@@ -416,9 +416,9 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 func (s *sessionService) DeleteSession(ownerId, sessionId string) error {
 	// 建议：生产环境最好校验一下该 sessionId 是否真的属于 ownerId，防止越权删除
 	if err := s.repos.Session.SoftDeleteByUuids([]string{sessionId}); err != nil {
-		zap.L().Error("删除会话失败", 
+		zap.L().Error("删除会话失败",
 			zap.String("owner_id", ownerId),
-			zap.String("session_id", sessionId), 
+			zap.String("session_id", sessionId),
 			zap.Error(err),
 		)
 		return errorx.ErrServerBusy
