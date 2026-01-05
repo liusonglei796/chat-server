@@ -13,7 +13,9 @@ type CodeError struct {
 	cause error  // 被包装的底层错误
 }
 
-// Error 实现 error 接口
+// Error 实现 Go 标准 error 接口，使 CodeError 可作为 error 类型使用
+// 当存在底层错误时，返回格式为 "消息: 底层错误"；否则仅返回消息
+// 此方法在 fmt.Println(err)、log.Error(err)、fmt.Sprintf("%v", err) 等场景被隐式调用
 func (e *CodeError) Error() string {
 	if e.cause != nil {
 		return fmt.Sprintf("%s: %v", e.Msg, e.cause)
@@ -24,15 +26,6 @@ func (e *CodeError) Error() string {
 // Unwrap 实现 errors.Unwrap 接口，支持 errors.Is/errors.As 向下追溯
 func (e *CodeError) Unwrap() error {
 	return e.cause
-}
-
-// Is 实现 errors.Is 接口，支持按错误码比较
-// 用法: errors.Is(err, ErrNotFound) 可以匹配任何 Code == CodeNotFound 的 CodeError
-func (e *CodeError) Is(target error) bool {
-	if t, ok := target.(*CodeError); ok {
-		return e.Code == t.Code
-	}
-	return false
 }
 
 // New 创建一个新的 CodeError
@@ -71,16 +64,6 @@ func Wrapf(err error, code int, format string, args ...any) *CodeError {
 	}
 }
 
-// WrapWithCode 仅包装错误并附加错误码，消息来自底层错误
-// 用法: errorx.WrapWithCode(err, CodeServerBusy)
-func WrapWithCode(err error, code int) *CodeError {
-	return &CodeError{
-		Code:  code,
-		Msg:   err.Error(),
-		cause: err,
-	}
-}
-
 // GetCode 从错误中提取业务错误码，如果不是 CodeError 则返回默认码
 func GetCode(err error) int {
 	var codeErr *CodeError
@@ -88,27 +71,6 @@ func GetCode(err error) int {
 		return codeErr.Code
 	}
 	return CodeServerBusy // 默认返回服务繁忙
-}
-
-// GetMsg 从错误中提取消息
-func GetMsg(err error) string {
-	var codeErr *CodeError
-	if errors.As(err, &codeErr) {
-		return codeErr.Msg
-	}
-	return err.Error()
-}
-
-// Cause 获取最底层的原始错误
-func Cause(err error) error {
-	for err != nil {
-		unwrapped := errors.Unwrap(err)
-		if unwrapped == nil {
-			return err
-		}
-		err = unwrapped
-	}
-	return nil
 }
 
 // 业务状态码常量定义
@@ -130,10 +92,6 @@ const (
 var (
 	ErrInvalidParam = New(CodeInvalidParam, "请求参数错误")
 	ErrServerBusy   = New(CodeServerBusy, "服务繁忙")
-	ErrUnauthorized = New(CodeUnauthorized, "请先登录")
-	ErrNotFound     = New(CodeNotFound, "资源不存在")
-	ErrDBError      = New(CodeDBError, "数据库错误")
-	ErrCacheError   = New(CodeCacheError, "缓存错误")
 )
 
 // IsNotFound 检查错误是否为"未找到"类型（包括 gorm.ErrRecordNotFound）
