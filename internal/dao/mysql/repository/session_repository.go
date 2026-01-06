@@ -1,3 +1,5 @@
+// Package repository 提供数据访问层的具体实现
+// 本文件实现 SessionRepository 接口，处理会话相关的数据库操作
 package repository
 
 import (
@@ -6,16 +8,17 @@ import (
 	"gorm.io/gorm"
 )
 
+// sessionRepository SessionRepository 接口的实现
 type sessionRepository struct {
-	db *gorm.DB
+	db *gorm.DB // GORM 数据库实例
 }
 
-// NewSessionRepository 创建会话 Repository
+// NewSessionRepository 创建 SessionRepository 实例
 func NewSessionRepository(db *gorm.DB) SessionRepository {
 	return &sessionRepository{db: db}
 }
 
-// FindByUuid 按 UUID 查找会话
+// FindByUuid 根据 UUID 查找会话
 func (r *sessionRepository) FindByUuid(uuid string) (*model.Session, error) {
 	var session model.Session
 	if err := r.db.First(&session, "uuid = ?", uuid).Error; err != nil {
@@ -24,7 +27,8 @@ func (r *sessionRepository) FindByUuid(uuid string) (*model.Session, error) {
 	return &session, nil
 }
 
-// FindBySendIdAndReceiveId 按发送者和接收者查找会话
+// FindBySendIdAndReceiveId 根据发送者和接收者查找会话
+// 用于查找两个实体之间是否已存在会话
 func (r *sessionRepository) FindBySendIdAndReceiveId(sendId, receiveId string) (*model.Session, error) {
 	var session model.Session
 	if err := r.db.Where("send_id = ? AND receive_id = ?", sendId, receiveId).First(&session).Error; err != nil {
@@ -33,7 +37,8 @@ func (r *sessionRepository) FindBySendIdAndReceiveId(sendId, receiveId string) (
 	return &session, nil
 }
 
-// FindBySendId 按发送者查找所有会话
+// FindBySendId 根据发送者查找所有会话
+// 用于获取用户的会话列表
 func (r *sessionRepository) FindBySendId(sendId string) ([]model.Session, error) {
 	var sessions []model.Session
 	if err := r.db.Where("send_id = ?", sendId).Find(&sessions).Error; err != nil {
@@ -42,7 +47,8 @@ func (r *sessionRepository) FindBySendId(sendId string) ([]model.Session, error)
 	return sessions, nil
 }
 
-// FindByReceiveId 按接收者查找所有会话
+// FindByReceiveId 根据接收者查找所有会话
+// 用于查找某用户/群组作为接收方的所有会话
 func (r *sessionRepository) FindByReceiveId(receiveId string) ([]model.Session, error) {
 	var sessions []model.Session
 	if err := r.db.Where("receive_id = ?", receiveId).Find(&sessions).Error; err != nil {
@@ -59,7 +65,7 @@ func (r *sessionRepository) Create(session *model.Session) error {
 	return nil
 }
 
-// Update 更新会话
+// Update 更新会话（全字段更新）
 func (r *sessionRepository) Update(session *model.Session) error {
 	if err := r.db.Save(session).Error; err != nil {
 		return wrapDBError(err, "更新会话")
@@ -78,7 +84,8 @@ func (r *sessionRepository) SoftDeleteByUuids(uuids []string) error {
 	return nil
 }
 
-// SoftDeleteByUsers 批量按用户IDs软删除会话
+// SoftDeleteByUsers 批量软删除指定用户的所有会话
+// 删除用户发起的和接收的所有会话
 func (r *sessionRepository) SoftDeleteByUsers(userUuids []string) error {
 	if len(userUuids) == 0 {
 		return nil
@@ -89,7 +96,9 @@ func (r *sessionRepository) SoftDeleteByUsers(userUuids []string) error {
 	return nil
 }
 
-// UpdateByReceiveId 批量更新会话（按接收者ID）
+// UpdateByReceiveId 根据接收者ID批量更新会话字段
+// 用于群组信息变更时同步更新相关会话
+// updates: 要更新的字段 map，如 {"receive_name": "新群名", "avatar": "新头像"}
 func (r *sessionRepository) UpdateByReceiveId(receiveId string, updates map[string]interface{}) error {
 	if err := r.db.Model(&model.Session{}).Where("receive_id = ?", receiveId).Updates(updates).Error; err != nil {
 		return wrapDBErrorf(err, "批量更新会话 receive_id=%s", receiveId)
