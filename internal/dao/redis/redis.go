@@ -38,7 +38,15 @@ func Init() {
 		Addr:     addr,
 		Password: password,
 		DB:       db,
+
+		// 连接池配置
+		PoolSize:     50, // 最大连接数
+		MinIdleConns: 15, // 最小空闲连接，与 Worker 数量匹配
 	})
+
+	// 初始化缓存更新 Worker Pool
+	// 启动 15 个 Worker，缓冲区大小 3000，适用于多 Service 共享
+	InitCacheWorker(15, 3000)
 }
 
 // ==================== 基础 String 操作 ====================

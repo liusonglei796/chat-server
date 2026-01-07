@@ -81,7 +81,7 @@ func (m *messageService) GetMessageList(userOneId, userTwoId string) ([]respond.
 	}
 
 	// 更新缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		jsonBytes, err := json.Marshal(rspList)
 		if err != nil {
 			zap.L().Error("json marshal error", zap.Error(err))
@@ -90,7 +90,7 @@ func (m *messageService) GetMessageList(userOneId, userTwoId string) ([]respond.
 		if err := myredis.SetKeyEx(cacheKey, string(jsonBytes), time.Duration(constants.REDIS_TIMEOUT)*time.Minute); err != nil {
 			zap.L().Error("redis set key error", zap.Error(err))
 		}
-	}()
+	})
 
 	return rspList, nil
 }
@@ -134,7 +134,7 @@ func (m *messageService) GetGroupMessageList(groupId string) ([]respond.GetGroup
 	}
 
 	// 更新缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		jsonBytes, err := json.Marshal(rspList)
 		if err != nil {
 			zap.L().Error("json marshal error", zap.Error(err))
@@ -143,7 +143,7 @@ func (m *messageService) GetGroupMessageList(groupId string) ([]respond.GetGroup
 		if err := myredis.SetKeyEx(cacheKey, string(jsonBytes), time.Duration(constants.REDIS_TIMEOUT)*time.Minute); err != nil {
 			zap.L().Error("redis set key error", zap.Error(err))
 		}
-	}()
+	})
 
 	return rspList, nil
 }

@@ -8,27 +8,34 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterGroupRoutes 注册群组相关路由
+// RegisterGroupRoutes 注册群组相关路由（需要认证）
 // 包括群组创建、管理、成员管理等功能
-func RegisterGroupRoutes(r *gin.Engine) {
-	// 群组基本操作
-	r.POST("/group/createGroup", handler.CreateGroupHandler)         // 创建群组
-	r.GET("/group/loadMyGroup", handler.LoadMyGroupHandler)          // 获取我创建的群组
-	r.GET("/group/getGroupInfo", handler.GetGroupInfoHandler)        // 获取群组详情
-	r.POST("/group/updateGroupInfo", handler.UpdateGroupInfoHandler) // 更新群组信息
-	r.POST("/group/dismissGroup", handler.DismissGroupHandler)       // 解散群组（群主）
+func RegisterGroupRoutes(rg *gin.RouterGroup) {
+	groupGroup := rg.Group("/group")
+	{
+		// ===== 群组基本操作 =====
+		groupGroup.POST("/createGroup", handler.CreateGroupHandler)            // 创建群组
+		groupGroup.GET("/loadMyGroup", handler.LoadMyGroupHandler)             // 获取我创建的群组
+		groupGroup.GET("/loadMyJoinedGroup", handler.LoadMyJoinedGroupHandler) // 获取已加入的群组
+		groupGroup.GET("/getGroupInfo", handler.GetGroupInfoHandler)           // 获取群组详情
+		groupGroup.GET("/getGroupDetail", handler.GetGroupDetailHandler)       // 获取群聊详情（会话用）
+		groupGroup.POST("/updateGroupInfo", handler.UpdateGroupInfoHandler)    // 更新群组信息
+		groupGroup.POST("/dismissGroup", handler.DismissGroupHandler)          // 解散群组（群主）
 
-	// 加入/退出群组
-	r.GET("/group/checkGroupAddMode", handler.CheckGroupAddModeHandler)    // 检查加群方式
-	r.POST("/group/enterGroupDirectly", handler.EnterGroupDirectlyHandler) // 直接加入群组
-	r.POST("/group/leaveGroup", handler.LeaveGroupHandler)                 // 退出群组
+		//退群
+		groupGroup.POST("/leaveGroup", handler.LeaveGroupHandler) // 退出群组
 
-	// 群成员管理
-	r.GET("/group/getGroupMemberList", handler.GetGroupMemberListHandler)  // 获取群成员列表
-	r.POST("/group/removeGroupMembers", handler.RemoveGroupMembersHandler) // 移除群成员
+		// ===== 群成员管理 =====
+		groupGroup.GET("/getGroupMemberList", handler.GetGroupMemberListHandler)  // 获取群成员列表
+		groupGroup.POST("/removeGroupMembers", handler.RemoveGroupMembersHandler) // 移除群成员
 
-	// 管理员功能
-	r.GET("/group/getGroupInfoList", handler.GetGroupInfoListHandler) // 分页获取群组列表
-	r.POST("/group/deleteGroups", handler.DeleteGroupsHandler)        // 批量删除群组
-	r.POST("/group/setGroupsStatus", handler.SetGroupsStatusHandler)  // 批量设置群组状态
+		// 加群
+		groupGroup.GET("/checkGroupAddMode", handler.CheckGroupAddModeHandler)    // 检查加群方式
+		groupGroup.POST("/enterGroupDirectly", handler.EnterGroupDirectlyHandler) // 直接加入群组
+		groupGroup.POST("/apply", handler.ApplyGroupHandler)                      // 需要申请加入群组
+		groupGroup.GET("/applyList", handler.GetGroupApplyListHandler)            // 获取待处理的入群申请
+		groupGroup.POST("/passApply", handler.PassGroupApplyHandler)              // 通过入群申请
+		groupGroup.POST("/refuseApply", handler.RefuseGroupApplyHandler)          // 拒绝入群申请
+		groupGroup.POST("/blackApply", handler.BlackGroupApplyHandler)            // 拉黑入群申请
+	}
 }

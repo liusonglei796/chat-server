@@ -7,6 +7,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	dao "kama_chat_server/internal/dao/mysql"
@@ -44,7 +45,7 @@ var GlobalMsgConsumer *MsgConsumer
 // kafkaQuit 用于接收系统信号以优雅退出（目前逻辑中使用较少）
 var kafkaQuit = make(chan os.Signal, 1)
 
-// InitKafkaServer 初始化 MsgConsumer 单例
+// InitKafkaServer 初始化 KafkaBroker 单例并设置 GlobalBroker
 func InitKafkaServer() {
 	// 确保只初始化一次
 	if GlobalMsgConsumer == nil {
@@ -56,6 +57,8 @@ func InitKafkaServer() {
 			Logout: make(chan *UserConn),
 		}
 	}
+	// 设置全局 Broker 为 KafkaBroker
+	GlobalBroker = GlobalMsgConsumer
 	//signal.Notify(kafkaQuit, syscall.SIGINT, syscall.SIGTERM)
 }
 
@@ -170,13 +173,29 @@ func (k *MsgConsumer) SendClientToLogout(client *UserConn) {
 	k.Logout <- client
 }
 
-// GetClient 实现 MessageSender 和 ClientManager 接口
+// GetClient 实现 MessageBroker 接口
 func (k *MsgConsumer) GetClient(userId string) *UserConn {
 	value, ok := k.Clients.Load(userId)
 	if !ok {
 		return nil
 	}
 	return value.(*UserConn)
+}
+
+// Publish 实现 MessageBroker 接口：producer发布消息到 Kafka
+func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
+	key := []byte("0") // 默认分区
+	return GlobalKafkaClient.WriteMessage(ctx, key, msg)
+}
+
+// RegisterClient 实现 MessageBroker 接口：注册客户端
+func (k *MsgConsumer) RegisterClient(client *UserConn) {
+	k.Login <- client
+}
+
+// UnregisterClient 实现 MessageBroker 接口：注销客户端
+func (k *MsgConsumer) UnregisterClient(client *UserConn) {
+	k.Logout <- client
 }
 
 // handleTextMessage 处理文本消息
@@ -371,8 +390,20 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 		sendClient.SendBack <- messageBack
 	}
 
-	// Update Redis async
-	go k.updateRedisUser(message, messageRsp)
+	// Update Redis async via Worker Pool
+	myredis.SubmitCacheTask(func() {
+		key := "message_list_" + message.SendId + "_" + message.ReceiveId
+		rspString, err := myredis.GetKeyNilIsErr(key)
+		if err == nil {
+			var list []respond.GetMessageListRespond
+			if err := json.Unmarshal([]byte(rspString), &list); err == nil {
+				list = append(list, messageRsp)
+				if rspByte, err := json.Marshal(list); err == nil {
+					myredis.SetKeyEx(key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+				}
+			}
+		}
+	})
 }
 
 // sendToGroup 辅助方法：发送消息给群组
@@ -432,23 +463,20 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 		}
 	}
 
-	// Update Redis async
-	go k.updateRedisGroup(message, messageRsp)
-}
-
-// updateRedisUser 更新用户间聊天记录的 Redis 缓存
-func (k *MsgConsumer) updateRedisUser(message model.Message, rsp respond.GetMessageListRespond) {
-	key := "message_list_" + message.SendId + "_" + message.ReceiveId
-	rspString, err := myredis.GetKeyNilIsErr(key)
-	if err == nil {
-		var list []respond.GetMessageListRespond
-		if err := json.Unmarshal([]byte(rspString), &list); err == nil {
-			list = append(list, rsp)
-			if rspByte, err := json.Marshal(list); err == nil {
-				myredis.SetKeyEx(key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+	// Update Redis async via Worker Pool
+	myredis.SubmitCacheTask(func() {
+		key := "group_messagelist_" + message.ReceiveId
+		rspString, err := myredis.GetKeyNilIsErr(key)
+		if err == nil {
+			var list []respond.GetGroupMessageListRespond
+			if err := json.Unmarshal([]byte(rspString), &list); err == nil {
+				list = append(list, messageRsp)
+				if rspByte, err := json.Marshal(list); err == nil {
+					myredis.SetKeyEx(key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+				}
 			}
 		}
-	}
+	})
 }
 
 // updateRedisGroup 更新群组聊天记录的 Redis 缓存

@@ -1,0 +1,45 @@
+在你的代码架构中，KamaChat Server 本身（即这个后端服务）既充当了 Kafka 生产者（Producer），也充当了 Kafka 消费者（Consumer）。这是一个经典的全双工 (Full-Duplex) 架构。
+
+具体到代码模块（Go Struct/Function 级别）：
+
+1. 生产者 (Producer): 
+UserConn
+文件: 
+internal/service/chat/conn_manager.go
+
+角色: 每个 WebSocket 连接 (
+UserConn
+) 都是一个潜在的消息生产者。
+动作: 当用户在前端 App 发送一条聊天消息时。
+代码位置: UserConn.Read() 方法。
+流程:
+WebSocket 收到前端 JSON 消息。
+Read()
+ 方法解析消息。
+生产消息: 调用 GlobalKafkaClient.WriteMessage(...) 将消息写入 Kafka 队列。
+2. 消费者 (Consumer): 
+MsgConsumer
+文件: 
+internal/service/chat/kafka_consumer.go
+
+角色: 全局唯一的后台服务组件 (GlobalMsgConsumer)。
+动作: 负责监听 Kafka，一旦有新消息进来（可能是本机生产的，也可能是别的服务器生产的），就取出来处理。
+代码位置: MsgConsumer.Start() 方法里的那个 go func() { for { ... } } 死循环。
+流程:
+消费消息: 循环调用 GlobalKafkaClient.Consumer.ReadMessage(...) 从 Kafka 持续拉取消息。
+处理消息: 反序列化 -> 入库 (MySQL) -> 更新缓存 (Redis)。
+路由分发: 查找接收者 (ReceiveId) 是否在本机连接着。如果在，通过 WebSocket 推送给他。
+总结图示
+mermaid
+graph LR
+    User[用户App] --(WebSocket)--> UserConn[conn_manager.go]
+    subgraph "KamaChat Server"
+    UserConn --(写入消息)--> Kafka[(Kafka)]
+    Kafka --(读取消息)--> MsgConsumer[kafka_consumer.go]
+    MsgConsumer --(推送/回显)--> UserConn
+    end
+    UserConn --(WebSocket)--> User
+简而言之：
+
+用户发消息时，Server 是生产者（把消息扔进 Kafka）。
+消息在传输时，Server 是消费者（从 Kafka 捞出来，存库，并推给目标用户）。

@@ -77,11 +77,11 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 		return err
 	}
 
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		if err := myredis.DelKeysWithPattern("contact_mygroup_list_" + groupReq.OwnerId); err != nil {
 			zap.L().Error(err.Error())
 		}
-	}()
+	})
 
 	return nil
 }
@@ -230,7 +230,7 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 		return err
 	}
 
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		if err := myredis.DelKeysWithPattern("group_session_list_" + groupId); err != nil {
 			zap.L().Error(err.Error())
 		}
@@ -240,7 +240,7 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 		if err := myredis.DelKeyIfExists("group_info_" + groupId); err != nil {
 			zap.L().Error(err.Error())
 		}
-	}()
+	})
 	return nil
 }
 
@@ -279,7 +279,7 @@ func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 		return err
 	}
 
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		if err := myredis.DelKeysWithPattern("group_session_list_" + userId); err != nil {
 			zap.L().Error(err.Error())
 		}
@@ -292,7 +292,7 @@ func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 		if err := myredis.DelKeyIfExists("group_memberlist_" + groupId); err != nil {
 			zap.L().Error(err.Error())
 		}
-	}()
+	})
 	return nil
 }
 
@@ -355,7 +355,7 @@ func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 	}
 
 	// 7. 精确清理 Redis 缓存 (事务外)
-	go func(members []string) {
+	myredis.SubmitCacheTask(func() {
 		// 清理群主的缓存
 		if err := myredis.DelKeysWithPattern("contact_mygroup_list_" + ownerId); err != nil {
 			zap.L().Error(err.Error())
@@ -365,8 +365,7 @@ func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 		}
 
 		// 清理所有群成员的缓存
-		for _, memberId := range members {
-			// 跳过群主（上面已处理，或者再删一次也无妨）
+		for _, memberId := range memberIds {
 			if err := myredis.DelKeysWithPattern("my_joined_group_list_" + memberId); err != nil {
 				zap.L().Error(err.Error())
 			}
@@ -382,7 +381,7 @@ func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 		if err := myredis.DelKeyIfExists("group_memberlist_" + groupId); err != nil {
 			zap.L().Error(err.Error())
 		}
-	}(memberIds)
+	})
 
 	return nil
 }
@@ -534,7 +533,7 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 	}
 
 	// 3. 异步清理缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		// 清理群主相关缓存
 		for _, ownerId := range ownerIds {
 			if err := myredis.DelKeysWithPattern("contact_mygroup_list_" + ownerId); err != nil {
@@ -545,7 +544,7 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 			}
 		}
 
-		// 清理所有相关成员的缓存 (joined_list, session_list)
+		// 清理所有相关成员的缓存
 		for _, memId := range memberIds {
 			if err := myredis.DelKeysWithPattern("my_joined_group_list_" + memId); err != nil {
 				zap.L().Error(err.Error())
@@ -555,7 +554,7 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 			}
 		}
 
-		// 清理群本身的缓存 (info, memberlist)
+		// 清理群本身的缓存
 		for _, grpId := range uuidList {
 			if err := myredis.DelKeyIfExists("group_info_" + grpId); err != nil {
 				zap.L().Error(err.Error())
@@ -564,7 +563,7 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 				zap.L().Error(err.Error())
 			}
 		}
-	}()
+	})
 
 	return nil
 }
@@ -586,15 +585,15 @@ func (g *groupInfoService) SetGroupsStatus(uuidList []string, status int8) error
 		}
 	}
 
-	go func(uuids []string) {
+	myredis.SubmitCacheTask(func() {
 		var patterns []string
-		for _, uuid := range uuids {
+		for _, uuid := range uuidList {
 			patterns = append(patterns, "group_info_"+uuid)
 		}
 		if err := myredis.DelKeysWithPatterns(patterns); err != nil {
 			zap.L().Error(err.Error())
 		}
-	}(uuidList)
+	})
 
 	return nil
 }
@@ -636,11 +635,11 @@ func (g *groupInfoService) UpdateGroupInfo(req request.UpdateGroupInfoRequest) e
 	}
 
 	// 异步清理缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		if err := myredis.DelKeyIfExists("group_info_" + req.Uuid); err != nil {
 			zap.L().Error(err.Error())
 		}
-	}()
+	})
 
 	return nil
 }
@@ -745,9 +744,9 @@ func (g *groupInfoService) RemoveGroupMembers(req request.RemoveGroupMembersRequ
 	}
 
 	// 3. 异步精确清理缓存
-	go func(memberIds []string, groupId string) {
+	myredis.SubmitCacheTask(func() {
 		// 清理被移除成员的缓存
-		for _, memId := range memberIds {
+		for _, memId := range req.UuidList {
 			if err := myredis.DelKeysWithPattern("group_session_list_" + memId); err != nil {
 				zap.L().Error(err.Error())
 			}
@@ -755,15 +754,14 @@ func (g *groupInfoService) RemoveGroupMembers(req request.RemoveGroupMembersRequ
 				zap.L().Error(err.Error())
 			}
 		}
-
 		// 清理群本身的缓存
-		if err := myredis.DelKeyIfExists("group_info_" + groupId); err != nil {
+		if err := myredis.DelKeyIfExists("group_info_" + req.GroupId); err != nil {
 			zap.L().Error(err.Error())
 		}
-		if err := myredis.DelKeyIfExists("group_memberlist_" + groupId); err != nil {
+		if err := myredis.DelKeyIfExists("group_memberlist_" + req.GroupId); err != nil {
 			zap.L().Error(err.Error())
 		}
-	}(req.UuidList, req.GroupId)
+	})
 
 	return nil
 }

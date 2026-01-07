@@ -8,11 +8,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterMessageRoutes 注册消息相关路由
+// RegisterMessageRoutes 注册消息相关路由（需要认证）
 // 包括消息历史查询和文件上传功能
-func RegisterMessageRoutes(r *gin.Engine) {
-	r.GET("/message/getMessageList", handler.GetMessageListHandler)           // 获取私聊消息记录
-	r.GET("/message/getGroupMessageList", handler.GetGroupMessageListHandler) // 获取群聊消息记录
-	r.POST("/message/uploadAvatar", handler.UploadAvatarHandler)              // 上传用户头像
-	r.POST("/message/uploadFile", handler.UploadFileHandler)                  // 上传聊天文件
+func RegisterMessageRoutes(rg *gin.RouterGroup) {
+	messageGroup := rg.Group("/message")
+	{
+		messageGroup.GET("/getMessageList", handler.GetMessageListHandler)           // 获取私聊消息记录
+		messageGroup.GET("/getGroupMessageList", handler.GetGroupMessageListHandler) // 获取群聊消息记录
+		messageGroup.POST("/uploadAvatar", handler.UploadAvatarHandler)              // 上传用户头像
+		messageGroup.POST("/uploadFile", handler.UploadFileHandler)                  // 上传聊天文件
+	}
 }

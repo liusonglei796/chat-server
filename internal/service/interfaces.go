@@ -142,10 +142,3 @@ type MessageService interface {
 	// UploadFile 上传文件，返回文件名列表
 	UploadFile(c *gin.Context) ([]string, error)
 }
-
-// ChatRoomService 聊天室业务接口
-// 处理聊天室相关功能
-type ChatRoomService interface {
-	// GetCurContactListInChatRoom 获取当前聊天室中的联系人列表
-	GetCurContactListInChatRoom(userId, contactId string) ([]respond.GetCurContactListInChatRoomRespond, error)
-}

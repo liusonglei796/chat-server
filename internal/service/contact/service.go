@@ -345,10 +345,10 @@ func (u *userContactService) DeleteContact(userId, contactId string) error {
 	}
 
 	// 4. 异步清理"我的"缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		_ = myredis.DelKeysWithPattern("contact_user_list_" + userId)
 		_ = myredis.DelKeysWithPattern("direct_session_list_" + userId)
-	}()
+	})
 
 	return nil
 }
@@ -650,10 +650,10 @@ func (u *userContactService) PassFriendApply(userId string, applicantId string) 
 	}
 
 	// 3. 异步清理缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		_ = myredis.DelKeysWithPattern("contact_user_list_" + userId)
 		_ = myredis.DelKeysWithPattern("contact_user_list_" + applicantId)
-	}()
+	})
 
 	return nil
 }
@@ -718,10 +718,10 @@ func (u *userContactService) PassGroupApply(groupId string, applicantId string) 
 	}
 
 	// 3. 异步清理缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		_ = myredis.DelKeysWithPattern("my_joined_group_list_" + applicantId)
 		_ = myredis.DelKeysWithPattern("group_info_" + groupId)
-	}()
+	})
 
 	return nil
 }
@@ -783,12 +783,12 @@ func (u *userContactService) BlackContact(userId string, contactId string) error
 	}
 
 	// 4. 清理缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		_ = myredis.DelKeysWithPattern("direct_session_list_" + userId)
 		_ = myredis.DelKeysWithPattern("direct_session_list_" + contactId)
 		_ = myredis.DelKeysWithPattern("contact_user_list_" + userId)
 		_ = myredis.DelKeysWithPattern("contact_user_list_" + contactId)
-	}()
+	})
 
 	return nil
 }
@@ -832,10 +832,10 @@ func (u *userContactService) CancelBlackContact(userId string, contactId string)
 	}
 
 	// 3. 异步清理缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		_ = myredis.DelKeysWithPattern("contact_user_list_" + userId)
 		_ = myredis.DelKeysWithPattern("contact_user_list_" + contactId)
-	}()
+	})
 
 	return nil
 }

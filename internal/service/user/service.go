@@ -280,11 +280,11 @@ func (u *userInfoService) UpdateUserInfo(updateReq request.UpdateUserInfoRequest
 	}
 
 	// 异步清理缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		if err := myredis.DelKeyIfExists("user_info_" + updateReq.Uuid); err != nil {
 			zap.L().Error(err.Error())
 		}
-	}()
+	})
 
 	return nil
 }
@@ -342,9 +342,9 @@ func (u *userInfoService) DisableUsers(uuidList []string) error {
 	}
 
 	// 3. 异步清除 Redis 缓存
-	go func(uuids []string) {
+	myredis.SubmitCacheTask(func() {
 		var patterns []string
-		for _, uuid := range uuids {
+		for _, uuid := range uuidList {
 			patterns = append(patterns,
 				"user_info_"+uuid,
 				"direct_session_list_"+uuid+"*",
@@ -354,7 +354,7 @@ func (u *userInfoService) DisableUsers(uuidList []string) error {
 		if err := myredis.DelKeysWithPatterns(patterns); err != nil {
 			zap.L().Error("批量清除用户相关缓存失败", zap.Error(err))
 		}
-	}(uuidList)
+	})
 
 	return nil
 }
@@ -397,10 +397,10 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 	}
 
 	// 5. 异步清除 Redis 缓存 (不阻塞主流程)
-	go func(uuids []string) {
+	myredis.SubmitCacheTask(func() {
 		// 收集所有需要删除的缓存模式
 		var patterns []string
-		for _, uuid := range uuids {
+		for _, uuid := range uuidList {
 			patterns = append(patterns,
 				"user_info_"+uuid,
 				"direct_session_list_"+uuid+"*",
@@ -411,7 +411,7 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 		if err := myredis.DelKeysWithPatterns(patterns); err != nil {
 			zap.L().Error("批量清除用户相关缓存失败", zap.Error(err))
 		}
-	}(uuidList)
+	})
 
 	return nil
 }
@@ -457,7 +457,7 @@ func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond,
 	}
 
 	// 4. 异步回写缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		jsonData, err := json.Marshal(rsp)
 		if err != nil {
 			zap.L().Error("JSON marshal failed", zap.Error(err))
@@ -466,7 +466,7 @@ func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond,
 		if err := myredis.SetKeyEx(key, string(jsonData), time.Hour); err != nil {
 			zap.L().Error("Redis set key failed", zap.Error(err))
 		}
-	}()
+	})
 
 	return rsp, nil
 }
@@ -484,15 +484,15 @@ func (u *userInfoService) SetAdmin(uuidList []string, isAdmin int8) error {
 	}
 
 	// 2. 异步批量清除用户信息缓存
-	go func(uuids []string) {
+	myredis.SubmitCacheTask(func() {
 		var patterns []string
-		for _, uuid := range uuids {
+		for _, uuid := range uuidList {
 			patterns = append(patterns, "user_info_"+uuid)
 		}
 		if err := myredis.DelKeysWithPatterns(patterns); err != nil {
 			zap.L().Error("批量清除用户缓存失败", zap.Error(err))
 		}
-	}(uuidList)
+	})
 
 	return nil
 }

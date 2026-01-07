@@ -4,7 +4,6 @@ package service
 
 import (
 	"kama_chat_server/internal/dao/mysql/repository"
-	"kama_chat_server/internal/service/chatroom"
 	"kama_chat_server/internal/service/contact"
 	"kama_chat_server/internal/service/group"
 	"kama_chat_server/internal/service/message"
@@ -15,12 +14,11 @@ import (
 // Services 聚合所有 Service 实例
 // 作为依赖注入的入口，Handler 层通过 service.Svc 访问各个 Service
 type Services struct {
-	User     UserService     // 用户 Service
-	Session  SessionService  // 会话 Service
-	Group    GroupService    // 群组 Service
-	Contact  ContactService  // 联系人 Service
-	Message  MessageService  // 消息 Service
-	ChatRoom ChatRoomService // 聊天室 Service
+	User    UserService    // 用户 Service
+	Session SessionService // 会话 Service
+	Group   GroupService   // 群组 Service
+	Contact ContactService // 联系人 Service
+	Message MessageService // 消息 Service
 }
 
 // NewServices 创建并注入所有 Service 实例
@@ -38,16 +36,14 @@ func NewServices(repos *repository.Repositories) *Services {
 	groupSvc := group.NewGroupService(repos)
 	contactSvc := contact.NewContactService(repos)
 	messageSvc := message.NewMessageService(repos)
-	chatRoomSvc := chatroom.NewChatRoomService(repos)
 
 	// 聚合并返回
 	return &Services{
-		User:     userSvc,
-		Session:  sessionSvc,
-		Group:    groupSvc,
-		Contact:  contactSvc,
-		Message:  messageSvc,
-		ChatRoom: chatRoomSvc,
+		User:    userSvc,
+		Session: sessionSvc,
+		Group:   groupSvc,
+		Contact: contactSvc,
+		Message: messageSvc,
 	}
 }
 

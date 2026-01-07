@@ -153,7 +153,9 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 	}
 
 	// 6. 异步清理缓存
-	go clearSessionCacheForUser(req.SendId)
+	myredis.SubmitCacheTask(func() {
+		clearSessionCacheForUser(req.SendId)
+	})
 
 	zap.L().Info("会话创建成功",
 		zap.String("send_id", req.SendId),
@@ -299,11 +301,11 @@ func (s *sessionService) OpenSession(req request.OpenSessionRequest) (string, er
 	}
 
 	// 3. 【优化点】缓存回写
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		if data, err := json.Marshal(session); err == nil {
 			_ = myredis.SetKeyEx(cacheKey, string(data), time.Minute*constants.REDIS_TIMEOUT)
 		}
-	}()
+	})
 
 	return session.Uuid, nil
 }
@@ -348,14 +350,14 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 	}
 
 	// 3. 回写缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		rspBytes, err := json.Marshal(sessionListRsp)
 		if err != nil {
 			zap.L().Error("Marshal failed", zap.Error(err))
 			return
 		}
 		_ = myredis.SetKeyEx(cacheKey, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
-	}()
+	})
 
 	return sessionListRsp, nil
 }
@@ -400,14 +402,14 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 	}
 
 	// 3. 回写缓存
-	go func() {
+	myredis.SubmitCacheTask(func() {
 		rspBytes, err := json.Marshal(sessionListRsp)
 		if err != nil {
 			zap.L().Error("Marshal failed", zap.Error(err))
 			return
 		}
 		_ = myredis.SetKeyEx(cacheKey, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
-	}()
+	})
 
 	return sessionListRsp, nil
 }

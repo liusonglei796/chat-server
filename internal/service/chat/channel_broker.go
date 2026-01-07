@@ -8,8 +8,8 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	dao "kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
@@ -23,10 +23,8 @@ import (
 	"log"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -46,7 +44,7 @@ type StandaloneServer struct {
 // GlobalStandaloneServer 全局单例的 WebSocket 服务实例
 var GlobalStandaloneServer *StandaloneServer
 
-// Init 初始化 WebSocket StandaloneServer 单例
+// Init 初始化 ChannelBroker 单例并设置 GlobalBroker
 func Init() {
 	// 确保只初始化一次
 	if GlobalStandaloneServer == nil {
@@ -60,6 +58,8 @@ func Init() {
 			Logout: make(chan *UserConn, constants.CHANNEL_SIZE),
 		}
 	}
+	// 设置全局 Broker 为 ChannelBroker
+	GlobalBroker = GlobalStandaloneServer
 }
 
 // normalizePath 将完整 URL 转换为相对路径
@@ -347,8 +347,8 @@ func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar stri
 		sendClient.SendBack <- messageBack
 	}
 
-	// 异步更新 Redis 缓存，不阻塞主流程
-	go s.updateRedisUser(message, messageRsp)
+	// Update Redis async via Worker Pool
+	myredis.UpdateUserChatCache(message, messageRsp)
 }
 
 // sendToGroup 辅助方法：发送消息给群组
@@ -409,50 +409,8 @@ func (s *StandaloneServer) sendToGroup(message model.Message, originalAvatar str
 		}
 	}
 
-	// 异步更新 Redis 缓存
-	go s.updateRedisGroup(message, messageRsp)
-}
-
-// updateRedisUser 更新用户间聊天记录的 Redis 缓存
-// 采用 "Read-Modify-Write" 模式：先读取旧列表，追加新消息，再写回
-func (s *StandaloneServer) updateRedisUser(message model.Message, rsp respond.GetMessageListRespond) {
-	// 构造 Redis Key
-	key := "message_list_" + message.SendId + "_" + message.ReceiveId
-	// 尝试获取缓存
-	rspString, err := myredis.GetKeyNilIsErr(key)
-	if err == nil {
-		// 如果缓存存在，反序列化列表
-		var list []respond.GetMessageListRespond
-		if err := json.Unmarshal([]byte(rspString), &list); err == nil {
-			// 追加新消息
-			list = append(list, rsp)
-			// 重新序列化并写回 Redis，设置超时时间
-			if rspByte, err := json.Marshal(list); err == nil {
-				myredis.SetKeyEx(key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
-			}
-		}
-	} else if !errors.Is(err, redis.Nil) {
-		// 记录非 Nil 错误
-		zap.L().Error(err.Error())
-	}
-}
-
-// updateRedisGroup 更新群组聊天记录的 Redis 缓存
-// 逻辑同 updateRedisUser
-func (s *StandaloneServer) updateRedisGroup(message model.Message, rsp respond.GetGroupMessageListRespond) {
-	key := "group_messagelist_" + message.ReceiveId
-	rspString, err := myredis.GetKeyNilIsErr(key)
-	if err == nil {
-		var list []respond.GetGroupMessageListRespond
-		if err := json.Unmarshal([]byte(rspString), &list); err == nil {
-			list = append(list, rsp)
-			if rspByte, err := json.Marshal(list); err == nil {
-				myredis.SetKeyEx(key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
-			}
-		}
-	} else if !errors.Is(err, redis.Nil) {
-		zap.L().Error(err.Error())
-	}
+	// Update Redis async via Worker Pool
+	myredis.UpdateGroupChatCache(message, messageRsp)
 }
 
 // Close 关闭服务通道
@@ -462,24 +420,6 @@ func (s *StandaloneServer) Close() {
 	close(s.Transmit)
 }
 
-// SendClientToLogin 将客户端发送到登录通道
-// 注意：channel 本身是并发安全的，无需额外加锁
-func (s *StandaloneServer) SendClientToLogin(client *UserConn) {
-	s.Login <- client
-}
-
-// SendClientToLogout 将客户端发送到登出通道
-// 注意：channel 本身是并发安全的，无需额外加锁
-func (s *StandaloneServer) SendClientToLogout(client *UserConn) {
-	s.Logout <- client
-}
-
-// SendMessageToTransmit 将消息发送到转发通道
-// 注意：channel 本身是并发安全的，无需额外加锁
-func (s *StandaloneServer) SendMessageToTransmit(message []byte) {
-	s.Transmit <- message
-}
-
 // GetClient 获取客户端
 func (s *StandaloneServer) GetClient(userId string) *UserConn {
 	value, ok := s.Clients.Load(userId)
@@ -487,4 +427,20 @@ func (s *StandaloneServer) GetClient(userId string) *UserConn {
 		return nil
 	}
 	return value.(*UserConn)
+}
+
+// Publish 实现 MessageBroker 接口：发布消息到 Channel
+func (s *StandaloneServer) Publish(ctx context.Context, msg []byte) error {
+	s.Transmit <- msg
+	return nil
+}
+
+// RegisterClient 实现 MessageBroker 接口：注册客户端
+func (s *StandaloneServer) RegisterClient(client *UserConn) {
+	s.Login <- client
+}
+
+// UnregisterClient 实现 MessageBroker 接口：注销客户端
+func (s *StandaloneServer) UnregisterClient(client *UserConn) {
+	s.Logout <- client
 }
