@@ -23,6 +23,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
@@ -348,7 +349,25 @@ func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar stri
 	}
 
 	// Update Redis async via Worker Pool
-	myredis.UpdateUserChatCache(message, messageRsp)
+	myredis.SubmitCacheTask(func() {
+		userOneId := message.SendId
+		userTwoId := message.ReceiveId
+		if userOneId > userTwoId {
+			userOneId, userTwoId = userTwoId, userOneId
+		}
+		key := "message_list_" + userOneId + "_" + userTwoId
+
+		rspString, err := myredis.GetKeyNilIsErr(key)
+		if err == nil {
+			var list []respond.GetMessageListRespond
+			if err := json.Unmarshal([]byte(rspString), &list); err == nil {
+				list = append(list, messageRsp)
+				if rspByte, err := json.Marshal(list); err == nil {
+					myredis.SetKeyEx(key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+				}
+			}
+		}
+	})
 }
 
 // sendToGroup 辅助方法：发送消息给群组
@@ -410,7 +429,19 @@ func (s *StandaloneServer) sendToGroup(message model.Message, originalAvatar str
 	}
 
 	// Update Redis async via Worker Pool
-	myredis.UpdateGroupChatCache(message, messageRsp)
+	myredis.SubmitCacheTask(func() {
+		key := "group_messagelist_" + message.ReceiveId
+		rspString, err := myredis.GetKeyNilIsErr(key)
+		if err == nil {
+			var list []respond.GetGroupMessageListRespond
+			if err := json.Unmarshal([]byte(rspString), &list); err == nil {
+				list = append(list, messageRsp)
+				if rspByte, err := json.Marshal(list); err == nil {
+					myredis.SetKeyEx(key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+				}
+			}
+		}
+	})
 }
 
 // Close 关闭服务通道

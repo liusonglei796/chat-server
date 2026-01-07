@@ -1,6 +1,7 @@
 package contact
 
 import (
+	"context"
 	"encoding/json"
 
 	"fmt"
@@ -14,7 +15,6 @@ import (
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
 	"kama_chat_server/internal/model"
-	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/contact/contact_status_enum"
 	"kama_chat_server/pkg/enum/contact/contact_type_enum"
 	"kama_chat_server/pkg/enum/contact_apply/contact_apply_status_enum"
@@ -36,37 +36,37 @@ func NewContactService(repos *repository.Repositories) *userContactService {
 
 // GetUserList 获取指定用户的“好友（联系人）的用户信息列表”。
 func (u *userContactService) GetUserList(userId string) ([]respond.MyUserListRespond, error) {
-	// Optimization: Use Redis Set to store Friend IDs (contact_relation:user:<uid>)
-	// This avoids storing huge JSON lists and ensures data consistency with UserInfo cache.
+	// 优化：使用 Redis Set 存储好友 ID (contact_relation:user:<uid>)
+	// 这可以避免存储巨大的 JSON 列表，并确保与 UserInfo 缓存的数据一致性。
 	cacheKey := "contact_relation:user:" + userId
 
-	// 1. Try to get Member IDs from Redis
-	memberIds, err := myredis.SMembers(cacheKey)
+	// 1. 尝试从 Redis 获取成员 ID
+	memberIds, err := myredis.SMembers(context.Background(), cacheKey)
 	if err != nil || len(memberIds) == 0 {
-		// 2. Cache Miss or Empty: Fetch from DB
+		// 2. 缓存未击中或为空：从数据库获取
 		contactList, dbErr := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.USER)
 		if dbErr != nil {
 			zap.L().Error("Find contact list error", zap.Error(dbErr))
 			return nil, errorx.ErrServerBusy
 		}
 
-		// Re-populate memberIds
+		// 重新填充 memberIds
 		memberIds = make([]string, 0, len(contactList))
 		for _, c := range contactList {
 			memberIds = append(memberIds, c.ContactId)
 		}
 
-		// Write back to Redis (If not empty)
+		// 回写到 Redis（如果不为空）
 		if len(memberIds) > 0 {
 			membersArgs := make([]interface{}, len(memberIds))
 			for i, v := range memberIds {
 				membersArgs[i] = v
 			}
-			// Set expiration (e.g., 24 hours) - Set operations usually don't support EX in one command easily without pipeline,
-			// but we can use generic Expand or just let it persist and ensure invalidation works.
-			// Here we just SAdd.
-			_ = myredis.SAdd(cacheKey, membersArgs...)
-			// Optional: Set expiration if needed.
+			// 设置过期时间（例如 24 小时）- Set 操作通常不能在单个命令中轻松支持 EX（不使用 Pipeline），
+			// 但我们可以使用通用的 Expire 或直接让其持久化并确保清理逻辑正常工作。
+			// 这里我们只进行 SAdd 操作。
+			_ = myredis.SAdd(context.Background(), cacheKey, membersArgs...)
+			// 可选：如果需要，设置过期时间。
 		}
 	}
 
@@ -74,17 +74,17 @@ func (u *userContactService) GetUserList(userId string) ([]respond.MyUserListRes
 		return []respond.MyUserListRespond{}, nil
 	}
 
-	// 3. Batch fetch User Info (Source of Truth or User Cache)
-	// Ideally we should MGET "user_info:<id>" from Redis first, then fallback to DB.
-	// For simplicity and consistency, we use the Repo's FindByUuids which typically queries DB.
-	// If performance is critical, Repos should handle the caching of entities.
+	// 3. 批量获取用户信息（数据源或用户缓存）
+	// 理想情况下，我们应该首先从 Redis MGET "user_info:<id>"，然后回退到数据库。
+	// 为了简单和一致，我们使用 Repo 的 FindByUuids，它通常查询数据库。
+	// 如果性能至关重要，Repos 应该处理实体的缓存。
 	users, err := u.repos.User.FindByUuids(memberIds)
 	if err != nil {
 		zap.L().Error("Batch find users error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
-	// 4. Assemble Response
+	// 4. 组装响应
 	userListRsp := make([]respond.MyUserListRespond, 0, len(users))
 	for _, user := range users {
 		userListRsp = append(userListRsp, respond.MyUserListRespond{
@@ -97,33 +97,23 @@ func (u *userContactService) GetUserList(userId string) ([]respond.MyUserListRes
 	return userListRsp, nil
 }
 
-// 辅助方法：统一设置缓存 (已废弃，保留兼容性或用于其他简单Key)
-func (u *userContactService) setCache(key string, data interface{}) {
-	rspBytes, err := json.Marshal(data)
-	if err != nil {
-		zap.L().Error("Marshal cache error", zap.Error(err), zap.String("key", key))
-		return
-	}
-	_ = myredis.SetKeyEx(key, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
-}
-
 // GetJoinedGroupsExcludedOwn 获取我加入的群组列表（不包含自己创建的）
-// Renamed from LoadMyJoinedGroup to clarify logic.
+// 从 LoadMyJoinedGroup 重命名以清晰表达逻辑。
 func (u *userContactService) GetJoinedGroupsExcludedOwn(userId string) ([]respond.LoadMyJoinedGroupRespond, error) {
-	// Optimization: Use Redis Set for Group IDs
+	// 优化：为群组 ID 使用 Redis Set
 	cacheKey := "contact_relation:group:" + userId
 
-	// 1. Try to get Group IDs from Redis
-	groupUuids, err := myredis.SMembers(cacheKey)
+	// 1. 尝试从 Redis 获取群组 ID
+	groupUuids, err := myredis.SMembers(context.Background(), cacheKey)
 	if err != nil || len(groupUuids) == 0 {
-		// 2. Cache Miss: Fetch from DB
+		// 2. 缓存未击中：从数据库获取
 		contactList, dbErr := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.GROUP)
 		if dbErr != nil {
 			zap.L().Error("Find joined groups error", zap.Error(dbErr))
 			return nil, errorx.ErrServerBusy
 		}
 
-		// Filter IDs (Must safeguard against non-G prefixes just in case)
+		// 过滤 ID（以防万一，必须防止非 G 前缀）
 		groupUuids = make([]string, 0, len(contactList))
 		for _, contact := range contactList {
 			if len(contact.ContactId) > 0 && contact.ContactId[0] == 'G' {
@@ -131,13 +121,13 @@ func (u *userContactService) GetJoinedGroupsExcludedOwn(userId string) ([]respon
 			}
 		}
 
-		// Write back to Redis
+		// 回写到 Redis
 		if len(groupUuids) > 0 {
 			args := make([]interface{}, len(groupUuids))
 			for i, v := range groupUuids {
 				args[i] = v
 			}
-			_ = myredis.SAdd(cacheKey, args...)
+			_ = myredis.SAdd(context.Background(), cacheKey, args...)
 		}
 	}
 
@@ -145,16 +135,16 @@ func (u *userContactService) GetJoinedGroupsExcludedOwn(userId string) ([]respon
 		return []respond.LoadMyJoinedGroupRespond{}, nil
 	}
 
-	// 3. Batch fetch Group Info
+	// 3. 批量获取群组信息
 	groups, err := u.repos.Group.FindByUuids(groupUuids)
 	if err != nil {
 		zap.L().Error("Batch find groups error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
-	// 4. Assemble Response (Filter OwnerId here to be safe and strictly adhere to "ExcludedOwn")
-	// Although the Redis Set *should* theoretically only contain valid joined groups,
-	// enforcing the filter logic ensures consistency.
+	// 4. 组装响应（在此过滤 OwnerId，以确保安全并严格遵守“排除自己”的逻辑）
+	// 虽然理论上 Redis Set 应该只包含有效的加入群组，
+	// 但加强过滤逻辑可确保一致性。
 	groupListRsp := make([]respond.LoadMyJoinedGroupRespond, 0, len(groups))
 	for _, group := range groups {
 		if group.OwnerId != userId {
