@@ -96,22 +96,36 @@ type ContactService interface {
 	GetContactInfo(contactId string) (respond.GetContactInfoRespond, error)
 	// DeleteContact 删除联系人
 	DeleteContact(userId, contactId string) error
-	// ApplyContact 申请添加联系人
-	ApplyContact(req request.ApplyContactRequest) error
-	// GetNewContactList 获取新联系人申请列表
-	GetNewContactList(userId string) ([]respond.NewContactListRespond, error)
-	// GetAddGroupList 获取入群申请列表
-	GetAddGroupList(groupId string) ([]respond.AddGroupListRespond, error)
-	// PassContactApply 通过联系人申请
-	PassContactApply(targetId, applicantId string) error
-	// RefuseContactApply 拒绝联系人申请
-	RefuseContactApply(targetId, applicantId string) error
+
+	// ===== 好友申请相关 =====
+	// ApplyFriend 申请添加好友
+	ApplyFriend(req request.ApplyFriendRequest) error
+	// GetFriendApplyList 获取待处理的好友申请列表
+	GetFriendApplyList(userId string) ([]respond.NewContactListRespond, error)
+	// PassFriendApply 通过好友申请
+	PassFriendApply(userId, applicantId string) error
+	// RefuseFriendApply 拒绝好友申请
+	RefuseFriendApply(userId, applicantId string) error
+	// BlackFriendApply 拉黑好友申请
+	BlackFriendApply(userId, applicantId string) error
+
+	// ===== 入群申请相关 =====
+	// ApplyGroup 申请加入群组
+	ApplyGroup(req request.ApplyGroupRequest) error
+	// GetGroupApplyList 获取入群申请列表
+	GetGroupApplyList(groupId string) ([]respond.AddGroupListRespond, error)
+	// PassGroupApply 通过入群申请
+	PassGroupApply(groupId, applicantId string) error
+	// RefuseGroupApply 拒绝入群申请
+	RefuseGroupApply(groupId, applicantId string) error
+	// BlackGroupApply 拉黑入群申请
+	BlackGroupApply(groupId, applicantId string) error
+
+	// ===== 联系人状态管理 =====
 	// BlackContact 拉黑联系人
 	BlackContact(userId, contactId string) error
 	// CancelBlackContact 取消拉黑
 	CancelBlackContact(userId, contactId string) error
-	// BlackApply 拉黑申请（不再接受该用户的申请）
-	BlackApply(targetId, applicantId string) error
 }
 
 // MessageService 消息业务接口

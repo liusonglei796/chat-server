@@ -354,93 +354,142 @@ func (u *userContactService) DeleteContact(userId, contactId string) error {
 	return nil
 }
 
-// ApplyContact 申请添加联系人
-func (u *userContactService) ApplyContact(req request.ApplyContactRequest) error {
+// ApplyFriend 申请添加好友
+func (u *userContactService) ApplyFriend(req request.ApplyFriendRequest) error {
 	// 1. 安全检查
-	if len(req.ContactId) == 0 {
-		return errorx.New(errorx.CodeInvalidParam, "目标ID不能为空")
+	if len(req.FriendId) == 0 {
+		return errorx.New(errorx.CodeInvalidParam, "好友ID不能为空")
 	}
 
-	// 2. 校验目标是否存在且有效
-	var contactType int8
-	if req.ContactId[0] == 'U' {
-		contactType = contact_type_enum.USER
-		user, err := u.repos.User.FindByUuid(req.ContactId)
-		if err != nil {
-			if errorx.IsNotFound(err) {
-				return errorx.New(errorx.CodeUserNotExist, "该用户不存在")
-			}
-			return errorx.ErrServerBusy
-		}
-		if user.Status == user_status_enum.DISABLE {
-			return errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
-		}
-	} else if req.ContactId[0] == 'G' {
-		contactType = contact_type_enum.GROUP
-		group, err := u.repos.Group.FindByUuid(req.ContactId)
-		if err != nil {
-			if errorx.IsNotFound(err) {
-				return errorx.New(errorx.CodeNotFound, "该群聊不存在")
-			}
-			return errorx.ErrServerBusy
-		}
-		if group.Status == group_status_enum.DISABLE {
-			return errorx.New(errorx.CodeInvalidParam, "该群聊已被禁用")
-		}
-	} else {
-		return errorx.New(errorx.CodeInvalidParam, "非法ID格式")
-	}
-
-	// 3. 【新增优化】检查是否已经是好友/已在群中，防止重复操作
-	relation, err := u.repos.Contact.FindByUserIdAndContactId(req.UserId, req.ContactId)
-	if err == nil && relation != nil && relation.Status == contact_status_enum.NORMAL {
-		return errorx.New(errorx.CodeInvalidParam, "你们已经是好友/已在群中")
-	}
-
-	// 4. 获取或创建申请记录 (检查是否已经给对方发送过申请)
-	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(req.UserId, req.ContactId)
+	// 2. 校验目标用户是否存在且有效
+	user, err := u.repos.User.FindByUuid(req.FriendId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			// 如果没查到，说明是第一次申请，创建一个新的
+			return errorx.New(errorx.CodeUserNotExist, "该用户不存在")
+		}
+		return errorx.ErrServerBusy
+	}
+	if user.Status == user_status_enum.DISABLE {
+		return errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
+	}
+
+	// 3. 检查是否已经是好友，防止重复操作
+	relation, err := u.repos.Contact.FindByUserIdAndContactId(req.UserId, req.FriendId)
+	if err == nil && relation != nil && relation.Status == contact_status_enum.NORMAL {
+		return errorx.New(errorx.CodeInvalidParam, "你们已经是好友")
+	}
+
+	// 4. 获取或创建申请记录
+	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(req.UserId, req.FriendId)
+	if err != nil {
+		if errorx.IsNotFound(err) {
+			// 第一次申请，创建新记录
 			contactApply = &model.ContactApply{
 				Uuid:        fmt.Sprintf("A%s", random.GetNowAndLenRandomString(11)),
-				ApplicantId: req.UserId,    // 申请发起人 (我)
-				TargetId:    req.ContactId, // 申请目标 (对方或群组)
-				ContactType: contactType,   // 申请类型 (0:个人, 1:群组)
+				ApplicantId: req.UserId,
+				TargetId:    req.FriendId,
+				ContactType: contact_type_enum.USER,
 				Status:      contact_apply_status_enum.PENDING,
 				Message:     req.Message,
 				LastApplyAt: time.Now(),
 			}
 			if err := u.repos.ContactApply.Create(contactApply); err != nil {
-				zap.L().Error("Create apply error", zap.Error(err))
+				zap.L().Error("Create friend apply error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
 			return nil
 		}
-		zap.L().Error("Find apply error", zap.Error(err))
+		zap.L().Error("Find friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
-	// 5. 现存记录的状态校验（黑名单等）
+	// 5. 黑名单校验
 	if contactApply.Status == contact_apply_status_enum.BLACK {
 		return errorx.New(errorx.CodeInvalidParam, "对方已将你拉黑，无法发送申请")
 	}
 
-	// 6. 更新旧记录：重置状态为 PENDING，更新时间和留言
+	// 6. 更新旧记录
 	contactApply.LastApplyAt = time.Now()
 	contactApply.Status = contact_apply_status_enum.PENDING
-	contactApply.Message = req.Message // 允许用户更新申请理由
+	contactApply.Message = req.Message
 
 	if err := u.repos.ContactApply.Update(contactApply); err != nil {
-		zap.L().Error("Update apply error", zap.Error(err))
+		zap.L().Error("Update friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
 	return nil
 }
 
-// GetNewContactList 获取收到的好友申请列表 (我被申请为好友)
-func (u *userContactService) GetNewContactList(userId string) ([]respond.NewContactListRespond, error) {
+// ApplyGroup 申请加入群组
+func (u *userContactService) ApplyGroup(req request.ApplyGroupRequest) error {
+	// 1. 安全检查
+	if len(req.GroupId) == 0 {
+		return errorx.New(errorx.CodeInvalidParam, "群组ID不能为空")
+	}
+
+	// 2. 校验目标群组是否存在且有效
+	group, err := u.repos.Group.FindByUuid(req.GroupId)
+	if err != nil {
+		if errorx.IsNotFound(err) {
+			return errorx.New(errorx.CodeNotFound, "该群聊不存在")
+		}
+		return errorx.ErrServerBusy
+	}
+	if group.Status == group_status_enum.DISABLE {
+		return errorx.New(errorx.CodeInvalidParam, "该群聊已被禁用")
+	}
+
+	// 3. 检查是否已在群中，防止重复操作
+	relation, err := u.repos.Contact.FindByUserIdAndContactId(req.UserId, req.GroupId)
+	if err == nil && relation != nil && relation.Status == contact_status_enum.NORMAL {
+		return errorx.New(errorx.CodeInvalidParam, "你已在该群中")
+	}
+
+	// 4. 获取或创建申请记录
+	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(req.UserId, req.GroupId)
+	if err != nil {
+		if errorx.IsNotFound(err) {
+			// 第一次申请，创建新记录
+			contactApply = &model.ContactApply{
+				Uuid:        fmt.Sprintf("A%s", random.GetNowAndLenRandomString(11)),
+				ApplicantId: req.UserId,
+				TargetId:    req.GroupId,
+				ContactType: contact_type_enum.GROUP,
+				Status:      contact_apply_status_enum.PENDING,
+				Message:     req.Message,
+				LastApplyAt: time.Now(),
+			}
+			if err := u.repos.ContactApply.Create(contactApply); err != nil {
+				zap.L().Error("Create group apply error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+			return nil
+		}
+		zap.L().Error("Find group apply error", zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+
+	// 5. 黑名单校验
+	if contactApply.Status == contact_apply_status_enum.BLACK {
+		return errorx.New(errorx.CodeInvalidParam, "该群已将你拉黑，无法发送申请")
+	}
+
+	// 6. 更新旧记录
+	contactApply.LastApplyAt = time.Now()
+	contactApply.Status = contact_apply_status_enum.PENDING
+	contactApply.Message = req.Message
+
+	if err := u.repos.ContactApply.Update(contactApply); err != nil {
+		zap.L().Error("Update group apply error", zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+
+	return nil
+}
+
+// GetFriendApplyList 获取收到的好友申请列表 (我被申请为好友)
+func (u *userContactService) GetFriendApplyList(userId string) ([]respond.NewContactListRespond, error) {
 	// 1. 一次性查出所有待处理申请
 	contactApplyList, err := u.repos.ContactApply.FindByTargetIdPending(userId)
 	if err != nil {
@@ -493,8 +542,8 @@ func (u *userContactService) GetNewContactList(userId string) ([]respond.NewCont
 	return rsp, nil
 }
 
-// GetAddGroupList 获取收到的加群申请列表 (群主/管理员视角)
-func (u *userContactService) GetAddGroupList(groupId string) ([]respond.AddGroupListRespond, error) {
+// GetGroupApplyList 获取收到的加群申请列表 (群主/管理员视角)
+func (u *userContactService) GetGroupApplyList(groupId string) ([]respond.AddGroupListRespond, error) {
 	// 1. 一次性获取所有待处理申请
 	contactApplyList, err := u.repos.ContactApply.FindByTargetIdPending(groupId)
 	if err != nil {
@@ -547,61 +596,82 @@ func (u *userContactService) GetAddGroupList(groupId string) ([]respond.AddGroup
 	return rsp, nil
 }
 
-// PassContactApply 通过联系人申请
-// targetId: 被申请的目标（用户ID或群组ID）
-// applicantId: 申请人的用户ID
-func (u *userContactService) PassContactApply(targetId string, applicantId string) error {
+// PassFriendApply 通过好友申请
+func (u *userContactService) PassFriendApply(userId string, applicantId string) error {
 	// 1. 获取申请记录
-	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(applicantId, targetId)
+	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(applicantId, userId)
 	if err != nil {
-		zap.L().Error("Find contact apply error", zap.Error(err))
+		zap.L().Error("Find friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
 	// 2. 事务执行数据库操作
 	err = u.repos.Transaction(func(txRepos *repository.Repositories) error {
-		if targetId[0] == 'U' {
-			// 处理个人好友申请
-			user, err := txRepos.User.FindByUuid(applicantId)
-			if err != nil {
-				zap.L().Error("Find user error", zap.Error(err))
-				return errorx.ErrServerBusy
-			}
-			if user.Status == user_status_enum.DISABLE {
-				return errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
-			}
-
-			// 更新申请状态
-			contactApply.Status = contact_apply_status_enum.AGREE
-			if err := txRepos.ContactApply.Update(contactApply); err != nil {
-				return err
-			}
-
-			// 双向建立联系人关系
-			newContact := model.UserContact{
-				UserId:      targetId,
-				ContactId:   applicantId,
-				ContactType: contact_type_enum.USER,
-				Status:      contact_status_enum.NORMAL,
-			}
-			if err := txRepos.Contact.Create(&newContact); err != nil {
-				return err
-			}
-
-			anotherContact := model.UserContact{
-				UserId:      applicantId,
-				ContactId:   targetId,
-				ContactType: contact_type_enum.USER,
-				Status:      contact_status_enum.NORMAL,
-			}
-			if err := txRepos.Contact.Create(&anotherContact); err != nil {
-				return err
-			}
-			return nil
+		// 校验申请人状态
+		user, err := txRepos.User.FindByUuid(applicantId)
+		if err != nil {
+			zap.L().Error("Find user error", zap.Error(err))
+			return errorx.ErrServerBusy
+		}
+		if user.Status == user_status_enum.DISABLE {
+			return errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
 		}
 
-		// 处理入群申请
-		group, err := txRepos.Group.FindByUuid(targetId)
+		// 更新申请状态
+		contactApply.Status = contact_apply_status_enum.AGREE
+		if err := txRepos.ContactApply.Update(contactApply); err != nil {
+			return err
+		}
+
+		// 双向建立联系人关系
+		newContact := model.UserContact{
+			UserId:      userId,
+			ContactId:   applicantId,
+			ContactType: contact_type_enum.USER,
+			Status:      contact_status_enum.NORMAL,
+		}
+		if err := txRepos.Contact.Create(&newContact); err != nil {
+			return err
+		}
+
+		anotherContact := model.UserContact{
+			UserId:      applicantId,
+			ContactId:   userId,
+			ContactType: contact_type_enum.USER,
+			Status:      contact_status_enum.NORMAL,
+		}
+		if err := txRepos.Contact.Create(&anotherContact); err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	// 3. 异步清理缓存
+	go func() {
+		_ = myredis.DelKeysWithPattern("contact_user_list_" + userId)
+		_ = myredis.DelKeysWithPattern("contact_user_list_" + applicantId)
+	}()
+
+	return nil
+}
+
+// PassGroupApply 通过入群申请
+func (u *userContactService) PassGroupApply(groupId string, applicantId string) error {
+	// 1. 获取申请记录
+	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(applicantId, groupId)
+	if err != nil {
+		zap.L().Error("Find group apply error", zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+
+	// 2. 事务执行数据库操作
+	err = u.repos.Transaction(func(txRepos *repository.Repositories) error {
+		// 校验群组状态
+		group, err := txRepos.Group.FindByUuid(groupId)
 		if err != nil {
 			zap.L().Error("Find group error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -619,7 +689,7 @@ func (u *userContactService) PassContactApply(targetId string, applicantId strin
 		// 建立个人与群的联系
 		newContact := model.UserContact{
 			UserId:      applicantId,
-			ContactId:   targetId,
+			ContactId:   groupId,
 			ContactType: contact_type_enum.GROUP,
 			Status:      contact_status_enum.NORMAL,
 		}
@@ -629,7 +699,7 @@ func (u *userContactService) PassContactApply(targetId string, applicantId strin
 
 		// 添加群成员记录
 		member := model.GroupMember{
-			GroupUuid: targetId,
+			GroupUuid: groupId,
 			UserUuid:  applicantId,
 			Role:      1,
 		}
@@ -638,7 +708,7 @@ func (u *userContactService) PassContactApply(targetId string, applicantId strin
 		}
 
 		// 增加群成员计数
-		if err := txRepos.Group.IncrementMemberCount(targetId); err != nil {
+		if err := txRepos.Group.IncrementMemberCount(groupId); err != nil {
 			return err
 		}
 		return nil
@@ -648,34 +718,40 @@ func (u *userContactService) PassContactApply(targetId string, applicantId strin
 		return err
 	}
 
-	// 3. 异步清理缓存 (不阻塞主流程，且只有成功后才清理)
+	// 3. 异步清理缓存
 	go func() {
-		if targetId[0] == 'U' {
-			// 好友申请通过：清理双方的联系人列表缓存
-			_ = myredis.DelKeysWithPattern("contact_user_list_" + targetId)
-			_ = myredis.DelKeysWithPattern("contact_user_list_" + applicantId)
-		} else {
-			// 入群申请通过：清理申请人的群组列表缓存和群信息缓存
-			_ = myredis.DelKeysWithPattern("my_joined_group_list_" + applicantId)
-			_ = myredis.DelKeysWithPattern("group_info_" + targetId)
-		}
+		_ = myredis.DelKeysWithPattern("my_joined_group_list_" + applicantId)
+		_ = myredis.DelKeysWithPattern("group_info_" + groupId)
 	}()
 
 	return nil
 }
 
-// RefuseContactApply 拒绝联系人申请
-// targetId: 被申请的目标（用户ID或群组ID）
-// applicantId: 申请人的用户ID
-func (u *userContactService) RefuseContactApply(targetId string, applicantId string) error {
-	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(applicantId, targetId)
+// RefuseFriendApply 拒绝好友申请
+func (u *userContactService) RefuseFriendApply(userId string, applicantId string) error {
+	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(applicantId, userId)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("Find friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	contactApply.Status = contact_apply_status_enum.REFUSE
 	if err := u.repos.ContactApply.Update(contactApply); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("Update friend apply error", zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+	return nil
+}
+
+// RefuseGroupApply 拒绝入群申请
+func (u *userContactService) RefuseGroupApply(groupId string, applicantId string) error {
+	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(applicantId, groupId)
+	if err != nil {
+		zap.L().Error("Find group apply error", zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+	contactApply.Status = contact_apply_status_enum.REFUSE
+	if err := u.repos.ContactApply.Update(contactApply); err != nil {
+		zap.L().Error("Update group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	return nil
@@ -698,7 +774,6 @@ func (u *userContactService) BlackContact(userId string, contactId string) error
 		// 3. 双方的会话进行软删除
 		if err := txRepos.Session.SoftDeleteByUsers([]string{userId, contactId}); err != nil {
 			zap.L().Error("Soft delete sessions error", zap.Error(err))
-			// 会话删除失败可以考虑是否回滚，这里选择回滚以确保一致性
 			return errorx.ErrServerBusy
 		}
 		return nil
@@ -720,9 +795,8 @@ func (u *userContactService) BlackContact(userId string, contactId string) error
 }
 
 // CancelBlackContact 取消拉黑联系人
-// SQL 逻辑: 事务内更新双方状态 BLACK -> NORMAL, BE_BLACK -> NORMAL
 func (u *userContactService) CancelBlackContact(userId string, contactId string) error {
-	// 1. 事务外先校验状态，避免不必要的事务开销
+	// 1. 事务外先校验状态
 	blackContact, err := u.repos.Contact.FindByUserIdAndContactId(userId, contactId)
 	if err != nil {
 		zap.L().Error("Find black contact error", zap.Error(err))
@@ -767,23 +841,39 @@ func (u *userContactService) CancelBlackContact(userId string, contactId string)
 	return nil
 }
 
-// BlackApply 拉黑申请
-// targetId: 被申请的目标（用户ID或群组ID）
-// applicantId: 申请人的用户ID
-// SQL 逻辑: UPDATE contact_applies SET status = 'BLACK' WHERE user_id = ? AND contacted_id = ?
-func (u *userContactService) BlackApply(targetId string, applicantId string) error {
-	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(applicantId, targetId)
+// BlackFriendApply 拉黑好友申请
+func (u *userContactService) BlackFriendApply(userId string, applicantId string) error {
+	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(applicantId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
 		}
-		zap.L().Error("Find contact apply error", zap.Error(err))
+		zap.L().Error("Find friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
 	contactApply.Status = contact_apply_status_enum.BLACK
 	if err := u.repos.ContactApply.Update(contactApply); err != nil {
-		zap.L().Error("Update contact apply status error", zap.Error(err))
+		zap.L().Error("Update friend apply status error", zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+	return nil
+}
+
+// BlackGroupApply 拉黑入群申请
+func (u *userContactService) BlackGroupApply(groupId string, applicantId string) error {
+	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(applicantId, groupId)
+	if err != nil {
+		if errorx.IsNotFound(err) {
+			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
+		}
+		zap.L().Error("Find group apply error", zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+
+	contactApply.Status = contact_apply_status_enum.BLACK
+	if err := u.repos.ContactApply.Update(contactApply); err != nil {
+		zap.L().Error("Update group apply status error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	return nil

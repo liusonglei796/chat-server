@@ -83,34 +83,51 @@ func DeleteContactHandler(c *gin.Context) {
 	HandleSuccess(c, nil)
 }
 
-// ApplyContactHandler 申请添加联系人（好友/群组）
-// POST /contact/applyContact
-// 请求体: request.ApplyContactRequest
+// ApplyFriendHandler 申请添加好友
+// POST /contact/applyFriend
+// 请求体: request.ApplyFriendRequest
 // 响应: nil
-func ApplyContactHandler(c *gin.Context) {
-	var req request.ApplyContactRequest
+func ApplyFriendHandler(c *gin.Context) {
+	var req request.ApplyFriendRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Contact.ApplyContact(req); err != nil {
+	if err := service.Svc.Contact.ApplyFriend(req); err != nil {
 		HandleError(c, err)
 		return
 	}
 	HandleSuccess(c, nil)
 }
 
-// GetNewContactListHandler 获取待处理的联系人申请列表
-// GET /contact/getNewContactList?userId=xxx
+// ApplyGroupHandler 申请加入群组
+// POST /contact/applyGroup
+// 请求体: request.ApplyGroupRequest
+// 响应: nil
+func ApplyGroupHandler(c *gin.Context) {
+	var req request.ApplyGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+	if err := service.Svc.Contact.ApplyGroup(req); err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, nil)
+}
+
+// GetFriendApplyListHandler 获取待处理的好友申请列表
+// GET /contact/getFriendApplyList?userId=xxx
 // 查询参数: request.OwnlistRequest
 // 响应: []respond.NewContactListRespond
-func GetNewContactListHandler(c *gin.Context) {
+func GetFriendApplyListHandler(c *gin.Context) {
 	var req request.OwnlistRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.Contact.GetNewContactList(req.UserId)
+	data, err := service.Svc.Contact.GetFriendApplyList(req.UserId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -118,34 +135,86 @@ func GetNewContactListHandler(c *gin.Context) {
 	HandleSuccess(c, data)
 }
 
-// PassContactApplyHandler 通过联系人申请
-// POST /contact/passContactApply
-// 请求体: request.PassContactApplyRequest
+// GetGroupApplyListHandler 获取入群申请列表
+// GET /contact/getGroupApplyList?groupId=xxx
+// 查询参数: request.AddGroupListRequest
+// 响应: []respond.AddGroupListRespond
+func GetGroupApplyListHandler(c *gin.Context) {
+	var req request.AddGroupListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+	data, err := service.Svc.Contact.GetGroupApplyList(req.GroupId)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// PassFriendApplyHandler 通过好友申请
+// POST /contact/passFriendApply
+// 请求体: request.PassFriendApplyRequest
 // 响应: nil
-func PassContactApplyHandler(c *gin.Context) {
-	var req request.PassContactApplyRequest
+func PassFriendApplyHandler(c *gin.Context) {
+	var req request.PassFriendApplyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Contact.PassContactApply(req.TargetId, req.ApplicantId); err != nil {
+	if err := service.Svc.Contact.PassFriendApply(req.UserId, req.ApplicantId); err != nil {
 		HandleError(c, err)
 		return
 	}
 	HandleSuccess(c, nil)
 }
 
-// RefuseContactApplyHandler 拒绝联系人申请
-// POST /contact/refuseContactApply
-// 请求体: request.PassContactApplyRequest
+// PassGroupApplyHandler 通过入群申请
+// POST /contact/passGroupApply
+// 请求体: request.PassGroupApplyRequest
 // 响应: nil
-func RefuseContactApplyHandler(c *gin.Context) {
-	var req request.PassContactApplyRequest
+func PassGroupApplyHandler(c *gin.Context) {
+	var req request.PassGroupApplyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Contact.RefuseContactApply(req.TargetId, req.ApplicantId); err != nil {
+	if err := service.Svc.Contact.PassGroupApply(req.GroupId, req.ApplicantId); err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, nil)
+}
+
+// RefuseFriendApplyHandler 拒绝好友申请
+// POST /contact/refuseFriendApply
+// 请求体: request.PassFriendApplyRequest
+// 响应: nil
+func RefuseFriendApplyHandler(c *gin.Context) {
+	var req request.PassFriendApplyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+	if err := service.Svc.Contact.RefuseFriendApply(req.UserId, req.ApplicantId); err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, nil)
+}
+
+// RefuseGroupApplyHandler 拒绝入群申请
+// POST /contact/refuseGroupApply
+// 请求体: request.PassGroupApplyRequest
+// 响应: nil
+func RefuseGroupApplyHandler(c *gin.Context) {
+	var req request.PassGroupApplyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+	if err := service.Svc.Contact.RefuseGroupApply(req.GroupId, req.ApplicantId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -186,35 +255,34 @@ func CancelBlackContactHandler(c *gin.Context) {
 	HandleSuccess(c, nil)
 }
 
-// GetAddGroupListHandler 获取入群申请列表
-// GET /contact/getAddGroupList?groupId=xxx
-// 查询参数: request.AddGroupListRequest
-// 响应: []respond.AddGroupListRespond
-func GetAddGroupListHandler(c *gin.Context) {
-	var req request.AddGroupListRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	data, err := service.Svc.Contact.GetAddGroupList(req.GroupId)
-	if err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, data)
-}
-
-// BlackApplyHandler 拉黑申请（不再接收该用户的申请）
-// POST /contact/blackApply
-// 请求体: request.BlackApplyRequest
+// BlackFriendApplyHandler 拉黑好友申请
+// POST /contact/blackFriendApply
+// 请求体: request.BlackFriendApplyRequest
 // 响应: nil
-func BlackApplyHandler(c *gin.Context) {
-	var req request.BlackApplyRequest
+func BlackFriendApplyHandler(c *gin.Context) {
+	var req request.BlackFriendApplyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Contact.BlackApply(req.TargetId, req.ApplicantId); err != nil {
+	if err := service.Svc.Contact.BlackFriendApply(req.UserId, req.ApplicantId); err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, nil)
+}
+
+// BlackGroupApplyHandler 拉黑入群申请
+// POST /contact/blackGroupApply
+// 请求体: request.BlackGroupApplyRequest
+// 响应: nil
+func BlackGroupApplyHandler(c *gin.Context) {
+	var req request.BlackGroupApplyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+	if err := service.Svc.Contact.BlackGroupApply(req.GroupId, req.ApplicantId); err != nil {
 		HandleError(c, err)
 		return
 	}

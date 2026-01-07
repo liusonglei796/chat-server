@@ -34,6 +34,8 @@ type Message struct {
 
 	// Url 资源 URL
 	// 用于语音、文件等需要链接的消息类型
+	//如果是图片、语音、视频、文件消息：这些多媒体文件通常不会直接存进数据库，而是先上传到对象存储（如阿里云 OSS、华为云 OBS 等）
+	// ，然后把生成的 访问链接（URL） 存到这个 Url 字段里。
 	Url string `gorm:"column:url;type:char(255);comment:消息url"`
 
 	// SendId 发送者 UUID
@@ -54,7 +56,7 @@ type Message struct {
 
 	// FileType 文件 MIME 类型
 	// 如 "image/jpeg", "application/pdf"
-	FileType string `gorm:"column:file_type;type:char(10);comment:文件类型"`
+	FileType string `gorm:"column:file_type;type:char(50);comment:文件类型"`
 
 	// FileName 文件名
 	FileName string `gorm:"column:file_name;type:varchar(50);comment:文件名"`

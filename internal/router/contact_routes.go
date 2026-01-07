@@ -21,13 +21,17 @@ func RegisterContactRoutes(r *gin.Engine) {
 	r.POST("/contact/blackContact", handler.BlackContactHandler)             // 拉黑好友
 	r.POST("/contact/cancelBlackContact", handler.CancelBlackContactHandler) // 取消拉黑
 
-	// 好友申请管理
-	r.POST("/contact/applyContact", handler.ApplyContactHandler)             // 申请添加好友/入群
-	r.GET("/contact/getNewContactList", handler.GetNewContactListHandler)    // 获取待处理的好友申请
-	r.POST("/contact/passContactApply", handler.PassContactApplyHandler)     // 通过好友申请
-	r.POST("/contact/refuseContactApply", handler.RefuseContactApplyHandler) // 拒绝好友申请
-	r.POST("/contact/blackApply", handler.BlackApplyHandler)                 // 拉黑申请者
+	// ===== 好友申请管理 =====
+	r.POST("/contact/applyFriend", handler.ApplyFriendHandler)              // 申请添加好友
+	r.GET("/contact/getFriendApplyList", handler.GetFriendApplyListHandler) // 获取待处理的好友申请
+	r.POST("/contact/passFriendApply", handler.PassFriendApplyHandler)      // 通过好友申请
+	r.POST("/contact/refuseFriendApply", handler.RefuseFriendApplyHandler)  // 拒绝好友申请
+	r.POST("/contact/blackFriendApply", handler.BlackFriendApplyHandler)    // 拉黑好友申请
 
-	// 入群申请管理
-	r.GET("/contact/getAddGroupList", handler.GetAddGroupListHandler) // 获取待处理的入群申请
+	// ===== 入群申请管理 =====
+	r.POST("/contact/applyGroup", handler.ApplyGroupHandler)              // 申请加入群组
+	r.GET("/contact/getGroupApplyList", handler.GetGroupApplyListHandler) // 获取待处理的入群申请
+	r.POST("/contact/passGroupApply", handler.PassGroupApplyHandler)      // 通过入群申请
+	r.POST("/contact/refuseGroupApply", handler.RefuseGroupApplyHandler)  // 拒绝入群申请
+	r.POST("/contact/blackGroupApply", handler.BlackGroupApplyHandler)    // 拉黑入群申请
 }
