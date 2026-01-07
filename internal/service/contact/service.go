@@ -169,131 +169,60 @@ func (u *userContactService) GetJoinedGroupsExcludedOwn(userId string) ([]respon
 	return groupListRsp, nil
 }
 
-// GetContactInfo 获取联系人信息
-// 如果你点的是人：显示的是那个人的昵称、头像。
-// 如果你点的是群：显示的是群的名字、群头像。
-func (u *userContactService) GetContactInfo(contactId string) (respond.GetContactInfoRespond, error) {
-	// 1. 安全检查，防止空字符串导致 panic
-	if len(contactId) == 0 {
-		return respond.GetContactInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "ID不能为空")
+// GetFriendInfo 获取好友详情
+func (u *userContactService) GetFriendInfo(friendId string) (respond.GetFriendInfoRespond, error) {
+	// 1. 安全检查
+	if len(friendId) == 0 {
+		return respond.GetFriendInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "好友ID不能为空")
 	}
 
-	// 1. 尝试从缓存获取 (根据 ID 前缀区分类型)
-	var cacheKey string
-	if contactId[0] == 'G' {
-		cacheKey = "group_info_" + contactId
-	} else {
-		cacheKey = "user_info_" + contactId
-	}
-
+	// 2. 尝试从缓存获取
+	cacheKey := "user_info_" + friendId
 	cachedStr, err := myredis.GetKey(cacheKey)
 	if err == nil && cachedStr != "" {
-		// 注意：这里的缓存结构可能与 GetContactInfoRespond 不完全一致
-		// GetUserInfoRespond 和 GetGroupInfoRespond 是基础信息
-		// 我们需要根据前缀分别处理缓存的反序列化
-		if contactId[0] == 'G' {
-			var groupRsp respond.GetGroupInfoRespond
-			if err := json.Unmarshal([]byte(cachedStr), &groupRsp); err == nil {
-				return respond.GetContactInfoRespond{
-					ContactId:        groupRsp.Uuid,
-					ContactName:      groupRsp.Name,
-					ContactAvatar:    groupRsp.Avatar,
-					ContactNotice:    groupRsp.Notice,
-					ContactAddMode:   groupRsp.AddMode,
-					ContactMemberCnt: groupRsp.MemberCnt,
-					ContactOwnerId:   groupRsp.OwnerId,
-				}, nil
-			}
-		} else {
-			var userRsp respond.GetUserInfoRespond
-			if err := json.Unmarshal([]byte(cachedStr), &userRsp); err == nil {
-				return respond.GetContactInfoRespond{
-					ContactId:        userRsp.Uuid,
-					ContactName:      userRsp.Nickname,
-					ContactAvatar:    userRsp.Avatar,
-					ContactBirthday:  userRsp.Birthday,
-					ContactEmail:     userRsp.Email,
-					ContactPhone:     userRsp.Telephone,
-					ContactGender:    userRsp.Gender,
-					ContactSignature: userRsp.Signature,
-				}, nil
-			}
+		var userRsp respond.GetUserInfoRespond
+		if err := json.Unmarshal([]byte(cachedStr), &userRsp); err == nil {
+			return respond.GetFriendInfoRespond{
+				FriendId:        userRsp.Uuid,
+				FriendName:      userRsp.Nickname,
+				FriendAvatar:    userRsp.Avatar,
+				FriendBirthday:  userRsp.Birthday,
+				FriendEmail:     userRsp.Email,
+				FriendPhone:     userRsp.Telephone,
+				FriendGender:    userRsp.Gender,
+				FriendSignature: userRsp.Signature,
+			}, nil
 		}
-		// 如果反序列化失败，记录错误并继续从数据库查询
-		zap.L().Error("Unmarshal contact info cache error", zap.Error(err), zap.String("cacheKey", cacheKey))
+		zap.L().Error("Unmarshal user info cache error", zap.Error(err), zap.String("cacheKey", cacheKey))
 	}
 
-	// 2. 缓存未命中，处理群组 ID
-	if contactId[0] == 'G' {
-		group, err := u.repos.Group.FindByUuid(contactId)
-		if err != nil {
-			if errorx.IsNotFound(err) {
-				return respond.GetContactInfoRespond{}, errorx.New(errorx.CodeNotFound, "该群聊不存在")
-			}
-			zap.L().Error("Find group error", zap.Error(err), zap.String("contactId", contactId))
-			return respond.GetContactInfoRespond{}, errorx.ErrServerBusy
-		}
-
-		if group.Status == group_status_enum.DISABLE {
-			return respond.GetContactInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "该群聊处于禁用状态")
-		}
-
-		rsp := respond.GetContactInfoRespond{
-			ContactId:        group.Uuid,
-			ContactName:      group.Name,
-			ContactAvatar:    group.Avatar,
-			ContactNotice:    group.Notice,
-			ContactAddMode:   group.AddMode,
-			ContactMemberCnt: group.MemberCnt,
-			ContactOwnerId:   group.OwnerId,
-		}
-
-		// 回写缓存 (使用 GroupInfoRespond 的格式一致性)
-		groupRsp := respond.GetGroupInfoRespond{
-			Uuid:      group.Uuid,
-			Name:      group.Name,
-			Notice:    group.Notice,
-			Avatar:    group.Avatar,
-			MemberCnt: group.MemberCnt,
-			OwnerId:   group.OwnerId,
-			AddMode:   group.AddMode,
-			Status:    group.Status,
-			IsDeleted: group.DeletedAt.Valid,
-		}
-		if data, err := json.Marshal(groupRsp); err == nil {
-			_ = myredis.SetKeyEx(cacheKey, string(data), time.Hour)
-		}
-
-		return rsp, nil
-	}
-
-	// 3. 处理用户 ID
-	user, err := u.repos.User.FindByUuid(contactId)
+	// 3. 缓存未命中，从数据库查询
+	user, err := u.repos.User.FindByUuid(friendId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return respond.GetContactInfoRespond{}, errorx.New(errorx.CodeUserNotExist, "该用户不存在")
+			return respond.GetFriendInfoRespond{}, errorx.New(errorx.CodeUserNotExist, "该用户不存在")
 		}
-		zap.L().Error("Find user error", zap.Error(err), zap.String("contactId", contactId))
-		return respond.GetContactInfoRespond{}, errorx.ErrServerBusy
+		zap.L().Error("Find user error", zap.Error(err), zap.String("friendId", friendId))
+		return respond.GetFriendInfoRespond{}, errorx.ErrServerBusy
 	}
 
-	// 检查用户状态
+	// 4. 检查用户状态
 	if user.Status == user_status_enum.DISABLE {
-		return respond.GetContactInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "该用户处于禁用状态")
+		return respond.GetFriendInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "该用户处于禁用状态")
 	}
 
-	rsp := respond.GetContactInfoRespond{
-		ContactId:        user.Uuid,
-		ContactName:      user.Nickname,
-		ContactAvatar:    user.Avatar,
-		ContactBirthday:  user.Birthday,
-		ContactEmail:     user.Email,
-		ContactPhone:     user.Telephone,
-		ContactGender:    user.Gender,
-		ContactSignature: user.Signature,
+	rsp := respond.GetFriendInfoRespond{
+		FriendId:        user.Uuid,
+		FriendName:      user.Nickname,
+		FriendAvatar:    user.Avatar,
+		FriendBirthday:  user.Birthday,
+		FriendEmail:     user.Email,
+		FriendPhone:     user.Telephone,
+		FriendGender:    user.Gender,
+		FriendSignature: user.Signature,
 	}
 
-	// 回写缓存 (使用 UserInfoRespond 的格式一致性)
+	// 5. 回写缓存
 	userRsp := respond.GetUserInfoRespond{
 		Uuid:      user.Uuid,
 		Telephone: user.Telephone,
@@ -308,6 +237,76 @@ func (u *userContactService) GetContactInfo(contactId string) (respond.GetContac
 		Status:    user.Status,
 	}
 	if data, err := json.Marshal(userRsp); err == nil {
+		_ = myredis.SetKeyEx(cacheKey, string(data), time.Hour)
+	}
+
+	return rsp, nil
+}
+
+// GetGroupDetail 获取群聊详情
+func (u *userContactService) GetGroupDetail(groupId string) (respond.GetGroupDetailRespond, error) {
+	// 1. 安全检查
+	if len(groupId) == 0 {
+		return respond.GetGroupDetailRespond{}, errorx.New(errorx.CodeInvalidParam, "群聊ID不能为空")
+	}
+
+	// 2. 尝试从缓存获取
+	cacheKey := "group_info_" + groupId
+	cachedStr, err := myredis.GetKey(cacheKey)
+	if err == nil && cachedStr != "" {
+		var groupRsp respond.GetGroupInfoRespond
+		if err := json.Unmarshal([]byte(cachedStr), &groupRsp); err == nil {
+			return respond.GetGroupDetailRespond{
+				GroupId:     groupRsp.Uuid,
+				GroupName:   groupRsp.Name,
+				GroupAvatar: groupRsp.Avatar,
+				GroupNotice: groupRsp.Notice,
+				MemberCnt:   groupRsp.MemberCnt,
+				OwnerId:     groupRsp.OwnerId,
+				AddMode:     groupRsp.AddMode,
+			}, nil
+		}
+		zap.L().Error("Unmarshal group info cache error", zap.Error(err), zap.String("cacheKey", cacheKey))
+	}
+
+	// 3. 缓存未命中，从数据库查询
+	group, err := u.repos.Group.FindByUuid(groupId)
+	if err != nil {
+		if errorx.IsNotFound(err) {
+			return respond.GetGroupDetailRespond{}, errorx.New(errorx.CodeNotFound, "该群聊不存在")
+		}
+		zap.L().Error("Find group error", zap.Error(err), zap.String("groupId", groupId))
+		return respond.GetGroupDetailRespond{}, errorx.ErrServerBusy
+	}
+
+	// 4. 检查群组状态
+	if group.Status == group_status_enum.DISABLE {
+		return respond.GetGroupDetailRespond{}, errorx.New(errorx.CodeInvalidParam, "该群聊处于禁用状态")
+	}
+
+	rsp := respond.GetGroupDetailRespond{
+		GroupId:     group.Uuid,
+		GroupName:   group.Name,
+		GroupAvatar: group.Avatar,
+		GroupNotice: group.Notice,
+		MemberCnt:   group.MemberCnt,
+		OwnerId:     group.OwnerId,
+		AddMode:     group.AddMode,
+	}
+
+	// 5. 回写缓存
+	groupRsp := respond.GetGroupInfoRespond{
+		Uuid:      group.Uuid,
+		Name:      group.Name,
+		Notice:    group.Notice,
+		Avatar:    group.Avatar,
+		MemberCnt: group.MemberCnt,
+		OwnerId:   group.OwnerId,
+		AddMode:   group.AddMode,
+		Status:    group.Status,
+		IsDeleted: group.DeletedAt.Valid,
+	}
+	if data, err := json.Marshal(groupRsp); err == nil {
 		_ = myredis.SetKeyEx(cacheKey, string(data), time.Hour)
 	}
 

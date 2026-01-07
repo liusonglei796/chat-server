@@ -3,8 +3,6 @@
 package handler
 
 import (
-	"log"
-
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/service"
 
@@ -47,18 +45,35 @@ func LoadMyJoinedGroupHandler(c *gin.Context) {
 	HandleSuccess(c, data)
 }
 
-// GetContactInfoHandler 获取联系人详细信息
-// GET /contact/getContactInfo?contactId=xxx
-// 查询参数: request.GetContactInfoRequest
-// 响应: respond.GetContactInfoRespond
-func GetContactInfoHandler(c *gin.Context) {
-	var req request.GetContactInfoRequest
+// GetFriendInfoHandler 获取好友详细信息
+// GET /contact/getFriendInfo?friendId=xxx
+// 查询参数: request.GetFriendInfoRequest
+// 响应: respond.GetFriendInfoRespond
+func GetFriendInfoHandler(c *gin.Context) {
+	var req request.GetFriendInfoRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	log.Println(req) // 调试输出
-	data, err := service.Svc.Contact.GetContactInfo(req.ContactId)
+	data, err := service.Svc.Contact.GetFriendInfo(req.FriendId)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetGroupDetailHandler 获取群聊详细信息
+// GET /contact/getGroupDetail?groupId=xxx
+// 查询参数: request.GetGroupInfoRequest
+// 响应: respond.GetGroupDetailRespond
+func GetGroupDetailHandler(c *gin.Context) {
+	var req request.GetGroupInfoRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+	data, err := service.Svc.Contact.GetGroupDetail(req.GroupId)
 	if err != nil {
 		HandleError(c, err)
 		return

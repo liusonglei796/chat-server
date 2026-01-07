@@ -14,7 +14,8 @@ func RegisterContactRoutes(r *gin.Engine) {
 	// 好友列表查询
 	r.GET("/contact/getUserList", handler.GetUserListHandler)             // 获取好友列表
 	r.GET("/contact/loadMyJoinedGroup", handler.LoadMyJoinedGroupHandler) // 获取已加入的群组
-	r.GET("/contact/getContactInfo", handler.GetContactInfoHandler)       // 获取联系人详情
+	r.GET("/contact/getFriendInfo", handler.GetFriendInfoHandler)         // 获取好友详情
+	r.GET("/contact/getGroupDetail", handler.GetGroupDetailHandler)       // 获取群聊详情
 
 	// 好友关系管理
 	r.POST("/contact/deleteContact", handler.DeleteContactHandler)           // 删除好友

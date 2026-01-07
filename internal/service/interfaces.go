@@ -92,8 +92,10 @@ type ContactService interface {
 	GetUserList(userId string) ([]respond.MyUserListRespond, error)
 	// GetJoinedGroupsExcludedOwn 获取已加入的群组（排除自己创建的）
 	GetJoinedGroupsExcludedOwn(userId string) ([]respond.LoadMyJoinedGroupRespond, error)
-	// GetContactInfo 获取联系人信息
-	GetContactInfo(contactId string) (respond.GetContactInfoRespond, error)
+	// GetFriendInfo 获取好友详情
+	GetFriendInfo(friendId string) (respond.GetFriendInfoRespond, error)
+	// GetGroupDetail 获取群聊详情
+	GetGroupDetail(groupId string) (respond.GetGroupDetailRespond, error)
 	// DeleteContact 删除联系人
 	DeleteContact(userId, contactId string) error
 
