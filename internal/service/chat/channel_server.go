@@ -165,7 +165,6 @@ func (s *StandaloneServer) handleTextMessage(req request.ChatMessageRequest) {
 		FileType:   "",                         // 文件类型为空
 		FileName:   "",                         // 文件名为空
 		Status:     message_status_enum.Unsent, // 初始状态为未发送
-		CreatedAt:  time.Now(),                 // 创建时间
 		AVdata:     "",                         // 无音视频数据
 	}
 	// 规范化头像路径
@@ -204,7 +203,6 @@ func (s *StandaloneServer) handleFileMessage(req request.ChatMessageRequest) {
 		FileType:   req.FileType, // 记录文件类型
 		FileName:   req.FileName, // 记录文件名
 		Status:     message_status_enum.Unsent,
-		CreatedAt:  time.Now(),
 		AVdata:     "",
 	}
 	// 规范化头像路径
@@ -249,7 +247,6 @@ func (s *StandaloneServer) handleAVMessage(req request.ChatMessageRequest) {
 		FileType:   "",
 		FileName:   "",
 		Status:     message_status_enum.Unsent,
-		CreatedAt:  time.Now(),
 		AVdata:     req.AVdata, // 存储信令数据
 	}
 

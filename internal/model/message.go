@@ -4,18 +4,15 @@ package model
 
 import (
 	"database/sql"
-	"time"
+
+	"gorm.io/gorm"
 )
 
 // Message 消息模型
 // 对应数据库 message 表
 // 存储单聊、群聊、音视频通话等所有类型的消息
 type Message struct {
-	// ID 自增主键
-	ID uint `gorm:"primaryKey"`
-
-	// CreatedAt 消息创建时间
-	CreatedAt time.Time
+	gorm.Model
 
 	// Uuid 消息唯一标识
 	// 使用雪花算法生成的 int64 类型 ID

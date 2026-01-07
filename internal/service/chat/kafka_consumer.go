@@ -200,7 +200,6 @@ func (k *MsgConsumer) handleTextMessage(req request.ChatMessageRequest) {
 		FileType:   "",
 		FileName:   "",
 		Status:     message_status_enum.Unsent,
-		CreatedAt:  time.Now(),
 		AVdata:     "",
 	}
 	// 规范化头像路径
@@ -237,7 +236,6 @@ func (k *MsgConsumer) handleFileMessage(req request.ChatMessageRequest) {
 		FileType:   req.FileType,
 		FileName:   req.FileName,
 		Status:     message_status_enum.Unsent,
-		CreatedAt:  time.Now(),
 		AVdata:     "",
 	}
 	// 规范化头像路径
@@ -281,7 +279,6 @@ func (k *MsgConsumer) handleAVMessage(req request.ChatMessageRequest) {
 		FileType:   "",
 		FileName:   "",
 		Status:     message_status_enum.Unsent,
-		CreatedAt:  time.Now(),
 		AVdata:     req.AVdata,
 	}
 
