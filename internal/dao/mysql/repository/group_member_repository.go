@@ -18,38 +18,6 @@ func NewGroupMemberRepository(db *gorm.DB) GroupMemberRepository {
 	return &groupMemberRepository{db: db}
 }
 
-// FindByGroupUuid 根据群组UUID查找所有成员
-// groupUuid: 群组 UUID
-// 返回: 群成员列表
-func (r *groupMemberRepository) FindByGroupUuid(groupUuid string) ([]model.GroupMember, error) {
-	var members []model.GroupMember
-	if err := r.db.Where("group_uuid = ?", groupUuid).Find(&members).Error; err != nil {
-		return nil, wrapDBErrorf(err, "查询群成员 group_uuid=%s", groupUuid)
-	}
-	return members, nil
-}
-
-// FindByUserUuid 根据用户UUID查找加入的所有群组
-// userUuid: 用户 UUID
-// 返回: 用户加入的群成员记录列表
-func (r *groupMemberRepository) FindByUserUuid(userUuid string) ([]model.GroupMember, error) {
-	var members []model.GroupMember
-	if err := r.db.Where("user_uuid = ?", userUuid).Find(&members).Error; err != nil {
-		return nil, wrapDBErrorf(err, "查询用户所在群 user_uuid=%s", userUuid)
-	}
-	return members, nil
-}
-
-// FindByGroupAndUser 根据群组和用户查找成员关系
-// 用于检查用户是否已在群中
-func (r *groupMemberRepository) FindByGroupAndUser(groupUuid, userUuid string) (*model.GroupMember, error) {
-	var member model.GroupMember
-	if err := r.db.Where("group_uuid = ? AND user_uuid = ?", groupUuid, userUuid).First(&member).Error; err != nil {
-		return nil, wrapDBErrorf(err, "查询群成员 group_uuid=%s user_uuid=%s", groupUuid, userUuid)
-	}
-	return &member, nil
-}
-
 // FindMembersWithUserInfo 查询群成员详细信息（包含用户基本资料）
 // 通过 JOIN 查询关联用户表获取昵称和头像
 // groupUuid: 群组 UUID
@@ -71,14 +39,6 @@ func (r *groupMemberRepository) FindMembersWithUserInfo(groupUuid string) ([]Gro
 func (r *groupMemberRepository) Create(member *model.GroupMember) error {
 	if err := r.db.Create(member).Error; err != nil {
 		return wrapDBError(err, "创建群成员")
-	}
-	return nil
-}
-
-// Delete 删除单个群成员
-func (r *groupMemberRepository) Delete(groupUuid, userUuid string) error {
-	if err := r.db.Where("group_uuid = ? AND user_uuid = ?", groupUuid, userUuid).Delete(&model.GroupMember{}).Error; err != nil {
-		return wrapDBErrorf(err, "删除群成员 group_uuid=%s user_uuid=%s", groupUuid, userUuid)
 	}
 	return nil
 }

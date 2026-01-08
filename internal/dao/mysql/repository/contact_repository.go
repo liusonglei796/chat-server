@@ -20,37 +20,28 @@ func NewContactRepository(db *gorm.DB) ContactRepository {
 
 // FindByUserIdAndContactId 根据用户ID和联系人ID查找关系
 // 用于检查两人是否为好友
-func (r *contactRepository) FindByUserIdAndContactId(userId, contactId string) (*model.UserContact, error) {
-	var contact model.UserContact
+func (r *contactRepository) FindByUserIdAndContactId(userId, contactId string) (*model.Contact, error) {
+	var contact model.Contact
 	if err := r.db.Where("user_id = ? AND contact_id = ?", userId, contactId).First(&contact).Error; err != nil {
 		return nil, wrapDBErrorf(err, "查询联系人 user_id=%s contact_id=%s", userId, contactId)
 	}
 	return &contact, nil
 }
 
-// FindByUserId 查找用户的所有联系人
-func (r *contactRepository) FindByUserId(userId string) ([]model.UserContact, error) {
-	var contacts []model.UserContact
-	if err := r.db.Where("user_id = ?", userId).Find(&contacts).Error; err != nil {
-		return nil, wrapDBErrorf(err, "查询联系人列表 user_id=%s", userId)
-	}
-	return contacts, nil
-}
-
 // FindByUserIdAndType 根据用户ID和联系人类型查找
 // contactType: 0=好友, 1=群组
-func (r *contactRepository) FindByUserIdAndType(userId string, contactType int8) ([]model.UserContact, error) {
-	var contacts []model.UserContact
+func (r *contactRepository) FindByUserIdAndType(userId string, contactType int8) ([]model.Contact, error) {
+	var contacts []model.Contact
 	if err := r.db.Where("user_id = ? AND contact_type = ?", userId, contactType).Find(&contacts).Error; err != nil {
 		return nil, wrapDBErrorf(err, "查询联系人列表 user_id=%s type=%d", userId, contactType)
 	}
 	return contacts, nil
 }
 
-// FindByContactId 根据联系人ID反向查找
+// FindUsersByContactId 根据联系人ID反向查找
 // 用于查找某个用户/群组被哪些人添加为好友
-func (r *contactRepository) FindByContactId(contactId string) ([]model.UserContact, error) {
-	var contacts []model.UserContact
+func (r *contactRepository) FindUsersByContactId(contactId string) ([]model.Contact, error) {
+	var contacts []model.Contact
 	if err := r.db.Where("contact_id = ?", contactId).Find(&contacts).Error; err != nil {
 		return nil, wrapDBErrorf(err, "查询联系人 contact_id=%s", contactId)
 	}
@@ -58,25 +49,17 @@ func (r *contactRepository) FindByContactId(contactId string) ([]model.UserConta
 }
 
 // Create 创建联系人关系
-func (r *contactRepository) Create(contact *model.UserContact) error {
+func (r *contactRepository) Create(contact *model.Contact) error {
 	if err := r.db.Create(contact).Error; err != nil {
 		return wrapDBError(err, "创建联系人关系")
 	}
 	return nil
 }
 
-// Update 更新联系人关系（全字段更新）
-func (r *contactRepository) Update(contact *model.UserContact) error {
-	if err := r.db.Save(contact).Error; err != nil {
-		return wrapDBError(err, "更新联系人关系")
-	}
-	return nil
-}
-
 // UpdateStatus 更新联系人状态
-// status: 见 model.UserContact 中的状态定义
+// status: 见 model.Contact 中的状态定义
 func (r *contactRepository) UpdateStatus(userId, contactId string, status int8) error {
-	if err := r.db.Model(&model.UserContact{}).Where("user_id = ? AND contact_id = ?", userId, contactId).Update("status", status).Error; err != nil {
+	if err := r.db.Model(&model.Contact{}).Where("user_id = ? AND contact_id = ?", userId, contactId).Update("status", status).Error; err != nil {
 		return wrapDBErrorf(err, "更新联系人状态 user_id=%s contact_id=%s", userId, contactId)
 	}
 	return nil
@@ -84,7 +67,7 @@ func (r *contactRepository) UpdateStatus(userId, contactId string, status int8) 
 
 // SoftDelete 软删除联系人关系
 func (r *contactRepository) SoftDelete(userId, contactId string) error {
-	if err := r.db.Where("user_id = ? AND contact_id = ?", userId, contactId).Delete(&model.UserContact{}).Error; err != nil {
+	if err := r.db.Where("user_id = ? AND contact_id = ?", userId, contactId).Delete(&model.Contact{}).Error; err != nil {
 		return wrapDBErrorf(err, "删除联系人关系 user_id=%s contact_id=%s", userId, contactId)
 	}
 	return nil
@@ -97,7 +80,7 @@ func (r *contactRepository) SoftDeleteByUsers(userUuids []string) error {
 		return nil
 	}
 	// 使用 OR 条件删除双向关系
-	if err := r.db.Where("user_id IN ? OR contact_id IN ?", userUuids, userUuids).Delete(&model.UserContact{}).Error; err != nil {
+	if err := r.db.Where("user_id IN ? OR contact_id IN ?", userUuids, userUuids).Delete(&model.Contact{}).Error; err != nil {
 		return wrapDBError(err, "批量删除联系人关系")
 	}
 	return nil

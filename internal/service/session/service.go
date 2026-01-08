@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -168,9 +169,9 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 
 // clearSessionCacheForUser 清理用户的会话缓存
 func clearSessionCacheForUser(userId string) {
-	myredis.DelKeysWithPattern("group_session_list_" + userId)
-	myredis.DelKeysWithPattern("session_list_" + userId)
-	myredis.DelKeysWithPattern("direct_session_list_" + userId)
+	myredis.DelKeysWithPattern(context.Background(), "group_session_list_"+userId)
+	myredis.DelKeysWithPattern(context.Background(), "session_list_"+userId)
+	myredis.DelKeysWithPattern(context.Background(), "direct_session_list_"+userId)
 }
 
 // CheckOpenSessionAllowed 检查是否允许发起会话
@@ -214,7 +215,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 	if targetId[0] == 'U' {
 		key := "user_info_" + targetId
 		// 1. 尝试从 Redis 获取
-		if val, err := myredis.GetKey(key); err == nil && val != "" {
+		if val, err := myredis.GetKey(context.Background(), key); err == nil && val != "" {
 			var userRsp respond.GetUserInfoRespond
 			if err := json.Unmarshal([]byte(val), &userRsp); err == nil {
 				if userRsp.Status == user_status_enum.DISABLE {
@@ -242,7 +243,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 	if targetId[0] == 'G' {
 		key := "group_info_" + targetId
 		// 1. 尝试从 Redis 获取
-		if val, err := myredis.GetKey(key); err == nil && val != "" {
+		if val, err := myredis.GetKey(context.Background(), key); err == nil && val != "" {
 			var groupRsp respond.GetGroupInfoRespond
 			if err := json.Unmarshal([]byte(val), &groupRsp); err == nil {
 				if groupRsp.Status == group_status_enum.DISABLE {
@@ -275,7 +276,7 @@ func (s *sessionService) OpenSession(req request.OpenSessionRequest) (string, er
 	cacheKey := "session_" + req.SendId + "_" + req.ReceiveId
 
 	// 1. 查缓存
-	rspString, err := myredis.GetKeyWithPrefixNilIsErr(cacheKey)
+	rspString, err := myredis.GetKeyWithPrefixNilIsErr(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
 		var session model.Session
 		if err := json.Unmarshal([]byte(rspString), &session); err == nil {
@@ -303,7 +304,7 @@ func (s *sessionService) OpenSession(req request.OpenSessionRequest) (string, er
 	// 3. 【优化点】缓存回写
 	myredis.SubmitCacheTask(func() {
 		if data, err := json.Marshal(session); err == nil {
-			_ = myredis.SetKeyEx(cacheKey, string(data), time.Minute*constants.REDIS_TIMEOUT)
+			_ = myredis.SetKeyEx(context.Background(), cacheKey, string(data), time.Minute*constants.REDIS_TIMEOUT)
 		}
 	})
 
@@ -315,7 +316,7 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 	cacheKey := "direct_session_list_" + ownerId
 
 	// 1. 尝试读缓存
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
+	rspString, err := myredis.GetKeyNilIsErr(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
 		var rsp []respond.UserSessionListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
@@ -356,7 +357,7 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 			zap.L().Error("Marshal failed", zap.Error(err))
 			return
 		}
-		_ = myredis.SetKeyEx(cacheKey, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
+		_ = myredis.SetKeyEx(context.Background(), cacheKey, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
 	})
 
 	return sessionListRsp, nil
@@ -367,7 +368,7 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 	cacheKey := "group_session_list_" + ownerId
 
 	// 1. 尝试读缓存
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
+	rspString, err := myredis.GetKeyNilIsErr(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
 		var rsp []respond.GroupSessionListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
@@ -408,7 +409,7 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 			zap.L().Error("Marshal failed", zap.Error(err))
 			return
 		}
-		_ = myredis.SetKeyEx(cacheKey, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
+		_ = myredis.SetKeyEx(context.Background(), cacheKey, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
 	})
 
 	return sessionListRsp, nil

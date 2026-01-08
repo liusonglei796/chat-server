@@ -3,6 +3,8 @@
 package handler
 
 import (
+	"context"
+
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/pkg/errorx"
@@ -47,7 +49,7 @@ func RefreshTokenHandler(c *gin.Context) {
 
 	// 3. 从 Redis 获取最新的 Token ID，实现单点互踢
 	redisKey := "user_token:" + claims.UserID
-	validTokenID, err := myredis.GetKey(redisKey)
+	validTokenID, err := myredis.GetKey(context.Background(), redisKey)
 	if err != nil || validTokenID == "" {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "登录状态已失效，请重新登录"))
 		return

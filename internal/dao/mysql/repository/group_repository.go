@@ -47,11 +47,11 @@ func (r *groupRepository) FindAll() ([]model.GroupInfo, error) {
 	return groups, nil
 }
 
-// GetList 分页查找群组（包含软删除的）
+// GetList 分页查找群组（给管理员看的所以包含软删除的）
 // page: 页码（从1开始）
 // pageSize: 每页数量
 // 返回: 群组列表、总数、错误
-func (r *groupRepository) GetList(page, pageSize int) ([]model.GroupInfo, int64, error) {
+func (r *groupRepository) GetGroupList(page, pageSize int) ([]model.GroupInfo, int64, error) {
 	var groups []model.GroupInfo
 	var total int64
 
@@ -61,15 +61,13 @@ func (r *groupRepository) GetList(page, pageSize int) ([]model.GroupInfo, int64,
 		offset = 0
 	}
 
-	db := r.db.Unscoped().Model(&model.GroupInfo{})
-
 	// 先查询总数
-	if err := db.Count(&total).Error; err != nil {
+	if err := r.db.Unscoped().Model(&model.GroupInfo{}).Count(&total).Error; err != nil {
 		return nil, 0, wrapDBError(err, "查询群组总数")
 	}
 
 	// 再分页查询
-	if err := db.Offset(offset).Limit(pageSize).Find(&groups).Error; err != nil {
+	if err := r.db.Unscoped().Model(&model.GroupInfo{}).Offset(offset).Limit(pageSize).Find(&groups).Error; err != nil {
 		return nil, 0, wrapDBError(err, "分页查询群组")
 	}
 
@@ -101,16 +99,7 @@ func (r *groupRepository) Update(group *model.GroupInfo) error {
 	return nil
 }
 
-// UpdateStatus 更新群组状态
-// status: 0=正常, 1=禁用, 2=解散
-func (r *groupRepository) UpdateStatus(uuid string, status int8) error {
-	if err := r.db.Model(&model.GroupInfo{}).Where("uuid = ?", uuid).Update("status", status).Error; err != nil {
-		return wrapDBErrorf(err, "更新群组状态 uuid=%s", uuid)
-	}
-	return nil
-}
-
-// UpdateStatusByUuids 批量更新群组状态
+// UpdateStatusByUuids 批量更新群组状态// status: 0=正常, 1=禁用, 2=解散
 func (r *groupRepository) UpdateStatusByUuids(uuids []string, status int8) error {
 	if len(uuids) == 0 {
 		return nil
@@ -126,14 +115,6 @@ func (r *groupRepository) UpdateStatusByUuids(uuids []string, status int8) error
 func (r *groupRepository) IncrementMemberCount(uuid string) error {
 	if err := r.db.Model(&model.GroupInfo{}).Where("uuid = ?", uuid).UpdateColumn("member_cnt", gorm.Expr("member_cnt + ?", 1)).Error; err != nil {
 		return wrapDBErrorf(err, "增加群成员数 uuid=%s", uuid)
-	}
-	return nil
-}
-
-// DecrementMemberCount 减少群成员计数
-func (r *groupRepository) DecrementMemberCount(uuid string) error {
-	if err := r.db.Model(&model.GroupInfo{}).Where("uuid = ?", uuid).UpdateColumn("member_cnt", gorm.Expr("member_cnt - ?", 1)).Error; err != nil {
-		return wrapDBErrorf(err, "减少群成员数 uuid=%s", uuid)
 	}
 	return nil
 }

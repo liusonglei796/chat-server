@@ -272,10 +272,10 @@ func CancelBlackContactHandler(c *gin.Context) {
 
 // BlackFriendApplyHandler 拉黑好友申请
 // POST /contact/blackFriendApply
-// 请求体: request.BlackFriendApplyRequest
+// 请求体: request.BlackFriendRequest
 // 响应: nil
 func BlackFriendApplyHandler(c *gin.Context) {
-	var req request.BlackFriendApplyRequest
+	var req request.BlackFriendRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -289,10 +289,10 @@ func BlackFriendApplyHandler(c *gin.Context) {
 
 // BlackGroupApplyHandler 拉黑入群申请
 // POST /contact/blackGroupApply
-// 请求体: request.BlackGroupApplyRequest
+// 请求体: request.BlackGroupRequest
 // 响应: nil
 func BlackGroupApplyHandler(c *gin.Context) {
-	var req request.BlackGroupApplyRequest
+	var req request.BlackGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return

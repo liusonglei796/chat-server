@@ -81,19 +81,16 @@ type GroupRepository interface {
 	// FindByUuids 批量根据 UUID 查找群组
 	FindByUuids(uuids []string) ([]model.GroupInfo, error)
 	// GetList 分页获取群组列表
-	GetList(page, pageSize int) ([]model.GroupInfo, int64, error)
+	GetGroupList(page, pageSize int) ([]model.GroupInfo, int64, error)
 	// Create 创建新群组
 	Create(group *model.GroupInfo) error
 	// Update 更新群组信息
 	Update(group *model.GroupInfo) error
-	// UpdateStatus 更新单个群组状态
-	UpdateStatus(uuid string, status int8) error
+
 	// UpdateStatusByUuids 批量更新群组状态
 	UpdateStatusByUuids(uuids []string, status int8) error
 	// IncrementMemberCount 增加群成员数量（+1）
 	IncrementMemberCount(uuid string) error
-	// DecrementMemberCount 减少群成员数量（-1）
-	DecrementMemberCount(uuid string) error
 	// DecrementMemberCountBy 减少群成员数量（指定数量）
 	DecrementMemberCountBy(uuid string, count int) error
 	// SoftDeleteByUuids 批量软删除群组
@@ -104,17 +101,13 @@ type GroupRepository interface {
 // 管理用户之间的好友关系
 type ContactRepository interface {
 	// FindByUserIdAndContactId 根据用户ID和联系人ID查找关系
-	FindByUserIdAndContactId(userId, contactId string) (*model.UserContact, error)
-	// FindByUserId 根据用户ID查找所有联系人
-	FindByUserId(userId string) ([]model.UserContact, error)
+	FindByUserIdAndContactId(userId, contactId string) (*model.Contact, error)
 	// FindByUserIdAndType 根据用户ID和联系人类型查找
-	FindByUserIdAndType(userId string, contactType int8) ([]model.UserContact, error)
-	// FindByContactId 根据联系人ID反向查找
-	FindByContactId(contactId string) ([]model.UserContact, error)
+	FindByUserIdAndType(userId string, contactType int8) ([]model.Contact, error)
+	// FindUsersByContactId 根据联系人ID反向查找
+	FindUsersByContactId(contactId string) ([]model.Contact, error)
 	// Create 创建联系人关系
-	Create(contact *model.UserContact) error
-	// Update 更新联系人关系
-	Update(contact *model.UserContact) error
+	Create(contact *model.Contact) error
 	// UpdateStatus 更新联系人状态（正常/拉黑等）
 	UpdateStatus(userId, contactId string, status int8) error
 	// SoftDelete 软删除联系人关系
@@ -126,18 +119,12 @@ type ContactRepository interface {
 // SessionRepository 会话数据访问接口
 // 管理聊天会话（用户之间或用户与群组之间）
 type SessionRepository interface {
-	// FindByUuid 根据 UUID 查找会话
-	FindByUuid(uuid string) (*model.Session, error)
 	// FindBySendIdAndReceiveId 根据发送者和接收者查找会话
 	FindBySendIdAndReceiveId(sendId, receiveId string) (*model.Session, error)
 	// FindBySendId 根据发送者ID查找所有会话
 	FindBySendId(sendId string) ([]model.Session, error)
-	// FindByReceiveId 根据接收者ID查找所有会话
-	FindByReceiveId(receiveId string) ([]model.Session, error)
 	// Create 创建新会话
 	Create(session *model.Session) error
-	// Update 更新会话信息
-	Update(session *model.Session) error
 	// SoftDeleteByUuids 批量软删除会话
 	SoftDeleteByUuids(uuids []string) error
 	// SoftDeleteByUsers 软删除指定用户的所有会话
@@ -149,33 +136,23 @@ type SessionRepository interface {
 // MessageRepository 消息数据访问接口
 // 管理聊天消息的存取
 type MessageRepository interface {
-	// FindBySessionId 根据会话ID查找消息
-	FindBySessionId(sessionId string) ([]model.Message, error)
 	// FindByUserIds 根据两个用户ID查找私聊消息
 	FindByUserIds(userOneId, userTwoId string) ([]model.Message, error)
 	// FindByGroupId 根据群组ID查找群聊消息
 	FindByGroupId(groupId string) ([]model.Message, error)
-	// Create 创建新消息
-	Create(message *model.Message) error
 }
 
-// ContactApplyRepository 联系人申请数据访问接口
+// ApplyRepository 联系人申请数据访问接口
 // 管理好友申请和入群申请
-type ContactApplyRepository interface {
-	// FindByUuid 根据 UUID 查找申请
-	FindByUuid(uuid string) (*model.ContactApply, error)
+type ApplyRepository interface {
 	// FindByApplicantIdAndTargetId 根据申请人和目标查找申请
-	FindByApplicantIdAndTargetId(applicantId, targetId string) (*model.ContactApply, error)
+	FindByApplicantIdAndTargetId(applicantId, targetId string) (*model.Apply, error)
 	// FindByTargetIdPending 查找目标用户的待处理申请
-	FindByTargetIdPending(targetId string) ([]model.ContactApply, error)
-	// FindByTargetIdAndType 根据目标和类型查找申请
-	FindByTargetIdAndType(targetId string, contactType int8) ([]model.ContactApply, error)
+	FindByTargetIdPending(targetId string) ([]model.Apply, error)
 	// Create 创建新申请
-	Create(apply *model.ContactApply) error
+	Create(apply *model.Apply) error
 	// Update 更新申请信息
-	Update(apply *model.ContactApply) error
-	// UpdateStatus 更新申请状态（待处理/已通过/已拒绝）
-	UpdateStatus(uuid string, status int8) error
+	Update(apply *model.Apply) error
 	// SoftDelete 软删除申请
 	SoftDelete(applicantId, targetId string) error
 	// SoftDeleteByUsers 批量软删除指定用户的所有申请
@@ -195,18 +172,12 @@ type GroupMemberWithUserInfo struct {
 // GroupMemberRepository 群成员数据访问接口
 // 管理群组成员关系
 type GroupMemberRepository interface {
-	// FindByGroupUuid 根据群组UUID查找所有成员
-	FindByGroupUuid(groupUuid string) ([]model.GroupMember, error)
-	// FindByUserUuid 根据用户UUID查找加入的群组
-	FindByUserUuid(userUuid string) ([]model.GroupMember, error)
-	// FindByGroupAndUser 根据群组和用户查找成员关系
-	FindByGroupAndUser(groupUuid, userUuid string) (*model.GroupMember, error)
+
 	// FindMembersWithUserInfo 查找群成员（含用户详细信息）
 	FindMembersWithUserInfo(groupUuid string) ([]GroupMemberWithUserInfo, error)
 	// Create 添加群成员
 	Create(member *model.GroupMember) error
-	// Delete 删除单个群成员
-	Delete(groupUuid, userUuid string) error
+
 	// DeleteByGroupUuid 删除群组所有成员
 	DeleteByGroupUuid(groupUuid string) error
 	// DeleteByUserUuids 批量删除指定用户
@@ -222,14 +193,14 @@ type GroupMemberRepository interface {
 // Repositories 聚合所有 Repository 实例
 // 作为依赖注入的入口，Service 层通过此结构访问数据层
 type Repositories struct {
-	db           *gorm.DB               // GORM 数据库实例
-	User         UserRepository         // 用户 Repository
-	Group        GroupRepository        // 群组 Repository
-	Contact      ContactRepository      // 联系人 Repository
-	Session      SessionRepository      // 会话 Repository
-	Message      MessageRepository      // 消息 Repository
-	ContactApply ContactApplyRepository // 联系人申请 Repository
-	GroupMember  GroupMemberRepository  // 群成员 Repository
+	db          *gorm.DB              // GORM 数据库实例
+	User        UserRepository        // 用户 Repository
+	Group       GroupRepository       // 群组 Repository
+	Contact     ContactRepository     // 联系人 Repository
+	Session     SessionRepository     // 会话 Repository
+	Message     MessageRepository     // 消息 Repository
+	Apply       ApplyRepository       // 申请 Repository
+	GroupMember GroupMemberRepository // 群成员 Repository
 }
 
 // NewRepositories 创建所有 Repository 实例
@@ -238,14 +209,14 @@ type Repositories struct {
 // 返回: Repositories 聚合指针
 func NewRepositories(db *gorm.DB) *Repositories {
 	return &Repositories{
-		db:           db,
-		User:         NewUserRepository(db),
-		Group:        NewGroupRepository(db),
-		Contact:      NewContactRepository(db),
-		Session:      NewSessionRepository(db),
-		Message:      NewMessageRepository(db),
-		ContactApply: NewContactApplyRepository(db),
-		GroupMember:  NewGroupMemberRepository(db),
+		db:          db,
+		User:        NewUserRepository(db),
+		Group:       NewGroupRepository(db),
+		Contact:     NewContactRepository(db),
+		Session:     NewSessionRepository(db),
+		Message:     NewMessageRepository(db),
+		Apply:       NewApplyRepository(db),
+		GroupMember: NewGroupMemberRepository(db),
 	}
 }
 

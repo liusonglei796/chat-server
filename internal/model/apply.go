@@ -1,5 +1,5 @@
 // Package model 定义数据库实体模型
-// 本文件定义联系人申请模型，用于管理好友申请和入群申请
+// 本文件定义申请模型，用于管理好友申请和入群申请
 package model
 
 import (
@@ -8,10 +8,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// ContactApply 联系人申请模型
+// Apply 申请模型
 // 对应数据库 contact_apply 表
 // 存储好友申请和入群申请的记录
-type ContactApply struct {
+type Apply struct {
 	gorm.Model // 内嵌 GORM 模型，包含 ID、CreatedAt、UpdatedAt、DeletedAt
 
 	// Uuid 申请记录唯一标识
@@ -48,6 +48,6 @@ type ContactApply struct {
 }
 
 // TableName 指定表名
-func (ContactApply) TableName() string {
+func (Apply) TableName() string {
 	return "contact_apply"
 }

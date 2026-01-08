@@ -4,6 +4,7 @@
 package redis
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 // value: 值
 // timeout: 过期时间
 // 返回: 操作错误（已包装）
-func SetKeyEx(key string, value string, timeout time.Duration) error {
+func SetKeyEx(ctx context.Context, key string, value string, timeout time.Duration) error {
 	if err := redisClient.Set(ctx, key, value, timeout).Err(); err != nil {
 		return errorx.Wrapf(err, errorx.CodeCacheError, "redis set key %s", key)
 	}
@@ -30,7 +31,7 @@ func SetKeyEx(key string, value string, timeout time.Duration) error {
 // 如果键不存在，返回空字符串和 nil（不视为错误）
 // key: 键名
 // 返回: 值和错误
-func GetKey(key string) (string, error) {
+func GetKey(ctx context.Context, key string) (string, error) {
 	value, err := redisClient.Get(ctx, key).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -45,7 +46,7 @@ func GetKey(key string) (string, error) {
 // 与 GetKey 的区别：如果键不存在，返回 CodeNotFound 错误
 // key: 键名
 // 返回: 值和错误
-func GetKeyNilIsErr(key string) (string, error) {
+func GetKeyNilIsErr(ctx context.Context, key string) (string, error) {
 	value, err := redisClient.Get(ctx, key).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -63,71 +64,33 @@ func GetKeyNilIsErr(key string) (string, error) {
 // prefix: 键前缀
 // 返回: 匹配的键名（期望唯一）和错误
 // 注意: 如果找到多个键会返回错误
-func GetKeyWithPrefixNilIsErr(prefix string) (string, error) {
+func GetKeyWithPrefixNilIsErr(ctx context.Context, prefix string) (string, error) {
 	var cursor uint64      // 游标，用于分批扫描
 	var foundKeys []string // 收集找到的键
 
 	for {
 		var keys []string
 		var err error
-
 		// 使用 SCAN 命令分批扫描，每次最多返回 100 个
 		// 相比 KEYS 命令，SCAN 不会阻塞 Redis
 		keys, cursor, err = redisClient.Scan(ctx, cursor, prefix+"*", 100).Result()
 		if err != nil {
 			return "", errorx.Wrapf(err, errorx.CodeCacheError, "redis scan prefix %s", prefix)
 		}
-
 		foundKeys = append(foundKeys, keys...)
-
 		// 如果找到超过1个键，直接报错（期望唯一）
 		if len(foundKeys) > 1 {
 			return "", errorx.Newf(errorx.CodeCacheError, "redis scan prefix %s: found %d keys, expected 1", prefix, len(foundKeys))
 		}
-
 		// cursor 为 0 表示扫描完成
 		if cursor == 0 {
 			break
 		}
 	}
-
 	if len(foundKeys) == 0 {
 		return "", errorx.Wrapf(redis.Nil, errorx.CodeNotFound, "redis prefix %s not found", prefix)
 	}
-
 	return foundKeys[0], nil
 }
 
-// GetKeyWithSuffixNilIsErr 通过后缀查找唯一键
-// 逻辑同 GetKeyWithPrefixNilIsErr，使用 *suffix 模式
-func GetKeyWithSuffixNilIsErr(suffix string) (string, error) {
-	var cursor uint64
-	var foundKeys []string
 
-	for {
-		var keys []string
-		var err error
-
-		// 使用 *suffix 模式匹配后缀
-		keys, cursor, err = redisClient.Scan(ctx, cursor, "*"+suffix, 100).Result()
-		if err != nil {
-			return "", errorx.Wrapf(err, errorx.CodeCacheError, "redis scan suffix %s", suffix)
-		}
-
-		foundKeys = append(foundKeys, keys...)
-
-		if len(foundKeys) > 1 {
-			return "", errorx.Newf(errorx.CodeCacheError, "redis scan suffix %s: found %d keys, expected 1", suffix, len(foundKeys))
-		}
-
-		if cursor == 0 {
-			break
-		}
-	}
-
-	if len(foundKeys) == 0 {
-		return "", errorx.Wrapf(redis.Nil, errorx.CodeNotFound, "redis suffix %s not found", suffix)
-	}
-
-	return foundKeys[0], nil
-}

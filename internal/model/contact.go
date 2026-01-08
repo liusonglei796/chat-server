@@ -7,11 +7,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// UserContact 用户联系人模型
+// Contact 联系人模型
 // 对应数据库 user_contact 表
 // 存储用户的好友关系和加入的群组
-//user_contact 是已建立的联系人/群组关系表；contact_apply 是申请阶段的记录表（好友/入群申请）。
-type UserContact struct {
+// user_contact 是已建立的联系人/群组关系表；apply 是申请阶段的记录表（好友/入群申请）。
+type Contact struct {
 	gorm.Model // 内嵌 GORM 模型，包含 ID、CreatedAt、UpdatedAt、DeletedAt
 
 	// UserId 用户 UUID
@@ -40,6 +40,6 @@ type UserContact struct {
 }
 
 // TableName 指定表名
-func (UserContact) TableName() string {
+func (Contact) TableName() string {
 	return "user_contact"
 }

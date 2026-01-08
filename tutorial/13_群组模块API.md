@@ -74,7 +74,7 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 			return errorx.ErrServerBusy
 		}
 		// 3. 创建联系人关系
-		contact := model.UserContact{
+		contact := model.Contact{
 			UserId: groupReq.OwnerId, ContactId: group.Uuid,
 			ContactType: contact_type_enum.GROUP, Status: contact_status_enum.NORMAL,
 		}
@@ -278,7 +278,7 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 			return errorx.ErrServerBusy
 		}
 		// 3. 建立联系人关系
-		newContact := model.UserContact{
+		newContact := model.Contact{
 			UserId: userId, ContactId: groupId,
 			ContactType: contact_type_enum.GROUP, Status: contact_status_enum.NORMAL,
 		}
@@ -340,7 +340,7 @@ func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 		}
 		// 4. 删除联系人关系
 		txRepos.Contact.SoftDelete(userId, groupId)
-		txRepos.ContactApply.SoftDelete(userId, groupId)
+		txRepos.Apply.SoftDelete(userId, groupId)
 		return nil
 	})
 
@@ -391,7 +391,7 @@ func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 
 	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
 		// 收集成员ID (用于缓存清理)
-		contacts, _ := txRepos.Contact.FindByContactId(groupId)
+		contacts, _ := txRepos.Contact.FindUsersByContactId(groupId)
 		for _, c := range contacts {
 			memberIds = append(memberIds, c.UserId)
 		}
@@ -401,7 +401,7 @@ func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 		txRepos.Group.SoftDeleteByUuids([]string{groupId})
 		txRepos.Session.SoftDeleteByUsers([]string{groupId})
 		txRepos.Contact.SoftDeleteByUsers([]string{groupId})
-		txRepos.ContactApply.SoftDeleteByUsers([]string{groupId})
+		txRepos.Apply.SoftDeleteByUsers([]string{groupId})
 		return nil
 	})
 
@@ -589,7 +589,7 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 		txRepos.Group.SoftDeleteByUuids(uuidList)
 		txRepos.Session.SoftDeleteByUsers(uuidList)
 		txRepos.Contact.SoftDeleteByUsers(uuidList)
-		txRepos.ContactApply.SoftDeleteByUsers(uuidList)
+		txRepos.Apply.SoftDeleteByUsers(uuidList)
 		return nil
 	})
 

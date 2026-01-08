@@ -137,12 +137,15 @@ type GroupRepository interface {
 **ContactRepository** - 联系人关系
 ```go
 type ContactRepository interface {
-	FindByUserIdAndContactId(userId, contactId string) (*model.UserContact, error)
-	FindByUserId(userId string) ([]model.UserContact, error)
-	FindByUserIdAndType(userId string, contactType int8) ([]model.UserContact, error)
-	FindByContactId(contactId string) ([]model.UserContact, error)
-	Create(contact *model.UserContact) error
-	Update(contact *model.UserContact) error
+	FindByUserIdAndContactId(userId, contactId string) (*model.Contact, error)
+	FindByUserId(userId string) ([]model.Contact, error)
+	// FindByUserIdWithType 根据用户ID和联系人类型查找
+	FindByUserIdAndType(userId string, contactType int8) ([]model.Contact, error)
+	// FindUsersByContactId 根据联系人ID反向查找
+	FindUsersByContactId(contactId string) ([]model.Contact, error)
+	// Create 创建联系人关系
+	Create(contact *model.Contact) error
+	// UpdateStatus 更新联系人状态（正常/拉黑等）
 	UpdateStatus(userId, contactId string, status int8) error
 	SoftDelete(userId, contactId string) error
 	SoftDeleteByUsers(userUuids []string) error

@@ -357,13 +357,13 @@ func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar stri
 		}
 		key := "message_list_" + userOneId + "_" + userTwoId
 
-		rspString, err := myredis.GetKeyNilIsErr(key)
+		rspString, err := myredis.GetKeyNilIsErr(context.Background(), key)
 		if err == nil {
 			var list []respond.GetMessageListRespond
 			if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 				list = append(list, messageRsp)
 				if rspByte, err := json.Marshal(list); err == nil {
-					myredis.SetKeyEx(key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+					myredis.SetKeyEx(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
 				}
 			}
 		}
@@ -431,13 +431,13 @@ func (s *StandaloneServer) sendToGroup(message model.Message, originalAvatar str
 	// Update Redis async via Worker Pool
 	myredis.SubmitCacheTask(func() {
 		key := "group_messagelist_" + message.ReceiveId
-		rspString, err := myredis.GetKeyNilIsErr(key)
+		rspString, err := myredis.GetKeyNilIsErr(context.Background(), key)
 		if err == nil {
 			var list []respond.GetGroupMessageListRespond
 			if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 				list = append(list, messageRsp)
 				if rspByte, err := json.Marshal(list); err == nil {
-					myredis.SetKeyEx(key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+					myredis.SetKeyEx(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
 				}
 			}
 		}

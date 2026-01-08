@@ -1,6 +1,7 @@
 package group
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,7 +61,7 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 			return errorx.ErrServerBusy
 		}
 		//添加联系人
-		contact := model.UserContact{
+		contact := model.Contact{
 			UserId:      groupReq.OwnerId,
 			ContactId:   group.Uuid,
 			ContactType: contact_type_enum.GROUP,
@@ -78,7 +79,7 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 	}
 
 	myredis.SubmitCacheTask(func() {
-		if err := myredis.DelKeysWithPattern("contact_mygroup_list_" + groupReq.OwnerId); err != nil {
+		if err := myredis.DelKeysWithPattern(context.Background(), "contact_mygroup_list_"+groupReq.OwnerId); err != nil {
 			zap.L().Error(err.Error())
 		}
 	})
@@ -92,7 +93,7 @@ func (g *groupInfoService) LoadMyGroup(userId string) ([]respond.LoadMyGroupResp
 
 	// 1. 尝试从缓存获取 (Happy Path)
 	// 使用 GetKeyNilIsErr 或类似的封装
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
+	rspString, err := myredis.GetKeyNilIsErr(context.Background(), cacheKey)
 	if err == nil {
 		var groupListRsp []respond.LoadMyGroupRespond
 		// 如果反序列化成功，直接返回
@@ -129,7 +130,7 @@ func (g *groupInfoService) LoadMyGroup(userId string) ([]respond.LoadMyGroupResp
 	go func() {
 		rspBytes, err := json.Marshal(groupListRsp)
 		if err == nil {
-			if err := myredis.SetKeyEx(cacheKey, string(rspBytes), time.Minute*30); err != nil {
+			if err := myredis.SetKeyEx(context.Background(), cacheKey, string(rspBytes), time.Minute*30); err != nil {
 				zap.L().Error("Set cache error", zap.Error(err))
 			}
 		} else {
@@ -145,7 +146,7 @@ func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
 	cacheKey := "group_info_" + groupId
 
 	// 1. 尝试读取缓存
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
+	rspString, err := myredis.GetKeyNilIsErr(context.Background(), cacheKey)
 	if err == nil {
 		var rsp respond.GetGroupInfoRespond
 		// 如果反序列化成功，直接返回结果
@@ -187,7 +188,7 @@ func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
 			return
 		}
 		// 设置缓存，过期时间建议设置长一点，比如 24 小时或更久，配合更新操作时的删除逻辑
-		if err := myredis.SetKeyEx(cacheKey, string(rspBytes), time.Hour*24); err != nil {
+		if err := myredis.SetKeyEx(context.Background(), cacheKey, string(rspBytes), time.Hour*24); err != nil {
 			zap.L().Error("Set group info cache error", zap.Error(err))
 		}
 	}()
@@ -213,7 +214,7 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 			return errorx.ErrServerBusy
 		}
 
-		newContact := model.UserContact{
+		newContact := model.Contact{
 			UserId:      userId,
 			ContactId:   groupId,
 			ContactType: contact_type_enum.GROUP,
@@ -231,13 +232,13 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 	}
 
 	myredis.SubmitCacheTask(func() {
-		if err := myredis.DelKeysWithPattern("group_session_list_" + groupId); err != nil {
+		if err := myredis.DelKeysWithPattern(context.Background(), "group_session_list_"+groupId); err != nil {
 			zap.L().Error(err.Error())
 		}
-		if err := myredis.DelKeysWithPattern("my_joined_group_list_" + userId); err != nil {
+		if err := myredis.DelKeysWithPattern(context.Background(), "contact_relation:group:"+userId); err != nil {
 			zap.L().Error(err.Error())
 		}
-		if err := myredis.DelKeyIfExists("group_info_" + groupId); err != nil {
+		if err := myredis.DelKeyIfExists(context.Background(), "group_info_"+groupId); err != nil {
 			zap.L().Error(err.Error())
 		}
 	})
@@ -247,12 +248,12 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 // LeaveGroup 退群
 func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
-		if err := txRepos.GroupMember.Delete(groupId, userId); err != nil {
+		if err := txRepos.GroupMember.DeleteByUserUuids(groupId, []string{userId}); err != nil {
 			zap.L().Error(err.Error())
 			return errorx.ErrServerBusy
 		}
 
-		if err := txRepos.Group.DecrementMemberCount(groupId); err != nil {
+		if err := txRepos.Group.DecrementMemberCountBy(groupId, 1); err != nil {
 			zap.L().Error(err.Error())
 			return errorx.ErrServerBusy
 		}
@@ -268,7 +269,7 @@ func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 			zap.L().Error(err.Error())
 			return errorx.ErrServerBusy
 		}
-		if err := txRepos.ContactApply.SoftDelete(userId, groupId); err != nil {
+		if err := txRepos.Apply.SoftDelete(userId, groupId); err != nil {
 			zap.L().Error(err.Error())
 			return errorx.ErrServerBusy
 		}
@@ -280,16 +281,16 @@ func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 	}
 
 	myredis.SubmitCacheTask(func() {
-		if err := myredis.DelKeysWithPattern("group_session_list_" + userId); err != nil {
+		if err := myredis.DelKeysWithPattern(context.Background(), "group_session_list_"+userId); err != nil {
 			zap.L().Error(err.Error())
 		}
-		if err := myredis.DelKeysWithPattern("my_joined_group_list_" + userId); err != nil {
+		if err := myredis.RemoveMember(context.Background(), "contact_relation:group:"+userId, groupId); err != nil {
 			zap.L().Error(err.Error())
 		}
-		if err := myredis.DelKeyIfExists("group_info_" + groupId); err != nil {
+		if err := myredis.DelKeyIfExists(context.Background(), "group_info_"+groupId); err != nil {
 			zap.L().Error(err.Error())
 		}
-		if err := myredis.DelKeyIfExists("group_memberlist_" + groupId); err != nil {
+		if err := myredis.DelKeyIfExists(context.Background(), "group_memberlist_"+groupId); err != nil {
 			zap.L().Error(err.Error())
 		}
 	})
@@ -309,7 +310,7 @@ func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
 		// 1. 获取涉及的成员ID (通过 Contact 表查找，因为它存储了用户与群的关系)
 		// 这一步必须做，否则无法知道要清理哪些人的缓存
-		contacts, err := txRepos.Contact.FindByContactId(groupId)
+		contacts, err := txRepos.Contact.FindUsersByContactId(groupId)
 		if err != nil {
 			zap.L().Error("Find contacts by group id error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -343,7 +344,7 @@ func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 		}
 
 		// 6. 批量软删除涉及该群的申请记录 (TargetId = GroupId)
-		if err := txRepos.ContactApply.SoftDeleteByUsers([]string{groupId}); err != nil {
+		if err := txRepos.Apply.SoftDeleteByUsers([]string{groupId}); err != nil {
 			zap.L().Error("Soft delete applies error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -357,28 +358,28 @@ func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 	// 7. 精确清理 Redis 缓存 (事务外)
 	myredis.SubmitCacheTask(func() {
 		// 清理群主的缓存
-		if err := myredis.DelKeysWithPattern("contact_mygroup_list_" + ownerId); err != nil {
+		if err := myredis.DelKeysWithPattern(context.Background(), "contact_mygroup_list_"+ownerId); err != nil {
 			zap.L().Error(err.Error())
 		}
-		if err := myredis.DelKeysWithPattern("group_session_list_" + ownerId); err != nil {
+		if err := myredis.DelKeysWithPattern(context.Background(), "group_session_list_"+ownerId); err != nil {
 			zap.L().Error(err.Error())
 		}
 
 		// 清理所有群成员的缓存
 		for _, memberId := range memberIds {
-			if err := myredis.DelKeysWithPattern("my_joined_group_list_" + memberId); err != nil {
+			if err := myredis.DelKeysWithPattern(context.Background(), "contact_relation:group:"+memberId); err != nil {
 				zap.L().Error(err.Error())
 			}
-			if err := myredis.DelKeysWithPattern("group_session_list_" + memberId); err != nil {
+			if err := myredis.DelKeysWithPattern(context.Background(), "group_session_list_"+memberId); err != nil {
 				zap.L().Error(err.Error())
 			}
 		}
 
 		// 清理群公共信息
-		if err := myredis.DelKeyIfExists("group_info_" + groupId); err != nil {
+		if err := myredis.DelKeyIfExists(context.Background(), "group_info_"+groupId); err != nil {
 			zap.L().Error(err.Error())
 		}
-		if err := myredis.DelKeyIfExists("group_memberlist_" + groupId); err != nil {
+		if err := myredis.DelKeyIfExists(context.Background(), "group_memberlist_"+groupId); err != nil {
 			zap.L().Error(err.Error())
 		}
 	})
@@ -391,7 +392,7 @@ func (g *groupInfoService) GetGroupInfo(groupId string) (*respond.GetGroupInfoRe
 	cacheKey := "group_info_" + groupId
 
 	// 1. 尝试从缓存获取
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
+	rspString, err := myredis.GetKeyNilIsErr(context.Background(), cacheKey)
 	if err == nil {
 		var rsp respond.GetGroupInfoRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
@@ -435,7 +436,7 @@ func (g *groupInfoService) GetGroupInfo(groupId string) (*respond.GetGroupInfoRe
 			zap.L().Error("Marshal group info error", zap.Error(err))
 			return
 		}
-		if err := myredis.SetKeyEx(cacheKey, string(data), time.Hour*24); err != nil {
+		if err := myredis.SetKeyEx(context.Background(), cacheKey, string(data), time.Hour*24); err != nil {
 			zap.L().Error("Set group info cache error", zap.Error(err))
 		}
 	}()
@@ -445,7 +446,7 @@ func (g *groupInfoService) GetGroupInfo(groupId string) (*respond.GetGroupInfoRe
 
 // GetGroupInfoList 获取群聊列表 - 管理员
 func (g *groupInfoService) GetGroupInfoList(req request.GetGroupListRequest) (*respond.GetGroupListWrapper, error) {
-	groupList, total, err := g.repos.Group.GetList(req.Page, req.PageSize)
+	groupList, total, err := g.repos.Group.GetGroupList(req.Page, req.PageSize)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return nil, errorx.ErrServerBusy
@@ -520,7 +521,7 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 		}
 
 		// 软删除相关申请
-		if err := txRepos.ContactApply.SoftDeleteByUsers(uuidList); err != nil {
+		if err := txRepos.Apply.SoftDeleteByUsers(uuidList); err != nil {
 			zap.L().Error("Batch soft delete contact applies error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -536,30 +537,30 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 	myredis.SubmitCacheTask(func() {
 		// 清理群主相关缓存
 		for _, ownerId := range ownerIds {
-			if err := myredis.DelKeysWithPattern("contact_mygroup_list_" + ownerId); err != nil {
+			if err := myredis.DelKeysWithPattern(context.Background(), "contact_mygroup_list_"+ownerId); err != nil {
 				zap.L().Error(err.Error())
 			}
-			if err := myredis.DelKeysWithPattern("group_session_list_" + ownerId); err != nil {
+			if err := myredis.DelKeysWithPattern(context.Background(), "group_session_list_"+ownerId); err != nil {
 				zap.L().Error(err.Error())
 			}
 		}
 
 		// 清理所有相关成员的缓存
 		for _, memId := range memberIds {
-			if err := myredis.DelKeysWithPattern("my_joined_group_list_" + memId); err != nil {
+			if err := myredis.DelKeysWithPattern(context.Background(), "contact_relation:group:"+memId); err != nil {
 				zap.L().Error(err.Error())
 			}
-			if err := myredis.DelKeysWithPattern("group_session_list_" + memId); err != nil {
+			if err := myredis.DelKeysWithPattern(context.Background(), "group_session_list_"+memId); err != nil {
 				zap.L().Error(err.Error())
 			}
 		}
 
 		// 清理群本身的缓存
 		for _, grpId := range uuidList {
-			if err := myredis.DelKeyIfExists("group_info_" + grpId); err != nil {
+			if err := myredis.DelKeyIfExists(context.Background(), "group_info_"+grpId); err != nil {
 				zap.L().Error(err.Error())
 			}
-			if err := myredis.DelKeyIfExists("group_memberlist_" + grpId); err != nil {
+			if err := myredis.DelKeyIfExists(context.Background(), "group_memberlist_"+grpId); err != nil {
 				zap.L().Error(err.Error())
 			}
 		}
@@ -590,7 +591,7 @@ func (g *groupInfoService) SetGroupsStatus(uuidList []string, status int8) error
 		for _, uuid := range uuidList {
 			patterns = append(patterns, "group_info_"+uuid)
 		}
-		if err := myredis.DelKeysWithPatterns(patterns); err != nil {
+		if err := myredis.DelKeysWithPatterns(context.Background(), patterns); err != nil {
 			zap.L().Error(err.Error())
 		}
 	})
@@ -636,7 +637,7 @@ func (g *groupInfoService) UpdateGroupInfo(req request.UpdateGroupInfoRequest) e
 
 	// 异步清理缓存
 	myredis.SubmitCacheTask(func() {
-		if err := myredis.DelKeyIfExists("group_info_" + req.Uuid); err != nil {
+		if err := myredis.DelKeyIfExists(context.Background(), "group_info_"+req.Uuid); err != nil {
 			zap.L().Error(err.Error())
 		}
 	})
@@ -649,7 +650,7 @@ func (g *groupInfoService) GetGroupMemberList(groupId string) ([]respond.GetGrou
 	cacheKey := "group_memberlist_" + groupId
 
 	// 1. 尝试从缓存获取
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
+	rspString, err := myredis.GetKeyNilIsErr(context.Background(), cacheKey)
 	if err == nil {
 		var rsp []respond.GetGroupMemberListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
@@ -686,7 +687,7 @@ func (g *groupInfoService) GetGroupMemberList(groupId string) ([]respond.GetGrou
 			zap.L().Error("Marshal group member list error", zap.Error(err))
 			return
 		}
-		if err := myredis.SetKeyEx(cacheKey, string(data), time.Hour*24); err != nil {
+		if err := myredis.SetKeyEx(context.Background(), cacheKey, string(data), time.Hour*24); err != nil {
 			zap.L().Error("Set group member list cache error", zap.Error(err))
 		}
 	}()
@@ -721,12 +722,12 @@ func (g *groupInfoService) RemoveGroupMembers(req request.RemoveGroupMembersRequ
 			return errorx.ErrServerBusy
 		}
 
-		// 软删除 Contact 和 ContactApply (批量，以用户为维度)
+		// 软删除 Contact 和 Apply (批量，以用户为维度)
 		for _, uuid := range req.UuidList {
 			if err := txRepos.Contact.SoftDelete(uuid, req.GroupId); err != nil {
 				zap.L().Error("Delete contact error", zap.Error(err))
 			}
-			if err := txRepos.ContactApply.SoftDelete(uuid, req.GroupId); err != nil {
+			if err := txRepos.Apply.SoftDelete(uuid, req.GroupId); err != nil {
 				zap.L().Error("Delete contact apply error", zap.Error(err))
 			}
 		}
@@ -747,18 +748,18 @@ func (g *groupInfoService) RemoveGroupMembers(req request.RemoveGroupMembersRequ
 	myredis.SubmitCacheTask(func() {
 		// 清理被移除成员的缓存
 		for _, memId := range req.UuidList {
-			if err := myredis.DelKeysWithPattern("group_session_list_" + memId); err != nil {
+			if err := myredis.DelKeysWithPattern(context.Background(), "group_session_list_"+memId); err != nil {
 				zap.L().Error(err.Error())
 			}
-			if err := myredis.DelKeysWithPattern("my_joined_group_list_" + memId); err != nil {
+			if err := myredis.DelKeysWithPattern(context.Background(), "contact_relation:group:"+memId); err != nil {
 				zap.L().Error(err.Error())
 			}
 		}
 		// 清理群本身的缓存
-		if err := myredis.DelKeyIfExists("group_info_" + req.GroupId); err != nil {
+		if err := myredis.DelKeyIfExists(context.Background(), "group_info_"+req.GroupId); err != nil {
 			zap.L().Error(err.Error())
 		}
-		if err := myredis.DelKeyIfExists("group_memberlist_" + req.GroupId); err != nil {
+		if err := myredis.DelKeyIfExists(context.Background(), "group_memberlist_"+req.GroupId); err != nil {
 			zap.L().Error(err.Error())
 		}
 	})

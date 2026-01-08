@@ -12,8 +12,8 @@
 | 获取联系人信息 | GET | `/contact/getContactInfo?contact_id=xxx` | 获取联系人详情 |
 | 申请添加联系人 | POST | `/contact/applyContact` | 发送好友申请 |
 | 获取申请列表 | GET | `/contact/getNewContactList?user_id=xxx` | 待处理申请列表 |
-| 通过申请 | POST | `/contact/passContactApply` | 同意好友申请 |
-| 拒绝申请 | POST | `/contact/refuseContactApply` | 拒绝好友申请 |
+| 通过申请 | POST | `/contact/passApply` | 同意好友申请 |
+| 拒绝申请 | POST | `/contact/refuseApply` | 拒绝好友申请 |
 | 删除联系人 | POST | `/contact/deleteContact` | 删除好友 |
 | 拉黑联系人 | POST | `/contact/blackContact` | 拉黑用户 |
 | 取消拉黑 | POST | `/contact/cancelBlackContact` | 解除拉黑 |
@@ -102,8 +102,8 @@ func (u *userContactService) GetUserList(userId string) ([]respond.MyUserListRes
 
 ```go
 // ContactRepository.FindByUserIdAndType
-func (r *contactRepository) FindByUserIdAndType(userId string, contactType int8) ([]model.UserContact, error) {
-	var contacts []model.UserContact
+func (r *contactRepository) FindByUserIdAndType(userId string, contactType int8) ([]model.Contact, error) {
+	var contacts []model.Contact
 	if err := r.db.Where("user_id = ? AND contact_type = ?", userId, contactType).Find(&contacts).Error; err != nil {
 		return nil, wrapDBErrorf(err, "查询联系人列表 user_id=%s type=%d", userId, contactType)
 	}
@@ -375,7 +375,7 @@ func (u *userContactService) DeleteContact(userId, contactId string) error {
 			txRepos.Session.SoftDeleteByUuids([]string{session.Uuid})
 		}
 		// 3. 删除申请记录
-		txRepos.ContactApply.SoftDelete(userId, contactId)
+		txRepos.Apply.SoftDelete(userId, contactId)
 		return nil
 	})
 
@@ -399,7 +399,7 @@ func (u *userContactService) DeleteContact(userId, contactId string) error {
 // ContactRepository.SoftDelete
 func (r *contactRepository) SoftDelete(userId, contactId string) error {
 	if err := r.db.Where("user_id = ? AND contact_id = ?", userId, contactId).
-		Delete(&model.UserContact{}).Error; err != nil {
+		Delete(&model.Contact{}).Error; err != nil {
 		return wrapDBErrorf(err, "删除联系人关系 user_id=%s contact_id=%s", userId, contactId)
 	}
 	return nil
@@ -463,10 +463,10 @@ func (u *userContactService) ApplyContact(req request.ApplyContactRequest) error
 	}
 
 	// 3. 获取或创建申请记录
-	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(req.UserId, req.ContactId)
+	contactApply, err := u.repos.Apply.FindByApplicantIdAndTargetId(req.UserId, req.ContactId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			contactApply = &model.ContactApply{
+			contactApply = &model.Apply{
 				Uuid:        fmt.Sprintf("A%s", random.GetNowAndLenRandomString(11)),
 				ApplicantId: req.UserId,
 				TargetId:    req.ContactId,
@@ -475,7 +475,7 @@ func (u *userContactService) ApplyContact(req request.ApplyContactRequest) error
 				Message:     req.Message,
 				LastApplyAt: time.Now(),
 			}
-			return u.repos.ContactApply.Create(contactApply)
+			return u.repos.Apply.Create(contactApply)
 		}
 		return errorx.ErrServerBusy
 	}
@@ -487,16 +487,16 @@ func (u *userContactService) ApplyContact(req request.ApplyContactRequest) error
 	contactApply.LastApplyAt = time.Now()
 	contactApply.Status = contact_apply_status_enum.PENDING
 	contactApply.Message = req.Message
-	return u.repos.ContactApply.Update(contactApply)
+	return u.repos.Apply.Update(contactApply)
 }
 ```
 
 ### DAO
 
 ```go
-// ContactApplyRepository.FindByApplicantIdAndTargetId
-func (r *contactApplyRepository) FindByApplicantIdAndTargetId(applicantId, targetId string) (*model.ContactApply, error) {
-	var apply model.ContactApply
+// ApplyRepository.FindByApplicantIdAndTargetId
+func (r *contactApplyRepository) FindByApplicantIdAndTargetId(applicantId, targetId string) (*model.Apply, error) {
+	var apply model.Apply
 	if err := r.db.Where("applicant_id = ? AND target_id = ?", applicantId, targetId).
 		First(&apply).Error; err != nil {
 		return nil, wrapDBErrorf(err, "查询申请 applicant_id=%s target_id=%s", applicantId, targetId)
@@ -504,8 +504,8 @@ func (r *contactApplyRepository) FindByApplicantIdAndTargetId(applicantId, targe
 	return &apply, nil
 }
 
-// ContactApplyRepository.Create
-func (r *contactApplyRepository) Create(apply *model.ContactApply) error {
+// ApplyRepository.Create
+func (r *contactApplyRepository) Create(apply *model.Apply) error {
 	if err := r.db.Create(apply).Error; err != nil {
 		return wrapDBError(err, "创建联系人申请")
 	}
@@ -543,7 +543,7 @@ func GetNewContactListHandler(c *gin.Context) {
 ```go
 func (u *userContactService) GetNewContactList(userId string) ([]respond.NewContactListRespond, error) {
 	// 1. 查询待处理申请
-	contactApplyList, err := u.repos.ContactApply.FindByTargetIdPending(userId)
+	contactApplyList, err := u.repos.Apply.FindByTargetIdPending(userId)
 	if err != nil {
 		return nil, errorx.ErrServerBusy
 	}
@@ -592,9 +592,9 @@ func (u *userContactService) GetNewContactList(userId string) ([]respond.NewCont
 ### DAO
 
 ```go
-// ContactApplyRepository.FindByTargetIdPending
-func (r *contactApplyRepository) FindByTargetIdPending(targetId string) ([]model.ContactApply, error) {
-	var applies []model.ContactApply
+// ApplyRepository.FindByTargetIdPending
+func (r *contactApplyRepository) FindByTargetIdPending(targetId string) ([]model.Apply, error) {
+	var applies []model.Apply
 	if err := r.db.Where("target_id = ? AND status = ?", targetId, contact_apply_status_enum.PENDING).
 		Find(&applies).Error; err != nil {
 		return nil, wrapDBErrorf(err, "查询待处理申请 target_id=%s", targetId)
@@ -610,14 +610,14 @@ func (r *contactApplyRepository) FindByTargetIdPending(targetId string) ([]model
 ### Handler
 
 ```go
-// POST /contact/passContactApply
-func PassContactApplyHandler(c *gin.Context) {
-	var req request.PassContactApplyRequest
+// POST /contact/passApply
+func PassApplyHandler(c *gin.Context) {
+	var req request.PassApplyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Contact.PassContactApply(req.TargetId, req.ApplicantId); err != nil {
+	if err := service.Svc.Contact.PassApply(req.TargetId, req.ApplicantId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -630,8 +630,8 @@ func PassContactApplyHandler(c *gin.Context) {
 > **特点**: 事务 + 双向建立关系 + 异步缓存清理
 
 ```go
-func (u *userContactService) PassContactApply(targetId, applicantId string) error {
-	contactApply, err := u.repos.ContactApply.FindByApplicantIdAndTargetId(applicantId, targetId)
+func (u *userContactService) PassApply(targetId, applicantId string) error {
+	contactApply, err := u.repos.Apply.FindByApplicantIdAndTargetId(applicantId, targetId)
 	if err != nil {
 		return errorx.ErrServerBusy
 	}
@@ -640,13 +640,13 @@ func (u *userContactService) PassContactApply(targetId, applicantId string) erro
 		if targetId[0] == 'U' {
 			// 好友申请：双向建立关系
 			contactApply.Status = contact_apply_status_enum.AGREE
-			txRepos.ContactApply.Update(contactApply)
+			txRepos.Apply.Update(contactApply)
 
-			txRepos.Contact.Create(&model.UserContact{
+			txRepos.Contact.Create(&model.Contact{
 				UserId: targetId, ContactId: applicantId,
 				ContactType: contact_type_enum.USER, Status: contact_status_enum.NORMAL,
 			})
-			txRepos.Contact.Create(&model.UserContact{
+			txRepos.Contact.Create(&model.Contact{
 				UserId: applicantId, ContactId: targetId,
 				ContactType: contact_type_enum.USER, Status: contact_status_enum.NORMAL,
 			})
@@ -655,8 +655,8 @@ func (u *userContactService) PassContactApply(targetId, applicantId string) erro
 
 		// 入群申请
 		contactApply.Status = contact_apply_status_enum.AGREE
-		txRepos.ContactApply.Update(contactApply)
-		txRepos.Contact.Create(&model.UserContact{
+		txRepos.Apply.Update(contactApply)
+		txRepos.Contact.Create(&model.Contact{
 			UserId: applicantId, ContactId: targetId,
 			ContactType: contact_type_enum.GROUP, Status: contact_status_enum.NORMAL,
 		})
@@ -744,7 +744,7 @@ func (u *userContactService) BlackContact(userId, contactId string) error {
 ```go
 // ContactRepository.UpdateStatus
 func (r *contactRepository) UpdateStatus(userId, contactId string, status int8) error {
-	if err := r.db.Model(&model.UserContact{}).
+	if err := r.db.Model(&model.Contact{}).
 		Where("user_id = ? AND contact_id = ?", userId, contactId).
 		Update("status", status).Error; err != nil {
 		return wrapDBErrorf(err, "更新联系人状态 user_id=%s contact_id=%s", userId, contactId)
@@ -821,7 +821,7 @@ func (u *userContactService) CancelBlackContact(userId, contactId string) error 
 | ApplyContact | - | - | - | - |
 | GetNewContactList | - | ✅ | - | - |
 | GetAddGroupList | - | ✅ | - | - |
-| PassContactApply | ✅ | - | - | ✅ |
-| RefuseContactApply | - | - | - | - |
+| PassApply | ✅ | - | - | ✅ |
+| RefuseApply | - | - | - | - |
 | BlackContact | ✅ | - | - | ✅ |
 | CancelBlackContact | ✅ | - | - | ✅ |

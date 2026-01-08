@@ -1,6 +1,7 @@
 package message
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -42,7 +43,7 @@ func (m *messageService) GetMessageList(userOneId, userTwoId string) ([]respond.
 	}
 	cacheKey := "message_list_" + userOneId + "_" + userTwoId
 
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
+	rspString, err := myredis.GetKeyNilIsErr(context.Background(), cacheKey)
 	if err == nil {
 		var rsp []respond.GetMessageListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err != nil {
@@ -87,7 +88,7 @@ func (m *messageService) GetMessageList(userOneId, userTwoId string) ([]respond.
 			zap.L().Error("json marshal error", zap.Error(err))
 			return
 		}
-		if err := myredis.SetKeyEx(cacheKey, string(jsonBytes), time.Duration(constants.REDIS_TIMEOUT)*time.Minute); err != nil {
+		if err := myredis.SetKeyEx(context.Background(), cacheKey, string(jsonBytes), time.Duration(constants.REDIS_TIMEOUT)*time.Minute); err != nil {
 			zap.L().Error("redis set key error", zap.Error(err))
 		}
 	})
@@ -98,7 +99,7 @@ func (m *messageService) GetMessageList(userOneId, userTwoId string) ([]respond.
 // GetGroupMessageList 获取群聊消息记录
 func (m *messageService) GetGroupMessageList(groupId string) ([]respond.GetGroupMessageListRespond, error) {
 	cacheKey := "group_messagelist_" + groupId
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
+	rspString, err := myredis.GetKeyNilIsErr(context.Background(), cacheKey)
 	if err == nil {
 		var rsp []respond.GetGroupMessageListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err != nil {
@@ -140,7 +141,7 @@ func (m *messageService) GetGroupMessageList(groupId string) ([]respond.GetGroup
 			zap.L().Error("json marshal error", zap.Error(err))
 			return
 		}
-		if err := myredis.SetKeyEx(cacheKey, string(jsonBytes), time.Duration(constants.REDIS_TIMEOUT)*time.Minute); err != nil {
+		if err := myredis.SetKeyEx(context.Background(), cacheKey, string(jsonBytes), time.Duration(constants.REDIS_TIMEOUT)*time.Minute); err != nil {
 			zap.L().Error("redis set key error", zap.Error(err))
 		}
 	})

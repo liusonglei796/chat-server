@@ -1,6 +1,7 @@
 package user
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -88,7 +89,7 @@ func (u *userInfoService) Login(loginReq request.LoginRequest) (*respond.LoginRe
 
 	// 将 Refresh Token ID 存入 Redis，实现单点互踢
 	redisKey := "user_token:" + user.Uuid
-	if err := myredis.SetKeyEx(redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
+	if err := myredis.SetKeyEx(context.Background(), redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
 		zap.L().Error("存储 Token ID 到 Redis 失败", zap.Error(err))
 		// 不阻塞登录流程，仅记录日志
 	}
@@ -125,7 +126,7 @@ func (u *userInfoService) SmsLogin(req request.SmsLoginRequest) (*respond.LoginR
 	}
 
 	key := "auth_code_" + req.Telephone
-	code, err := myredis.GetKey(key)
+	code, err := myredis.GetKey(context.Background(), key)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return nil, errorx.ErrServerBusy
@@ -133,7 +134,7 @@ func (u *userInfoService) SmsLogin(req request.SmsLoginRequest) (*respond.LoginR
 	if code != req.SmsCode {
 		return nil, errorx.New(errorx.CodeInvalidParam, "验证码不正确，请重试")
 	}
-	if err := myredis.DelKeyIfExists(key); err != nil {
+	if err := myredis.DelKeyIfExists(context.Background(), key); err != nil {
 		zap.L().Error(err.Error())
 		return nil, errorx.ErrServerBusy
 	}
@@ -153,7 +154,7 @@ func (u *userInfoService) SmsLogin(req request.SmsLoginRequest) (*respond.LoginR
 
 	// 将 Refresh Token ID 存入 Redis，实现单点互踢
 	redisKey := "user_token:" + user.Uuid
-	if err := myredis.SetKeyEx(redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
+	if err := myredis.SetKeyEx(context.Background(), redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
 		zap.L().Error("存储 Token ID 到 Redis 失败", zap.Error(err))
 	}
 
@@ -200,7 +201,7 @@ func (u *userInfoService) checkTelephoneExist(telephone string) error {
 // Register 注册
 func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respond.RegisterRespond, error) {
 	key := "auth_code_" + registerReq.Telephone
-	code, err := myredis.GetKey(key)
+	code, err := myredis.GetKey(context.Background(), key)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return nil, errorx.ErrServerBusy
@@ -208,7 +209,7 @@ func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respon
 	if code != registerReq.SmsCode {
 		return nil, errorx.New(errorx.CodeInvalidParam, "验证码不正确，请重试")
 	}
-	if err := myredis.DelKeyIfExists(key); err != nil {
+	if err := myredis.DelKeyIfExists(context.Background(), key); err != nil {
 		zap.L().Error(err.Error())
 		return nil, errorx.ErrServerBusy
 	}
@@ -281,7 +282,7 @@ func (u *userInfoService) UpdateUserInfo(updateReq request.UpdateUserInfoRequest
 
 	// 异步清理缓存
 	myredis.SubmitCacheTask(func() {
-		if err := myredis.DelKeyIfExists("user_info_" + updateReq.Uuid); err != nil {
+		if err := myredis.DelKeyIfExists(context.Background(), "user_info_"+updateReq.Uuid); err != nil {
 			zap.L().Error(err.Error())
 		}
 	})
@@ -351,7 +352,7 @@ func (u *userInfoService) DisableUsers(uuidList []string) error {
 				"group_session_list_"+uuid+"*",
 			)
 		}
-		if err := myredis.DelKeysWithPatterns(patterns); err != nil {
+		if err := myredis.DelKeysWithPatterns(context.Background(), patterns); err != nil {
 			zap.L().Error("批量清除用户相关缓存失败", zap.Error(err))
 		}
 	})
@@ -385,7 +386,7 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 		}
 
 		// 4. 批量软删除联系人申请
-		if err := txRepos.ContactApply.SoftDeleteByUsers(uuidList); err != nil {
+		if err := txRepos.Apply.SoftDeleteByUsers(uuidList); err != nil {
 			zap.L().Error("Batch delete contact applies error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -405,10 +406,10 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 				"user_info_"+uuid,
 				"direct_session_list_"+uuid+"*",
 				"group_session_list_"+uuid+"*",
-				"contact_user_list_"+uuid+"*",
+				"contact_relation:user:"+uuid+"*",
 			)
 		}
-		if err := myredis.DelKeysWithPatterns(patterns); err != nil {
+		if err := myredis.DelKeysWithPatterns(context.Background(), patterns); err != nil {
 			zap.L().Error("批量清除用户相关缓存失败", zap.Error(err))
 		}
 	})
@@ -421,7 +422,7 @@ func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond,
 	key := "user_info_" + uuid
 
 	// 1. 尝试从 Redis 缓存获取
-	rspString, err := myredis.GetKey(key)
+	rspString, err := myredis.GetKey(context.Background(), key)
 	if err == nil && rspString != "" {
 		var rsp respond.GetUserInfoRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
@@ -463,7 +464,7 @@ func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond,
 			zap.L().Error("JSON marshal failed", zap.Error(err))
 			return
 		}
-		if err := myredis.SetKeyEx(key, string(jsonData), time.Hour); err != nil {
+		if err := myredis.SetKeyEx(context.Background(), key, string(jsonData), time.Hour); err != nil {
 			zap.L().Error("Redis set key failed", zap.Error(err))
 		}
 	})
@@ -489,7 +490,7 @@ func (u *userInfoService) SetAdmin(uuidList []string, isAdmin int8) error {
 		for _, uuid := range uuidList {
 			patterns = append(patterns, "user_info_"+uuid)
 		}
-		if err := myredis.DelKeysWithPatterns(patterns); err != nil {
+		if err := myredis.DelKeysWithPatterns(context.Background(), patterns); err != nil {
 			zap.L().Error("批量清除用户缓存失败", zap.Error(err))
 		}
 	})

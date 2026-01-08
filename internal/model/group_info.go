@@ -23,7 +23,7 @@ type GroupInfo struct {
 	Notice string `gorm:"column:notice;type:varchar(500);comment:群公告"`
 
 	// MemberCnt 群成员数量
-	// 默认为 1（创建者），通过 IncrementMemberCount/DecrementMemberCount 更新
+	// 默认为 1（创建者），通过 IncrementMemberCount/DecrementMemberCountBy 更新
 	MemberCnt int `gorm:"column:member_cnt;default:1;comment:群人数"`
 
 	// OwnerId 群主用户 UUID

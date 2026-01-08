@@ -393,13 +393,13 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 	// Update Redis async via Worker Pool
 	myredis.SubmitCacheTask(func() {
 		key := "message_list_" + message.SendId + "_" + message.ReceiveId
-		rspString, err := myredis.GetKeyNilIsErr(key)
+		rspString, err := myredis.GetKeyNilIsErr(context.Background(), key)
 		if err == nil {
 			var list []respond.GetMessageListRespond
 			if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 				list = append(list, messageRsp)
 				if rspByte, err := json.Marshal(list); err == nil {
-					myredis.SetKeyEx(key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+					myredis.SetKeyEx(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
 				}
 			}
 		}
@@ -466,13 +466,13 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 	// Update Redis async via Worker Pool
 	myredis.SubmitCacheTask(func() {
 		key := "group_messagelist_" + message.ReceiveId
-		rspString, err := myredis.GetKeyNilIsErr(key)
+		rspString, err := myredis.GetKeyNilIsErr(context.Background(), key)
 		if err == nil {
 			var list []respond.GetGroupMessageListRespond
 			if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 				list = append(list, messageRsp)
 				if rspByte, err := json.Marshal(list); err == nil {
-					myredis.SetKeyEx(key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+					myredis.SetKeyEx(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
 				}
 			}
 		}
@@ -482,13 +482,13 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 // updateRedisGroup 更新群组聊天记录的 Redis 缓存
 func (k *MsgConsumer) updateRedisGroup(message model.Message, rsp respond.GetGroupMessageListRespond) {
 	key := "group_messagelist_" + message.ReceiveId
-	rspString, err := myredis.GetKeyNilIsErr(key)
+	rspString, err := myredis.GetKeyNilIsErr(context.Background(), key)
 	if err == nil {
 		var list []respond.GetGroupMessageListRespond
 		if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 			list = append(list, rsp)
 			if rspByte, err := json.Marshal(list); err == nil {
-				myredis.SetKeyEx(key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+				myredis.SetKeyEx(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
 			}
 		}
 	}

@@ -55,13 +55,13 @@ func Init() {
 	// 如果表不存在则创建，如果字段变更则更新结构
 	// 注意：不会删除已有字段或数据
 	err = GormDB.AutoMigrate(
-		&model.UserInfo{},     // 用户信息表
-		&model.GroupInfo{},    // 群组信息表
-		&model.UserContact{},  // 用户联系人表
-		&model.Session{},      // 会话表
-		&model.ContactApply{}, // 联系人申请表
-		&model.Message{},      // 消息表
-		&model.GroupMember{},  // 群组成员表
+		&model.UserInfo{},    // 用户信息表
+		&model.GroupInfo{},   // 群组信息表
+		&model.Contact{},     // 用户联系人表
+		&model.Session{},     // 会话表
+		&model.Apply{},       // 联系人申请表
+		&model.Message{},     // 消息表
+		&model.GroupMember{}, // 群组成员表
 	)
 	if err != nil {
 		// 迁移失败，记录致命错误并退出程序

@@ -4,7 +4,6 @@
 package redis
 
 import (
-	"context"
 	"strconv"
 
 	"kama_chat_server/internal/config"
@@ -14,9 +13,6 @@ import (
 
 // redisClient 全局 Redis 客户端实例（包内可见）
 var redisClient *redis.Client
-
-// ctx 全局上下文，用于 Redis 操作（包内可见）
-var ctx = context.Background()
 
 // Init 初始化 Redis 连接
 // 从配置文件读取连接参数并创建客户端实例
@@ -35,7 +31,6 @@ func Init() {
 		Addr:     addr,
 		Password: password,
 		DB:       db,
-
 		// 连接池配置
 		PoolSize:     50, // 最大连接数
 		MinIdleConns: 15, // 最小空闲连接，与 Worker 数量匹配

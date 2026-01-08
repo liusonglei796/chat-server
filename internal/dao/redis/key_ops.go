@@ -4,6 +4,7 @@
 package redis
 
 import (
+	"context"
 	"kama_chat_server/pkg/errorx"
 )
 
@@ -13,15 +14,15 @@ import (
 // 先检查键是否存在，存在则删除
 // key: 键名
 // 返回: 操作错误
-func DelKeyIfExists(key string) error {
+func DelKeyIfExists(ctx context.Context, key string) error {
 	// 检查键是否存在
 	exists, err := redisClient.Exists(ctx, key).Result()
 	if err != nil {
 		return errorx.Wrapf(err, errorx.CodeCacheError, "redis exists key %s", key)
 	}
 	if exists == 1 { // 键存在
-		if err := redisClient.Del(ctx, key).Err(); err != nil {
-			return errorx.Wrapf(err, errorx.CodeCacheError, "redis delete key %s", key)
+		if err := redisClient.Unlink(ctx, key).Err(); err != nil {
+			return errorx.Wrapf(err, errorx.CodeCacheError, "redis unlink key %s", key)
 		}
 	}
 	// 无论键是否存在，都返回成功
@@ -32,12 +33,11 @@ func DelKeyIfExists(key string) error {
 // 使用 SCAN 分批扫描 + UNLINK 异步删除，避免阻塞 Redis
 // pattern: 匹配模式，如 "user_*"
 // 返回: 操作错误
-func DelKeysWithPattern(pattern string) error {
+func DelKeysWithPattern(ctx context.Context, pattern string) error {
 	var cursor uint64
 	for {
 		var keys []string
 		var err error
-
 		// 每次扫描 500 条，减少循环次数
 		keys, cursor, err = redisClient.Scan(ctx, cursor, pattern, 500).Result()
 		if err != nil {
@@ -51,7 +51,6 @@ func DelKeysWithPattern(pattern string) error {
 				return errorx.Wrapf(err, errorx.CodeCacheError, "redis unlink keys with pattern %s", pattern)
 			}
 		}
-
 		if cursor == 0 {
 			break
 		}
@@ -62,7 +61,7 @@ func DelKeysWithPattern(pattern string) error {
 // DelKeysWithPatterns 批量删除多个模式匹配的键
 // patterns: 模式数组，如 ["user_*", "session_*"]
 // 返回: 操作错误
-func DelKeysWithPatterns(patterns []string) error {
+func DelKeysWithPatterns(ctx context.Context, patterns []string) error {
 	if len(patterns) == 0 {
 		return nil
 	}
@@ -72,7 +71,7 @@ func DelKeysWithPatterns(patterns []string) error {
 		var cursor uint64
 		for {
 			// 分批扫描：每次扫描 500 个键
-			keys, newCursor, err := redisClient.Scan(ctx, cursor, pattern, 500).Result()
+			keys, cursor, err := redisClient.Scan(ctx, cursor, pattern, 500).Result()
 			if err != nil {
 				return errorx.Wrapf(err, errorx.CodeCacheError, "redis scan pattern %s", pattern)
 			}
@@ -84,8 +83,6 @@ func DelKeysWithPatterns(patterns []string) error {
 					return errorx.Wrapf(err, errorx.CodeCacheError, "redis unlink keys with pattern %s", pattern)
 				}
 			}
-
-			cursor = newCursor
 			if cursor == 0 {
 				break
 			}
@@ -94,81 +91,23 @@ func DelKeysWithPatterns(patterns []string) error {
 
 	return nil
 }
-
-// DelKeysWithPrefix 删除指定前缀的所有键
-// prefix: 键前缀
-// 返回: 操作错误
-func DelKeysWithPrefix(prefix string) error {
-	var cursor uint64
-	for {
-		var keys []string
-		var err error
-
-		// 使用 prefix* 模式匹配
-		keys, cursor, err = redisClient.Scan(ctx, cursor, prefix+"*", 100).Result()
-		if err != nil {
-			return errorx.Wrapf(err, errorx.CodeCacheError, "redis scan prefix %s", prefix)
-		}
-
-		if len(keys) > 0 {
-			if err := redisClient.Del(ctx, keys...).Err(); err != nil {
-				return errorx.Wrapf(err, errorx.CodeCacheError, "redis delete keys with prefix %s", prefix)
-			}
-		}
-
-		if cursor == 0 {
-			break
-		}
-	}
-	return nil
-}
-
-// DelKeysWithSuffix 删除指定后缀的所有键
-// suffix: 键后缀
-// 返回: 操作错误
-func DelKeysWithSuffix(suffix string) error {
-	var cursor uint64
-	for {
-		var keys []string
-		var err error
-
-		// 使用 *suffix 模式匹配
-		keys, cursor, err = redisClient.Scan(ctx, cursor, "*"+suffix, 100).Result()
-		if err != nil {
-			return errorx.Wrapf(err, errorx.CodeCacheError, "redis scan suffix %s", suffix)
-		}
-
-		if len(keys) > 0 {
-			if err := redisClient.Del(ctx, keys...).Err(); err != nil {
-				return errorx.Wrapf(err, errorx.CodeCacheError, "redis delete keys with suffix %s", suffix)
-			}
-		}
-
-		if cursor == 0 {
-			break
-		}
-	}
-	return nil
-}
-
 // DeleteAllRedisKeys 删除当前数据库中的所有键
 // 警告：此操作会清空整个数据库，谨慎使用
 // 通常用于服务器关闭时的清理操作
 // 返回: 操作错误
-func DeleteAllRedisKeys() error {
+func DeleteAllRedisKeys(ctx context.Context) error {
 	var cursor uint64 = 0
 	for {
 		// 扫描所有键
-		keys, nextCursor, err := redisClient.Scan(ctx, cursor, "*", 0).Result()
+		keys, cursor, err := redisClient.Scan(ctx, cursor, "*", 0).Result()
 		if err != nil {
 			return errorx.Wrap(err, errorx.CodeCacheError, "redis scan all keys")
 		}
-		cursor = nextCursor
 
 		if len(keys) > 0 {
 			// 批量删除找到的键
-			if _, err := redisClient.Del(ctx, keys...).Result(); err != nil {
-				return errorx.Wrap(err, errorx.CodeCacheError, "redis delete all keys")
+			if _, err := redisClient.Unlink(ctx, keys...).Result(); err != nil {
+				return errorx.Wrap(err, errorx.CodeCacheError, "redis unlink all keys")
 			}
 		}
 

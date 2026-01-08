@@ -20,19 +20,6 @@ func NewMessageRepository(db *gorm.DB) MessageRepository {
 	return &messageRepository{db: db}
 }
 
-// FindBySessionId 根据会话ID查找消息
-// 按创建时间升序排列（最旧的在前）
-// sessionId: 会话 UUID
-// 返回: 消息列表和错误
-func (r *messageRepository) FindBySessionId(sessionId string) ([]model.Message, error) {
-	var messages []model.Message
-	// Order("created_at ASC"): 按时间升序，便于按顺序显示聊天记录
-	if err := r.db.Where("session_id = ?", sessionId).Order("created_at ASC").Find(&messages).Error; err != nil {
-		return nil, wrapDBErrorf(err, "查询消息 session_id=%s", sessionId)
-	}
-	return messages, nil
-}
-
 // FindByUserIds 根据两个用户ID查找私聊消息（双向）
 // 查找 A->B 和 B->A 的所有消息
 // userOneId, userTwoId: 两个用户的 UUID
@@ -57,14 +44,4 @@ func (r *messageRepository) FindByGroupId(receiveId string) ([]model.Message, er
 		return nil, wrapDBErrorf(err, "查询群消息 receive_id=%s", receiveId)
 	}
 	return messages, nil
-}
-
-// Create 创建新消息
-// message: 消息模型
-// 返回: 操作错误
-func (r *messageRepository) Create(message *model.Message) error {
-	if err := r.db.Create(message).Error; err != nil {
-		return wrapDBError(err, "创建消息")
-	}
-	return nil
 }
