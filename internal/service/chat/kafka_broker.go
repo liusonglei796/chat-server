@@ -10,6 +10,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"kama_chat_server/internal/dao/mysql/repository"
+	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
 	"kama_chat_server/internal/model"
@@ -21,7 +23,6 @@ import (
 	"os"
 	"sync"
 	"time"
-
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
@@ -35,29 +36,35 @@ type MsgConsumer struct {
 	Login chan *UserConn
 	// Logout 客户端登出通道，当连接断开时写入此通道
 	Logout chan *UserConn
-}
 
-// GlobalMsgConsumer 全局单例的 MsgConsumer 实例
-var GlobalMsgConsumer *MsgConsumer
+	// 依赖注入字段（遵循依赖倒置原则）
+	kafkaClient     *KafkaClient
+	messageRepo     repository.MessageRepository
+	groupMemberRepo repository.GroupMemberRepository
+	cacheService    myredis.AsyncCacheService
+}
 
 // kafkaQuit 用于接收系统信号以优雅退出（目前逻辑中使用较少）
 var kafkaQuit = make(chan os.Signal, 1)
 
-// InitKafkaServer 初始化 KafkaBroker 单例并设置 GlobalBroker
-func InitKafkaServer() {
-	// 确保只初始化一次
-	if GlobalMsgConsumer == nil {
-		GlobalMsgConsumer = &MsgConsumer{
-			// sync.Map 零值即可用，无需显式初始化
-			// 初始化登录通道
-			Login: make(chan *UserConn),
-			// 初始化登出通道
-			Logout: make(chan *UserConn),
-		}
+// NewMsgConsumer 创建 KafkaBroker 实例（依赖注入）
+func NewMsgConsumer(
+	kafkaClient *KafkaClient,
+	messageRepo repository.MessageRepository,
+	groupMemberRepo repository.GroupMemberRepository,
+	cacheService myredis.AsyncCacheService,
+) *MsgConsumer {
+	return &MsgConsumer{
+		// sync.Map 零值即可用，无需显式初始化
+		// 初始化登录通道
+		Login: make(chan *UserConn),
+		// 初始化登出通道
+		Logout:          make(chan *UserConn),
+		kafkaClient:     kafkaClient,
+		messageRepo:     messageRepo,
+		groupMemberRepo: groupMemberRepo,
+		cacheService:    cacheService,
 	}
-	// 设置全局 Broker 为 KafkaBroker
-	GlobalBroker = GlobalMsgConsumer
-	//signal.Notify(kafkaQuit, syscall.SIGINT, syscall.SIGTERM)
 }
 
 // normalizePath 函数已在 channel_server.go 中定义
@@ -89,7 +96,7 @@ func (k *MsgConsumer) Start() {
 		// Kafka 消费死循环
 		for {
 			// 从 Kafka 读取一条消息
-			kafkaMessage, err := GlobalKafkaClient.Consumer.ReadMessage(ctx)
+			kafkaMessage, err := k.kafkaClient.Consumer.ReadMessage(ctx)
 			if err != nil {
 				zap.L().Error(err.Error())
 				continue // 读取失败，重试
@@ -183,7 +190,7 @@ func (k *MsgConsumer) GetClient(userId string) *UserConn {
 // Publish 实现 MessageBroker 接口：producer发布消息到 Kafka
 func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
 	key := []byte("0") // 默认分区
-	return GlobalKafkaClient.WriteMessage(ctx, key, msg)
+	return k.kafkaClient.WriteMessage(ctx, key, msg)
 }
 
 // RegisterClient 实现 MessageBroker 接口：注册客户端
@@ -194,6 +201,11 @@ func (k *MsgConsumer) RegisterClient(client *UserConn) {
 // UnregisterClient 实现 MessageBroker 接口：注销客户端
 func (k *MsgConsumer) UnregisterClient(client *UserConn) {
 	k.Logout <- client
+}
+
+// GetMessageRepo 实现 MessageBroker 接口：获取消息 Repository
+func (k *MsgConsumer) GetMessageRepo() repository.MessageRepository {
+	return k.messageRepo
 }
 
 // handleTextMessage 处理文本消息
@@ -223,8 +235,8 @@ func (k *MsgConsumer) handleTextMessage(req request.ChatMessageRequest) {
 	message.SendAvatar = normalizePath(message.SendAvatar)
 
 	// 通过 Repository 接口入库
-	if GlobalMessageRepo != nil {
-		if err := GlobalMessageRepo.Create(&message); err != nil {
+	if k.messageRepo != nil {
+		if err := k.messageRepo.Create(&message); err != nil {
 			zap.L().Error("创建消息失败", zap.Error(err))
 		}
 	}
@@ -261,8 +273,8 @@ func (k *MsgConsumer) handleFileMessage(req request.ChatMessageRequest) {
 	message.SendAvatar = normalizePath(message.SendAvatar)
 
 	// 通过 Repository 接口入库
-	if GlobalMessageRepo != nil {
-		if err := GlobalMessageRepo.Create(&message); err != nil {
+	if k.messageRepo != nil {
+		if err := k.messageRepo.Create(&message); err != nil {
 			zap.L().Error("创建文件消息失败", zap.Error(err))
 		}
 	}
@@ -306,8 +318,8 @@ func (k *MsgConsumer) handleAVMessage(req request.ChatMessageRequest) {
 	// 关键信令入库
 	if avData.MessageId == "PROXY" && (avData.Type == "start_call" || avData.Type == "receive_call" || avData.Type == "reject_call") {
 		message.SendAvatar = normalizePath(message.SendAvatar)
-		if GlobalMessageRepo != nil {
-			if err := GlobalMessageRepo.Create(&message); err != nil {
+		if k.messageRepo != nil {
+			if err := k.messageRepo.Create(&message); err != nil {
 				zap.L().Error("创建音视频消息失败", zap.Error(err))
 			}
 		}
@@ -395,16 +407,16 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 	}
 
 	// 通过注入的缓存服务异步更新缓存
-	if GlobalCacheService != nil {
-		GlobalCacheService.SubmitTask(func() {
+	if k.cacheService != nil {
+		k.cacheService.SubmitTask(func() {
 			key := "message_list_" + message.SendId + "_" + message.ReceiveId
-			rspString, err := GlobalCacheService.GetOrError(context.Background(), key)
+			rspString, err := k.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
 				var list []respond.GetMessageListRespond
 				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 					list = append(list, messageRsp)
 					if rspByte, err := json.Marshal(list); err == nil {
-						_ = GlobalCacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+						_ = k.cacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
 					}
 				}
 			}
@@ -448,9 +460,9 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 
 	// 通过 Repository 接口查群成员
 	var groupMembers []model.GroupMember
-	if GlobalGroupMemberRepo != nil {
+	if k.groupMemberRepo != nil {
 		var err error
-		groupMembers, err = GlobalGroupMemberRepo.FindByGroupUuid(message.ReceiveId)
+		groupMembers, err = k.groupMemberRepo.FindByGroupUuid(message.ReceiveId)
 		if err != nil {
 			zap.L().Error("查询群成员失败", zap.Error(err))
 		}
@@ -474,16 +486,16 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 	}
 
 	// 通过注入的缓存服务异步更新缓存
-	if GlobalCacheService != nil {
-		GlobalCacheService.SubmitTask(func() {
+	if k.cacheService != nil {
+		k.cacheService.SubmitTask(func() {
 			key := "group_messagelist_" + message.ReceiveId
-			rspString, err := GlobalCacheService.GetOrError(context.Background(), key)
+			rspString, err := k.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
 				var list []respond.GetGroupMessageListRespond
 				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 					list = append(list, messageRsp)
 					if rspByte, err := json.Marshal(list); err == nil {
-						_ = GlobalCacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+						_ = k.cacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
 					}
 				}
 			}
@@ -493,17 +505,17 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 
 // updateRedisGroup 更新群组聊天记录的缓存
 func (k *MsgConsumer) updateRedisGroup(message model.Message, rsp respond.GetGroupMessageListRespond) {
-	if GlobalCacheService == nil {
+	if k.cacheService == nil {
 		return
 	}
 	key := "group_messagelist_" + message.ReceiveId
-	rspString, err := GlobalCacheService.GetOrError(context.Background(), key)
+	rspString, err := k.cacheService.GetOrError(context.Background(), key)
 	if err == nil {
 		var list []respond.GetGroupMessageListRespond
 		if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 			list = append(list, rsp)
 			if rspByte, err := json.Marshal(list); err == nil {
-				_ = GlobalCacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+				_ = k.cacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
 			}
 		}
 	}

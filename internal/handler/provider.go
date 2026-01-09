@@ -5,6 +5,7 @@ package handler
 
 import (
 	"kama_chat_server/internal/service"
+	"kama_chat_server/internal/service/chat"
 )
 
 // Handlers 聚合所有 Handler 实例
@@ -16,6 +17,7 @@ type Handlers struct {
 	Group   *GroupHandler
 	Session *SessionHandler
 	Message *MessageHandler
+	Ws      *WsHandler
 }
 
 // NewHandlers 创建并注入所有 Handler 实例
@@ -25,8 +27,9 @@ type Handlers struct {
 //  3. 返回 Handlers 聚合
 //
 // svc: Service 层聚合实例
+// broker: 消息代理实例，用于 WebSocket 处理
 // 返回: Handlers 聚合指针
-func NewHandlers(svc *service.Services) *Handlers {
+func NewHandlers(svc *service.Services, broker chat.MessageBroker) *Handlers {
 	return &Handlers{
 		User:    NewUserHandler(svc.User),
 		Auth:    NewAuthHandler(svc.Auth),
@@ -34,5 +37,6 @@ func NewHandlers(svc *service.Services) *Handlers {
 		Group:   NewGroupHandler(svc.Group),
 		Session: NewSessionHandler(svc.Session),
 		Message: NewMessageHandler(svc.Message),
+		Ws:      NewWsHandler(broker),
 	}
 }

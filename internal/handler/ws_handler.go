@@ -13,6 +13,16 @@ import (
 	"go.uber.org/zap"
 )
 
+// WsHandler WebSocket 请求处理器
+type WsHandler struct {
+	broker chat.MessageBroker
+}
+
+// NewWsHandler 创建 WebSocket 处理器实例
+func NewWsHandler(broker chat.MessageBroker) *WsHandler {
+	return &WsHandler{broker: broker}
+}
+
 // WsLoginHandler WebSocket 登录（升级 HTTP 连接为 WebSocket）
 // GET /ws/login?client_id=xxx
 // 查询参数: client_id - 用户 UUID
@@ -20,7 +30,7 @@ import (
 //   - 将 HTTP 连接升级为 WebSocket 连接
 //   - 注册客户端到在线用户列表
 //   - 开始监听消息收发
-func WsLoginHandler(c *gin.Context) {
+func (h *WsHandler) WsLoginHandler(c *gin.Context) {
 	// 获取客户端 ID（用户 UUID）
 	clientId := c.Query("client_id")
 	if clientId == "" {
@@ -32,7 +42,7 @@ func WsLoginHandler(c *gin.Context) {
 		return
 	}
 	// 初始化 WebSocket 客户端连接
-	chat.NewClientInit(c, clientId)
+	chat.NewClientInit(c, clientId, h.broker)
 }
 
 // WsLogoutHandler WebSocket 登出
@@ -41,14 +51,14 @@ func WsLoginHandler(c *gin.Context) {
 // 功能:
 //   - 从在线用户列表中移除客户端
 //   - 关闭 WebSocket 连接
-func WsLogoutHandler(c *gin.Context) {
+func (h *WsHandler) WsLogoutHandler(c *gin.Context) {
 	var req request.WsLogoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
 	// 登出客户端
-	if err := chat.ClientLogout(req.OwnerId); err != nil {
+	if err := chat.ClientLogout(req.OwnerId, h.broker); err != nil {
 		HandleError(c, err)
 		return
 	}

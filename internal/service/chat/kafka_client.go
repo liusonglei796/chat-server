@@ -1,5 +1,5 @@
 // Package chat 实现了聊天系统的核心服务层
-// mq_manager.go
+// kafka_client.go
 // 核心职责：Kafka 基础设施管理
 // 1. 封装 Kafka 底层连接 (Writer/Reader)
 // 2. 提供消息写入接口 (WriteMessage)
@@ -16,13 +16,16 @@ import (
 	"go.uber.org/zap"
 )
 
-// KafkaClient 全局 Kafka 客户端实例
-var GlobalKafkaClient = new(KafkaClient)
-
+// KafkaClient Kafka 客户端结构
 type KafkaClient struct {
 	Producer  *kafka.Writer // 生产者：负责写入消息
 	Consumer  *kafka.Reader // 消费者：负责读取消息
 	KafkaConn *kafka.Conn   // 连接管理
+}
+
+// NewKafkaClient 创建 Kafka 客户端实例
+func NewKafkaClient() *KafkaClient {
+	return &KafkaClient{}
 }
 
 // KafkaInit 初始化 Kafka 客户端

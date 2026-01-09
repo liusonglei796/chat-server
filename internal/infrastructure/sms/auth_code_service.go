@@ -3,7 +3,9 @@ package sms
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	openapi "github.com/alibabacloud-go/darabonba-openapi/v2/client"
@@ -18,6 +20,57 @@ import (
 	"kama_chat_server/pkg/util/random"
 )
 
+// SmsService 短信服务接口
+// 抽象短信发送操作，支持多种实现（阿里云、本地 mock 等）
+// Service 层应依赖此接口而非具体实现
+type SmsService interface {
+	// SendVerificationCode 发送短信验证码
+	SendVerificationCode(telephone string) error
+}
+
+type localSmsService struct {
+	cache myredis.CacheService
+}
+
+func (s *localSmsService) SendVerificationCode(telephone string) error {
+	key := "auth_code_" + telephone
+	code, err := s.cache.Get(context.Background(), key)
+	if err != nil {
+		zap.L().Error("缓存频率检查异常", zap.Error(err), zap.String("phone", telephone))
+		return errorx.ErrServerBusy
+	}
+	if code != "" {
+		return errorx.New(errorx.CodeInvalidParam, "目前还不能发送验证码，请稍后重试或输入已发送的验证码")
+	}
+
+	code = strconv.Itoa(random.GetRandomInt(6))
+	fmt.Printf("【MockSMS】手机号: %s, 验证码: %s\n", telephone, code)
+
+	if err := s.cache.Set(context.Background(), key, code, time.Minute); err != nil {
+		zap.L().Error("缓存写入验证码失败", zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+
+	return nil
+}
+
+func shouldUseMock(auth config.AuthCodeConfig) bool {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("KAMACHAT_SMS_MODE")))
+	if mode == "mock" || mode == "local" || mode == "test" {
+		return true
+	}
+	// configs/config.toml 默认是占位字符串；没配真实 AK 时默认走 mock，便于本机跑通注册/短信登录链路
+	ak := strings.ToLower(strings.TrimSpace(auth.AccessKeyID))
+	ask := strings.ToLower(strings.TrimSpace(auth.AccessKeySecret))
+	if ak == "" || ask == "" {
+		return true
+	}
+	if strings.Contains(ak, "your accesskey") || strings.Contains(ask, "your accesskey") {
+		return true
+	}
+	return false
+}
+
 // aliyunSmsService 阿里云短信服务实现
 // 实现 SmsService 接口，遵循依赖倒置原则
 type aliyunSmsService struct {
@@ -31,10 +84,16 @@ var GlobalSmsService SmsService
 // Init 初始化阿里云 SMS Client 并创建服务实例
 // cacheService: 缓存服务接口实例（用于频率限制和验证码存储）
 func Init(cacheService myredis.CacheService) error {
-	cfgPath := config.GetConfig().AuthCodeConfig
+	authCfg := config.GetConfig().AuthCodeConfig
+	if shouldUseMock(authCfg) {
+		GlobalSmsService = &localSmsService{cache: cacheService}
+		zap.L().Warn("SMS Service 使用本地 Mock 模式（仅写入 Redis，不调用第三方短信）")
+		return nil
+	}
+
 	conf := &openapi.Config{
-		AccessKeyId:     tea.String(cfgPath.AccessKeyID),
-		AccessKeySecret: tea.String(cfgPath.AccessKeySecret),
+		AccessKeyId:     tea.String(authCfg.AccessKeyID),
+		AccessKeySecret: tea.String(authCfg.AccessKeySecret),
 	}
 	conf.Endpoint = tea.String("dysmsapi.aliyuncs.com")
 	client, err := dysmsapi20170525.NewClient(conf)
@@ -43,11 +102,7 @@ func Init(cacheService myredis.CacheService) error {
 		return err
 	}
 
-	// 创建服务实例，注入依赖
-	GlobalSmsService = &aliyunSmsService{
-		client: client,
-		cache:  cacheService,
-	}
+	GlobalSmsService = &aliyunSmsService{client: client, cache: cacheService}
 	return nil
 }
 

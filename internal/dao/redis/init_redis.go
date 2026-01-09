@@ -19,7 +19,7 @@ func Init() AsyncCacheService {
 	host := conf.RedisConfig.Host         // Redis 服务器地址
 	port := conf.RedisConfig.Port         // Redis 端口
 	password := conf.RedisConfig.Password // 密码，无密码留空
-	db := conf.Db                         // 数据库编号
+	db := conf.RedisConfig.Db             // 数据库编号
 
 	// 拼接地址：host:port
 	addr := host + ":" + strconv.Itoa(port)

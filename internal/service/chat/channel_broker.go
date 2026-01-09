@@ -11,6 +11,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"kama_chat_server/internal/dao/mysql/repository"
+	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
 	"kama_chat_server/internal/model"
@@ -38,27 +40,31 @@ type StandaloneServer struct {
 	Login chan *UserConn
 	// Logout 客户端登出通道，当连接断开时写入此通道
 	Logout chan *UserConn
+
+	// 依赖注入字段（遵循依赖倒置原则）
+	messageRepo     repository.MessageRepository
+	groupMemberRepo repository.GroupMemberRepository
+	cacheService    myredis.AsyncCacheService
 }
 
-// GlobalStandaloneServer 全局单例的 WebSocket 服务实例
-var GlobalStandaloneServer *StandaloneServer
-
-// Init 初始化 ChannelBroker 单例并设置 GlobalBroker
-func Init() {
-	// 确保只初始化一次
-	if GlobalStandaloneServer == nil {
-		GlobalStandaloneServer = &StandaloneServer{
-			// sync.Map 零值即可用，无需显式初始化
-			// 初始化消息转发通道，设置缓冲区大小
-			Transmit: make(chan []byte, constants.CHANNEL_SIZE),
-			// 初始化登录通道
-			Login: make(chan *UserConn, constants.CHANNEL_SIZE),
-			// 初始化登出通道
-			Logout: make(chan *UserConn, constants.CHANNEL_SIZE),
-		}
+// NewStandaloneServer 创建 ChannelBroker 实例（依赖注入）
+func NewStandaloneServer(
+	messageRepo repository.MessageRepository,
+	groupMemberRepo repository.GroupMemberRepository,
+	cacheService myredis.AsyncCacheService,
+) *StandaloneServer {
+	return &StandaloneServer{
+		// sync.Map 零值即可用，无需显式初始化
+		// 初始化消息转发通道，设置缓冲区大小
+		Transmit: make(chan []byte, constants.CHANNEL_SIZE),
+		// 初始化登录通道
+		Login: make(chan *UserConn, constants.CHANNEL_SIZE),
+		// 初始化登出通道
+		Logout:          make(chan *UserConn, constants.CHANNEL_SIZE),
+		messageRepo:     messageRepo,
+		groupMemberRepo: groupMemberRepo,
+		cacheService:    cacheService,
 	}
-	// 设置全局 Broker 为 ChannelBroker
-	GlobalBroker = GlobalStandaloneServer
 }
 
 // normalizePath 将完整 URL 转换为相对路径
@@ -86,17 +92,17 @@ func normalizePath(path string) string {
 // Kafka Consumer (消费者)动作：后台死循环 -> 调用 KafkaService.ChatReader.ReadMessage 从 Kafka 拿消息 -> 处理业务（入库、转发）。
 
 func (s *StandaloneServer) Start() {
-	// 使用 defer 确保函数退出时关闭所有通道，释放资源
-	defer func() {
-		close(s.Transmit)
-		close(s.Logout)
-		close(s.Login)
-	}()
 	// 从死循环中处理各种 channel 事件
 	for {
 		select {
 		// 处理客户端登录事件
-		case client := <-s.Login:
+		case client, ok := <-s.Login:
+			if !ok {
+				return
+			}
+			if client == nil {
+				continue
+			}
 			// 将新连接的客户端加入映射表 (sync.Map 自动处理并发安全)
 			s.Clients.Store(client.Uuid, client)
 			// 记录调试日志
@@ -107,7 +113,13 @@ func (s *StandaloneServer) Start() {
 			}
 
 		// 处理客户端登出事件
-		case client := <-s.Logout:
+		case client, ok := <-s.Logout:
+			if !ok {
+				return
+			}
+			if client == nil {
+				continue
+			}
 			// 从映射表中移除断开的客户端 (sync.Map 自动处理并发安全)
 			s.Clients.Delete(client.Uuid)
 			// 记录日志
@@ -118,7 +130,10 @@ func (s *StandaloneServer) Start() {
 			}
 
 		// 处理消息转发事件（这是核心的消息处理循环）
-		case data := <-s.Transmit:
+		case data, ok := <-s.Transmit:
+			if !ok {
+				return
+			}
 			// 声明请求对象
 			var chatMessageReq request.ChatMessageRequest
 			// 将 JSON 数据反序列化为请求对象
@@ -170,8 +185,8 @@ func (s *StandaloneServer) handleTextMessage(req request.ChatMessageRequest) {
 	message.SendAvatar = normalizePath(message.SendAvatar)
 
 	// 通过 Repository 接口存入数据库（遵循依赖倒置原则）
-	if GlobalMessageRepo != nil {
-		if err := GlobalMessageRepo.Create(&message); err != nil {
+	if s.messageRepo != nil {
+		if err := s.messageRepo.Create(&message); err != nil {
 			zap.L().Error("创建消息失败", zap.Error(err))
 		}
 	}
@@ -210,8 +225,8 @@ func (s *StandaloneServer) handleFileMessage(req request.ChatMessageRequest) {
 	message.SendAvatar = normalizePath(message.SendAvatar)
 
 	// 通过 Repository 接口存入数据库
-	if GlobalMessageRepo != nil {
-		if err := GlobalMessageRepo.Create(&message); err != nil {
+	if s.messageRepo != nil {
+		if err := s.messageRepo.Create(&message); err != nil {
 			zap.L().Error("创建文件消息失败", zap.Error(err))
 		}
 	}
@@ -257,8 +272,8 @@ func (s *StandaloneServer) handleAVMessage(req request.ChatMessageRequest) {
 	// 这有助于后续的历史记录查询，而中间的 Candidate 交换等过程则不存储
 	if avData.MessageId == "PROXY" && (avData.Type == "start_call" || avData.Type == "receive_call" || avData.Type == "reject_call") {
 		message.SendAvatar = normalizePath(message.SendAvatar)
-		if GlobalMessageRepo != nil {
-			if err := GlobalMessageRepo.Create(&message); err != nil {
+		if s.messageRepo != nil {
+			if err := s.messageRepo.Create(&message); err != nil {
 				zap.L().Error("创建音视频消息失败", zap.Error(err))
 			}
 		}
@@ -353,8 +368,8 @@ func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar stri
 	}
 
 	// 通过注入的缓存服务异步更新缓存
-	if GlobalCacheService != nil {
-		GlobalCacheService.SubmitTask(func() {
+	if s.cacheService != nil {
+		s.cacheService.SubmitTask(func() {
 			userOneId := message.SendId
 			userTwoId := message.ReceiveId
 			if userOneId > userTwoId {
@@ -362,13 +377,13 @@ func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar stri
 			}
 			key := "message_list_" + userOneId + "_" + userTwoId
 
-			rspString, err := GlobalCacheService.GetOrError(context.Background(), key)
+			rspString, err := s.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
 				var list []respond.GetMessageListRespond
 				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 					list = append(list, messageRsp)
 					if rspByte, err := json.Marshal(list); err == nil {
-						_ = GlobalCacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+						_ = s.cacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
 					}
 				}
 			}
@@ -413,9 +428,9 @@ func (s *StandaloneServer) sendToGroup(message model.Message, originalAvatar str
 
 	// 通过 Repository 接口查询群成员列表
 	var groupMembers []model.GroupMember
-	if GlobalGroupMemberRepo != nil {
+	if s.groupMemberRepo != nil {
 		var err error
-		groupMembers, err = GlobalGroupMemberRepo.FindByGroupUuid(message.ReceiveId)
+		groupMembers, err = s.groupMemberRepo.FindByGroupUuid(message.ReceiveId)
 		if err != nil {
 			zap.L().Error("查询群成员失败", zap.Error(err))
 		}
@@ -439,16 +454,16 @@ func (s *StandaloneServer) sendToGroup(message model.Message, originalAvatar str
 	}
 
 	// 通过注入的缓存服务异步更新缓存
-	if GlobalCacheService != nil {
-		GlobalCacheService.SubmitTask(func() {
+	if s.cacheService != nil {
+		s.cacheService.SubmitTask(func() {
 			key := "group_messagelist_" + message.ReceiveId
-			rspString, err := GlobalCacheService.GetOrError(context.Background(), key)
+			rspString, err := s.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
 				var list []respond.GetGroupMessageListRespond
 				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 					list = append(list, messageRsp)
 					if rspByte, err := json.Marshal(list); err == nil {
-						_ = GlobalCacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+						_ = s.cacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
 					}
 				}
 			}
@@ -486,4 +501,9 @@ func (s *StandaloneServer) RegisterClient(client *UserConn) {
 // UnregisterClient 实现 MessageBroker 接口：注销客户端
 func (s *StandaloneServer) UnregisterClient(client *UserConn) {
 	s.Logout <- client
+}
+
+// GetMessageRepo 实现 MessageBroker 接口：获取消息 Repository
+func (s *StandaloneServer) GetMessageRepo() repository.MessageRepository {
+	return s.messageRepo
 }

@@ -6,8 +6,16 @@ package service
 import (
 	"github.com/gin-gonic/gin"
 
+	"kama_chat_server/internal/dao/mysql/repository"
+	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
+	"kama_chat_server/internal/service/auth"
+	"kama_chat_server/internal/service/contact"
+	"kama_chat_server/internal/service/group"
+	"kama_chat_server/internal/service/message"
+	"kama_chat_server/internal/service/session"
+	"kama_chat_server/internal/service/user"
 )
 
 // UserService 用户业务接口
@@ -151,4 +159,35 @@ type AuthService interface {
 	// tokenID: 需要验证的 Token ID
 	// 返回: 是否有效, 错误信息
 	ValidateTokenID(userID, tokenID string) (bool, error)
+}
+
+// Services 聚合所有 Service 实例
+// 作为依赖注入的入口，Handler 层通过 service.Services 访问各个 Service
+type Services struct {
+	User    UserService    // 用户 Service
+	Session SessionService // 会话 Service
+	Group   GroupService   // 群组 Service
+	Contact ContactService // 联系人 Service
+	Message MessageService // 消息 Service
+	Auth    AuthService    // 认证 Service
+}
+
+// NewServices 创建并注入所有 Service 实例
+// 将构造入口与接口定义放在同一文件中，便于统一查看依赖入口。
+func NewServices(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *Services {
+	sessionSvc := session.NewSessionService(repos, cacheService)
+	userSvc := user.NewUserService(repos, cacheService)
+	groupSvc := group.NewGroupService(repos, cacheService)
+	contactSvc := contact.NewContactService(repos, cacheService)
+	messageSvc := message.NewMessageService(repos, cacheService)
+	authSvc := auth.NewAuthService(cacheService)
+
+	return &Services{
+		User:    userSvc,
+		Session: sessionSvc,
+		Group:   groupSvc,
+		Contact: contactSvc,
+		Message: messageSvc,
+		Auth:    authSvc,
+	}
 }

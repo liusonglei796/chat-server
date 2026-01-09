@@ -5,6 +5,9 @@ package redis
 import (
 	"context"
 	"time"
+
+	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 )
 
 // CacheService 缓存服务接口
@@ -46,4 +49,21 @@ type AsyncCacheService interface {
 	CacheService
 	// SubmitTask 提交异步缓存任务
 	SubmitTask(action func())
+}
+
+// NewRedisCache 创建 Redis 缓存实例
+// 将构造函数与接口定义放在同一文件中，便于统一查看依赖入口。
+func NewRedisCache(client *redis.Client, workerNum, taskChanSize int) *RedisCache {
+	rc := &RedisCache{
+		client:       client,
+		taskChan:     make(chan func(), taskChanSize),
+		workerNum:    workerNum,
+		taskChanSize: taskChanSize,
+	}
+	// 启动 Worker Pool
+	for i := 0; i < workerNum; i++ {
+		go rc.startWorker()
+	}
+	zap.L().Info("Redis Cache Workers started", zap.Int("workers", workerNum), zap.Int("buffer", taskChanSize))
+	return rc
 }

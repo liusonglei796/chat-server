@@ -31,6 +31,7 @@ type UserConn struct {
 	Uuid     string
 	SendTo   chan []byte       // 缓冲通道（Channel 模式备用）
 	SendBack chan *MessageBack // 给前端
+	broker   MessageBroker     // 注入的消息代理
 }
 
 //  gorilla/websocket 默认的安全机制会拦截跨域请求。
@@ -58,7 +59,7 @@ func (c *UserConn) Read() {
 		}
 		log.Println("接受到消息为: ", string(jsonMessage))
 		// 通过接口发布消息，不关心具体实现
-		if err := GlobalBroker.Publish(ctx, jsonMessage); err != nil {
+		if err := c.broker.Publish(ctx, jsonMessage); err != nil {
 			zap.L().Error(err.Error())
 		}
 	}
@@ -75,8 +76,8 @@ func (c *UserConn) Write() {
 			return
 		}
 		// 通过 Repository 接口更新消息状态（遵循依赖倒置原则）
-		if GlobalMessageRepo != nil {
-			if err := GlobalMessageRepo.UpdateStatus(messageBack.Uuid, message_status_enum.Sent); err != nil {
+		if repo := c.broker.GetMessageRepo(); repo != nil {
+			if err := repo.UpdateStatus(messageBack.Uuid, message_status_enum.Sent); err != nil {
 				zap.L().Error("更新消息状态失败", zap.Error(err))
 			}
 		}
@@ -84,7 +85,8 @@ func (c *UserConn) Write() {
 }
 
 // NewClientInit 当接受到前端有登录消息时，会调用该函数
-func NewClientInit(c *gin.Context, clientId string) {
+// broker: 消息代理实例，通过依赖注入传入
+func NewClientInit(c *gin.Context, clientId string, broker MessageBroker) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		zap.L().Error(err.Error())
@@ -95,19 +97,21 @@ func NewClientInit(c *gin.Context, clientId string) {
 		Uuid:     clientId,
 		SendTo:   make(chan []byte, constants.CHANNEL_SIZE),
 		SendBack: make(chan *MessageBack, constants.CHANNEL_SIZE),
+		broker:   broker,
 	}
 	// 通过接口注册websocket客户端
-	GlobalBroker.RegisterClient(client)
+	broker.RegisterClient(client)
 	go client.Read()
 	go client.Write()
 	zap.L().Info("ws连接成功")
 }
 
 // ClientLogout 当接受到前端有登出消息时，会调用该函数
-func ClientLogout(clientId string) error {
-	client := GlobalBroker.GetClient(clientId)
+// broker: 消息代理实例，通过依赖注入传入
+func ClientLogout(clientId string, broker MessageBroker) error {
+	client := broker.GetClient(clientId)
 	if client != nil {
-		GlobalBroker.UnregisterClient(client)
+		broker.UnregisterClient(client)
 		if err := client.Conn.Close(); err != nil {
 			zap.L().Error(err.Error())
 			return err

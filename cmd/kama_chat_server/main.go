@@ -47,41 +47,38 @@ func main() {
 	services := service.NewServices(repos, cacheService)
 	zap.L().Info("Service 层初始化成功")
 
-	// 7. 初始化 Handler 层 (依赖注入)
-	handlers := handler.NewHandlers(services)
+	// 7. 初始化 ChatServer（依赖注入）
+	chatServer := chat.NewChatServer(chat.ChatServerConfig{
+		Mode:            conf.KafkaConfig.MessageMode,
+		MessageRepo:     repos.Message,
+		GroupMemberRepo: repos.GroupMember,
+		CacheService:    cacheService,
+	})
+	if conf.KafkaConfig.MessageMode == "kafka" {
+		chatServer.InitKafka()
+	}
+	zap.L().Info("ChatServer 初始化成功")
+
+	// 8. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 broker)
+	handlers := handler.NewHandlers(services, chatServer.GetBroker())
 	zap.L().Info("Handler 层初始化成功")
 
-	// 8. 初始化 SMS Service (依赖注入缓存服务)
+	// 9. 初始化 SMS Service (依赖注入缓存服务)
 	if err := sms.Init(cacheService); err != nil {
 		zap.L().Fatal("SMS Service 初始化失败", zap.Error(err))
 	}
 	zap.L().Info("SMS Service 初始化成功")
 
-	// 8. 初始化 ChatServer（注入依赖）
-	chat.InitMessageRepo(repos.Message)
-	chat.InitGroupMemberRepo(repos.GroupMember)
-	chat.InitCacheService(cacheService)
-	chat.Init()
-	if conf.KafkaConfig.MessageMode == "kafka" {
-		chat.GlobalKafkaClient.KafkaInit()
-		chat.InitKafkaServer()
-	}
-	zap.L().Info("ChatServer 初始化成功")
-
-	// 9. 初始化 HTTPS 服务器 (传入 handlers 进行依赖注入)
+	// 10. 初始化 HTTPS 服务器 (传入 handlers 进行依赖注入)
 	engine := https_server.Init(handlers)
 	zap.L().Info("HTTPS 服务器初始化成功")
 
-	// 7. 启动服务
+	// 11. 启动服务
 	host := conf.MainConfig.Host
 	port := conf.MainConfig.Port
-	kafkaConfig := conf.KafkaConfig
 
-	if kafkaConfig.MessageMode == "channel" {
-		go chat.GlobalStandaloneServer.Start()
-	} else {
-		go chat.GlobalMsgConsumer.Start()
-	}
+	// 启动聊天服务器
+	go chatServer.Start()
 
 	go func() {
 		// Ubuntu22.04云服务器部署
@@ -99,11 +96,8 @@ func main() {
 	// 等待信号
 	<-quit
 
-	if kafkaConfig.MessageMode == "kafka" {
-		chat.GlobalKafkaClient.KafkaClose()
-	}
-
-	chat.GlobalStandaloneServer.Close()
+	// 关闭聊天服务器（包括 Kafka 客户端）
+	chatServer.Close()
 
 	zap.L().Info("关闭服务器...")
 

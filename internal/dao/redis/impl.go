@@ -21,22 +21,6 @@ type RedisCache struct {
 	taskChanSize int
 }
 
-// NewRedisCache 创建 Redis 缓存实例
-func NewRedisCache(client *redis.Client, workerNum, taskChanSize int) *RedisCache {
-	rc := &RedisCache{
-		client:       client,
-		taskChan:     make(chan func(), taskChanSize),
-		workerNum:    workerNum,
-		taskChanSize: taskChanSize,
-	}
-	// 启动 Worker Pool
-	for i := 0; i < workerNum; i++ {
-		go rc.startWorker()
-	}
-	zap.L().Info("Redis Cache Workers started", zap.Int("workers", workerNum), zap.Int("buffer", taskChanSize))
-	return rc
-}
-
 // startWorker 启动单个 Worker 消费循环
 func (r *RedisCache) startWorker() {
 	defer func() {

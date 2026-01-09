@@ -3,8 +3,6 @@
 package router
 
 import (
-	"kama_chat_server/internal/handler"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,5 +11,5 @@ func (rt *Router) RegisterWebSocketRoutes(rg *gin.RouterGroup) {
 	// WebSocket 连接入口
 	// 客户端通过此路由建立 WebSocket 连接
 	// 请求示例: ws://host:port/wss?client_id=U123456789
-	rg.GET("/wss", handler.WsLoginHandler)
+	rg.GET("/wss", rt.handlers.Ws.WsLoginHandler)
 }
