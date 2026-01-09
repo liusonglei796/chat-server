@@ -9,7 +9,7 @@
 - 理解 Access Token / Refresh Token 双 Token 机制
 - 实现 JWT 工具类
 - 实现 JWT 认证中间件
-- 实现 Token 刷新接口
+- 实现 Token 刷新接口（依赖注入模式）
 - 理解 Redis 实现单点互踢
 
 ---
@@ -98,6 +98,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// JWTConfig JWT 配置
 type JWTConfig struct {
 	Secret             string
 	AccessTokenExpiry  time.Duration
@@ -245,20 +246,33 @@ func JWTAuth() gin.HandlerFunc {
 
 ### 6.1 internal/handler/auth_handler.go
 
+> **架构变更**：使用依赖注入，通过 `AuthService` 接口验证 Token ID
+
 ```go
 package handler
 
 import (
-	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
+	"kama_chat_server/internal/service"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/util/jwt"
 
 	"github.com/gin-gonic/gin"
 )
 
-// RefreshTokenHandler 刷新 Access Token
-func RefreshTokenHandler(c *gin.Context) {
+// AuthHandler 认证请求处理器
+type AuthHandler struct {
+	authSvc service.AuthService
+}
+
+// NewAuthHandler 创建认证处理器实例
+func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
+	return &AuthHandler{authSvc: authSvc}
+}
+
+// RefreshToken 刷新 Access Token
+// POST /auth/refresh
+func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req request.RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
@@ -278,16 +292,15 @@ func RefreshTokenHandler(c *gin.Context) {
 		return
 	}
 
-	// 3. 从 Redis 验证 TokenID (单点互踢)
-	redisKey := "user_token:" + claims.UserID
-	validTokenID, err := myredis.GetKey(redisKey)
-	if err != nil || validTokenID == "" {
+	// 3. 通过 Service 层验证 Token ID（单点互踢）
+	valid, err := h.authSvc.ValidateTokenID(claims.UserID, claims.TokenID)
+	if err != nil {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "登录状态已失效，请重新登录"))
 		return
 	}
 
-	// 4. 比对 TokenID
-	if claims.TokenID != validTokenID {
+	// 4. 比对 Token ID
+	if !valid {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "您的账号已在其他设备登录"))
 		return
 	}
@@ -305,55 +318,53 @@ func RefreshTokenHandler(c *gin.Context) {
 
 ---
 
-## 7. 路由配置
+## 7. AuthService 接口
 
-### 7.1 internal/router/auth_routes.go
+### 7.1 internal/service/interfaces.go
 
 ```go
-package router
-
-import (
-	"kama_chat_server/internal/handler"
-	"github.com/gin-gonic/gin"
-)
-
-func RegisterAuthRoutes(r *gin.Engine) {
-	authGroup := r.Group("/auth")
-	{
-		authGroup.POST("/refresh", handler.RefreshTokenHandler)
-	}
+// AuthService 认证服务接口
+type AuthService interface {
+	// ValidateTokenID 验证 Token ID 是否有效（单点互踢检查）
+	ValidateTokenID(userID, tokenID string) (bool, error)
+	// StoreTokenID 存储 Token ID 到 Redis
+	StoreTokenID(userID, tokenID string, expiry time.Duration) error
 }
 ```
 
-### 7.2 受保护路由示例
+---
+
+## 8. 路由配置
+
+### 8.1 受保护路由示例
 
 ```go
-func RegisterUserRoutes(r *gin.Engine) {
-	userGroup := r.Group("/user")
+func (r *Router) RegisterUserRoutes(group *gin.RouterGroup) {
+	userGroup := group.Group("/user")
 	{
 		// 公开接口
-		userGroup.POST("/login", handler.LoginHandler)
-		userGroup.POST("/register", handler.RegisterHandler)
+		userGroup.POST("/login", r.handlers.User.Login)
+		userGroup.POST("/register", r.handlers.User.Register)
 	}
 
 	// 需要认证的接口
-	protectedGroup := r.Group("/user")
+	protectedGroup := group.Group("/user")
 	protectedGroup.Use(middleware.JWTAuth())
 	{
-		protectedGroup.GET("/info", handler.GetUserInfoHandler)
-		protectedGroup.POST("/update", handler.UpdateUserHandler)
+		protectedGroup.GET("/info", r.handlers.User.GetUserInfo)
+		protectedGroup.POST("/update", r.handlers.User.UpdateUser)
 	}
 }
 ```
 
 ---
 
-## 8. 登录时生成 Token
+## 9. 登录时生成 Token
 
-### 8.1 internal/service/user/service.go
+### 9.1 internal/service/user/service.go
 
 ```go
-func (u *userInfoService) Login(req request.LoginRequest) (*respond.LoginRespond, error) {
+func (u *userService) Login(req request.LoginRequest) (*respond.LoginRespond, error) {
 	// ... 验证密码逻辑 ...
 
 	// 生成 Access Token
@@ -368,11 +379,10 @@ func (u *userInfoService) Login(req request.LoginRequest) (*respond.LoginRespond
 		return nil, errorx.ErrServerBusy
 	}
 
-	// 存储 TokenID 到 Redis (单点互踢)
-	redisKey := "user_token:" + user.Uuid
+	// 存储 TokenID 到 Redis（单点互踢）
 	jwtConfig := config.GetConfig().JWTConfig
 	expiry := time.Duration(jwtConfig.RefreshTokenExpiryHours) * time.Hour
-	if err := myredis.SetKeyEx(redisKey, tokenID, expiry); err != nil {
+	if err := u.authSvc.StoreTokenID(user.Uuid, tokenID, expiry); err != nil {
 		zap.L().Error("存储 TokenID 失败", zap.Error(err))
 	}
 
@@ -386,10 +396,10 @@ func (u *userInfoService) Login(req request.LoginRequest) (*respond.LoginRespond
 
 ---
 
-## 9. 在 Handler 中获取用户 ID
+## 10. 在 Handler 中获取用户 ID
 
 ```go
-func GetUserInfoHandler(c *gin.Context) {
+func (h *UserHandler) GetUserInfo(c *gin.Context) {
 	// 从上下文获取用户 ID（由 JWTAuth 中间件设置）
 	userID, exists := c.Get("user_id")
 	if !exists {
@@ -398,16 +408,16 @@ func GetUserInfoHandler(c *gin.Context) {
 	}
 
 	// 使用 userID 查询用户信息
-	info, err := service.Svc.User.GetUserInfo(userID.(string))
+	info, err := h.userSvc.GetUserInfo(userID.(string))
 	// ...
 }
 ```
 
 ---
 
-## 10. 初始化顺序
+## 11. 初始化顺序
 
-### 10.1 main.go
+### 11.1 main.go
 
 ```go
 func main() {
@@ -433,6 +443,7 @@ func main() {
 - [x] Access Token 生成与验证
 - [x] Refresh Token 生成与刷新
 - [x] JWT 认证中间件
+- [x] 依赖注入模式的 AuthHandler
 - [x] Redis 单点互踢实现
 
 ---

@@ -15,12 +15,12 @@
 | 退出群组 | POST | `/group/leaveGroup` | 退出群组 |
 | 解散群聊 | POST | `/group/dismissGroup` | 解散群组（群主） |
 | 获取群信息 | GET | `/group/getGroupInfo?group_id=xxx` | 获取群基本信息 |
-| 获取群列表 | GET | `/group/getGroupInfoList?page=1` | 获取所有群组（管理员） |
+| 获取群列表 | GET | `/admin/group/list?page=1&page_size=10` | 获取所有群组（管理员） |
 | 更新群信息 | POST | `/group/updateGroupInfo` | 更新群资料 |
 | 获取群成员 | GET | `/group/getGroupMemberList?group_id=xxx` | 获取群成员列表 |
 | 移除群成员 | POST | `/group/removeGroupMembers` | 踢出群成员 |
-| 删除群组 | POST | `/group/deleteGroups` | 删除其它群组（管理员） |
-| 设置群状态 | POST | `/group/setGroupsStatus` | 启用/禁用群组（管理员） |
+| 删除群组 | POST | `/admin/group/delete` | 删除其它群组（管理员） |
+| 设置群状态 | POST | `/admin/group/setStatus` | 启用/禁用群组（管理员） |
 
 ---
 
@@ -30,13 +30,13 @@
 
 ```go
 // POST /group/createGroup
-func CreateGroupHandler(c *gin.Context) {
+func (h *GroupHandler) CreateGroup(c *gin.Context) {
 	var req request.CreateGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Group.CreateGroup(req); err != nil {
+	if err := h.groupSvc.CreateGroup(req); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -63,14 +63,14 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 
 	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
 		// 1. 创建群组
-		if err := txRepos.Group.Create(&group); err != nil {
+		if err := txRepos.Group.CreateGroup(&group); err != nil {
 			return errorx.ErrServerBusy
 		}
 		// 2. 创建群成员（群主）
 		member := model.GroupMember{
 			GroupUuid: group.Uuid, UserUuid: groupReq.OwnerId, Role: 3,
 		}
-		if err := txRepos.GroupMember.Create(&member); err != nil {
+		if err := txRepos.GroupMember.CreateGroupMember(&member); err != nil {
 			return errorx.ErrServerBusy
 		}
 		// 3. 创建联系人关系
@@ -78,7 +78,7 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 			UserId: groupReq.OwnerId, ContactId: group.Uuid,
 			ContactType: contact_type_enum.GROUP, Status: contact_status_enum.NORMAL,
 		}
-		if err := txRepos.Contact.Create(&contact); err != nil {
+		if err := txRepos.Contact.CreateContact(&contact); err != nil {
 			return errorx.ErrServerBusy
 		}
 		return nil
@@ -88,10 +88,10 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 		return err
 	}
 
-	// 异步清理缓存
-	go func() {
-		myredis.DelKeysWithPattern("contact_mygroup_list_" + groupReq.OwnerId)
-	}()
+	// 异步清理缓存 (AsyncCacheService)
+	g.cache.SubmitTask(func() {
+		_ = g.cache.DeleteByPattern(context.Background(), "contact_mygroup_list_"+groupReq.OwnerId+"*")
+	})
 
 	return nil
 }
@@ -100,8 +100,8 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 ### DAO
 
 ```go
-// GroupRepository.Create
-func (r *groupRepository) Create(group *model.GroupInfo) error {
+// GroupRepository.CreateGroup
+func (r *groupRepository) CreateGroup(group *model.GroupInfo) error {
 	if err := r.db.Create(group).Error; err != nil {
 		return wrapDBError(err, "创建群组")
 	}
@@ -117,13 +117,13 @@ func (r *groupRepository) Create(group *model.GroupInfo) error {
 
 ```go
 // GET /group/loadMyGroup?user_id=xxx
-func LoadMyGroupHandler(c *gin.Context) {
+func (h *GroupHandler) LoadMyGroup(c *gin.Context) {
 	var req request.OwnlistRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.Group.LoadMyGroup(req.UserId)
+	data, err := h.groupSvc.LoadMyGroup(req.UserId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -141,8 +141,8 @@ func (g *groupInfoService) LoadMyGroup(userId string) ([]respond.LoadMyGroupResp
 	cacheKey := "contact_mygroup_list_" + userId
 
 	// 1. 尝试从缓存获取
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
-	if err == nil {
+	rspString, err := g.cache.Get(context.Background(), cacheKey)
+	if err == nil && rspString != "" {
 		var groupListRsp []respond.LoadMyGroupRespond
 		if err := json.Unmarshal([]byte(rspString), &groupListRsp); err == nil {
 			return groupListRsp, nil
@@ -166,10 +166,13 @@ func (g *groupInfoService) LoadMyGroup(userId string) ([]respond.LoadMyGroupResp
 	}
 
 	// 4. 回写缓存 (异步)
-	go func() {
-		rspBytes, _ := json.Marshal(groupListRsp)
-		myredis.SetKeyEx(cacheKey, string(rspBytes), time.Minute*30)
-	}()
+	g.cache.SubmitTask(func() {
+		rspBytes, err := json.Marshal(groupListRsp)
+		if err != nil {
+			return
+		}
+		_ = g.cache.Set(context.Background(), cacheKey, string(rspBytes), time.Minute*30)
+	})
 
 	return groupListRsp, nil
 }
@@ -183,13 +186,13 @@ func (g *groupInfoService) LoadMyGroup(userId string) ([]respond.LoadMyGroupResp
 
 ```go
 // GET /group/checkGroupAddMode?group_id=xxx
-func CheckGroupAddModeHandler(c *gin.Context) {
+func (h *GroupHandler) CheckGroupAddMode(c *gin.Context) {
 	var req request.CheckGroupAddModeRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	addMode, err := service.Svc.Group.CheckGroupAddMode(req.GroupId)
+	addMode, err := h.groupSvc.CheckGroupAddMode(req.GroupId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -207,8 +210,8 @@ func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
 	cacheKey := "group_info_" + groupId
 
 	// 1. 尝试读取缓存
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
-	if err == nil {
+	rspString, err := g.cache.Get(context.Background(), cacheKey)
+	if err == nil && rspString != "" {
 		var rsp respond.GetGroupInfoRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
 			return rsp.AddMode, nil
@@ -230,10 +233,13 @@ func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
 	}
 
 	// 4. 异步回写缓存
-	go func() {
-		rspBytes, _ := json.Marshal(cacheRsp)
-		myredis.SetKeyEx(cacheKey, string(rspBytes), time.Hour*24)
-	}()
+	g.cache.SubmitTask(func() {
+		rspBytes, err := json.Marshal(cacheRsp)
+		if err != nil {
+			return
+		}
+		_ = g.cache.Set(context.Background(), cacheKey, string(rspBytes), time.Hour*24)
+	})
 
 	return group.AddMode, nil
 }
@@ -247,13 +253,13 @@ func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
 
 ```go
 // POST /group/enterGroupDirectly
-func EnterGroupDirectlyHandler(c *gin.Context) {
+func (h *GroupHandler) EnterGroupDirectly(c *gin.Context) {
 	var req request.EnterGroupDirectlyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Group.EnterGroupDirectly(req.GroupId, req.UserId); err != nil {
+	if err := h.groupSvc.EnterGroupDirectly(req.GroupId, req.UserId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -270,7 +276,7 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 		member := model.GroupMember{
 			GroupUuid: groupId, UserUuid: userId, Role: 1,
 		}
-		if err := txRepos.GroupMember.Create(&member); err != nil {
+		if err := txRepos.GroupMember.CreateGroupMember(&member); err != nil {
 			return errorx.ErrServerBusy
 		}
 		// 2. 增加群人数
@@ -282,7 +288,7 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 			UserId: userId, ContactId: groupId,
 			ContactType: contact_type_enum.GROUP, Status: contact_status_enum.NORMAL,
 		}
-		if err := txRepos.Contact.Create(&newContact); err != nil {
+		if err := txRepos.Contact.CreateContact(&newContact); err != nil {
 			return errorx.ErrServerBusy
 		}
 		return nil
@@ -293,11 +299,11 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 	}
 
 	// 异步清理缓存
-	go func() {
-		myredis.DelKeysWithPattern("group_session_list_" + groupId)
-		myredis.DelKeysWithPattern("my_joined_group_list_" + userId)
-		myredis.DelKeyIfExists("group_info_" + groupId)
-	}()
+	g.cache.SubmitTask(func() {
+		_ = g.cache.DeleteByPattern(context.Background(), "group_session_list_"+groupId+"*")
+		_ = g.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+userId+"*")
+		_ = g.cache.Delete(context.Background(), "group_info_"+groupId)
+	})
 	return nil
 }
 ```
@@ -310,13 +316,13 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 
 ```go
 // POST /group/leaveGroup
-func LeaveGroupHandler(c *gin.Context) {
+func (h *GroupHandler) LeaveGroup(c *gin.Context) {
 	var req request.LeaveGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Group.LeaveGroup(req.UserId, req.GroupId); err != nil {
+	if err := h.groupSvc.LeaveGroup(req.UserId, req.GroupId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -330,17 +336,25 @@ func LeaveGroupHandler(c *gin.Context) {
 func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
 		// 1. 删除群成员
-		txRepos.GroupMember.Delete(groupId, userId)
+		if err := txRepos.GroupMember.DeleteByUserUuids(groupId, []string{userId}); err != nil {
+			return errorx.ErrServerBusy
+		}
 		// 2. 减少群人数
-		txRepos.Group.DecrementMemberCount(groupId)
-		// 3. 删除会话
+		if err := txRepos.Group.DecrementMemberCountBy(groupId, 1); err != nil {
+			return errorx.ErrServerBusy
+		}
+		// 3. 删除会话（如存在）
 		session, _ := txRepos.Session.FindBySendIdAndReceiveId(userId, groupId)
 		if session != nil {
-			txRepos.Session.SoftDeleteByUuids([]string{session.Uuid})
+			_ = txRepos.Session.SoftDeleteByUuids([]string{session.Uuid})
 		}
 		// 4. 删除联系人关系
-		txRepos.Contact.SoftDelete(userId, groupId)
-		txRepos.Apply.SoftDelete(userId, groupId)
+		if err := txRepos.Contact.SoftDelete(userId, groupId); err != nil {
+			return errorx.ErrServerBusy
+		}
+		if err := txRepos.Apply.SoftDelete(userId, groupId); err != nil {
+			return errorx.ErrServerBusy
+		}
 		return nil
 	})
 
@@ -349,12 +363,12 @@ func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 	}
 
 	// 异步清理缓存
-	go func() {
-		myredis.DelKeysWithPattern("group_session_list_" + userId)
-		myredis.DelKeysWithPattern("my_joined_group_list_" + userId)
-		myredis.DelKeyIfExists("group_info_" + groupId)
-		myredis.DelKeyIfExists("group_memberlist_" + groupId)
-	}()
+	g.cache.SubmitTask(func() {
+		_ = g.cache.DeleteByPattern(context.Background(), "group_session_list_"+userId+"*")
+		_ = g.cache.RemoveFromSet(context.Background(), "contact_relation:group:"+userId, groupId)
+		_ = g.cache.Delete(context.Background(), "group_info_"+groupId)
+		_ = g.cache.Delete(context.Background(), "group_memberlist_"+groupId)
+	})
 	return nil
 }
 ```
@@ -367,13 +381,13 @@ func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 
 ```go
 // POST /group/dismissGroup
-func DismissGroupHandler(c *gin.Context) {
+func (h *GroupHandler) DismissGroup(c *gin.Context) {
 	var req request.DismissGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Group.DismissGroup(req.OwnerId, req.GroupId); err != nil {
+	if err := h.groupSvc.DismissGroup(req.OwnerId, req.GroupId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -391,17 +405,30 @@ func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 
 	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
 		// 收集成员ID (用于缓存清理)
-		contacts, _ := txRepos.Contact.FindUsersByContactId(groupId)
+		contacts, err := txRepos.Contact.FindUsersByContactId(groupId)
+		if err != nil {
+			return errorx.ErrServerBusy
+		}
 		for _, c := range contacts {
 			memberIds = append(memberIds, c.UserId)
 		}
 
 		// 事务内级联删除
-		txRepos.GroupMember.DeleteByGroupUuid(groupId)
-		txRepos.Group.SoftDeleteByUuids([]string{groupId})
-		txRepos.Session.SoftDeleteByUsers([]string{groupId})
-		txRepos.Contact.SoftDeleteByUsers([]string{groupId})
-		txRepos.Apply.SoftDeleteByUsers([]string{groupId})
+		if err := txRepos.GroupMember.DeleteByGroupUuid(groupId); err != nil {
+			return errorx.ErrServerBusy
+		}
+		if err := txRepos.Group.SoftDeleteByUuids([]string{groupId}); err != nil {
+			return errorx.ErrServerBusy
+		}
+		if err := txRepos.Session.SoftDeleteByUsers([]string{groupId}); err != nil {
+			return errorx.ErrServerBusy
+		}
+		if err := txRepos.Contact.SoftDeleteByUsers([]string{groupId}); err != nil {
+			return errorx.ErrServerBusy
+		}
+		if err := txRepos.Apply.SoftDeleteByUsers([]string{groupId}); err != nil {
+			return errorx.ErrServerBusy
+		}
 		return nil
 	})
 
@@ -410,38 +437,37 @@ func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 	}
 
 	// 精确清理缓存
-	go func(members []string) {
-		myredis.DelKeysWithPattern("contact_mygroup_list_" + ownerId)
-		myredis.DelKeysWithPattern("group_session_list_" + ownerId)
+	g.cache.SubmitTask(func() {
+		_ = g.cache.DeleteByPattern(context.Background(), "contact_mygroup_list_"+ownerId+"*")
+		_ = g.cache.DeleteByPattern(context.Background(), "group_session_list_"+ownerId+"*")
 
-		for _, memberId := range members {
-			myredis.DelKeysWithPattern("my_joined_group_list_" + memberId)
-			myredis.DelKeysWithPattern("group_session_list_" + memberId)
+		for _, memberId := range memberIds {
+			_ = g.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+memberId+"*")
+			_ = g.cache.DeleteByPattern(context.Background(), "group_session_list_"+memberId+"*")
 		}
 
-		myredis.DelKeyIfExists("group_info_" + groupId)
-		myredis.DelKeyIfExists("group_memberlist_" + groupId)
-	}(memberIds)
+		_ = g.cache.Delete(context.Background(), "group_info_"+groupId)
+		_ = g.cache.Delete(context.Background(), "group_memberlist_"+groupId)
+	})
 
 	return nil
 }
 ```
 
----
 
 ## 8. 获取群聊详情
 
 ### Handler
 
 ```go
-// GET /group/getGroupInfo
-func GetGroupInfoHandler(c *gin.Context) {
+// GET /group/getGroupInfo?group_id=xxx
+func (h *GroupHandler) GetGroupInfo(c *gin.Context) {
 	var req request.GetGroupInfoRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.Group.GetGroupInfo(req.GroupId)
+	data, err := h.groupSvc.GetGroupInfo(req.GroupId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -456,30 +482,46 @@ func GetGroupInfoHandler(c *gin.Context) {
 func (g *groupInfoService) GetGroupInfo(groupId string) (*respond.GetGroupInfoRespond, error) {
 	cacheKey := "group_info_" + groupId
 
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
-	if err == nil {
+	// 1. 尝试从缓存获取
+	rspString, err := g.cache.Get(context.Background(), cacheKey)
+	if err == nil && rspString != "" {
 		var rsp respond.GetGroupInfoRespond
-		if json.Unmarshal([]byte(rspString), &rsp) == nil {
+		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
 			return &rsp, nil
 		}
 	}
 
+	// 2. 查询数据库
 	group, err := g.repos.Group.FindByUuid(groupId)
 	if err != nil {
 		return nil, errorx.ErrServerBusy
 	}
 
+	// 3. 组装响应
 	rsp := &respond.GetGroupInfoRespond{
-		Uuid: group.Uuid, Name: group.Name, Notice: group.Notice,
-		Avatar: group.Avatar, MemberCnt: group.MemberCnt,
-		OwnerId: group.OwnerId, AddMode: group.AddMode, Status: group.Status,
-		IsDeleted: group.DeletedAt.Valid,
+		Uuid:      group.Uuid,
+		Name:      group.Name,
+		Notice:    group.Notice,
+		Avatar:    group.Avatar,
+		MemberCnt: group.MemberCnt,
+		OwnerId:   group.OwnerId,
+		AddMode:   group.AddMode,
+		Status:    group.Status,
+	}
+	if group.DeletedAt.Valid {
+		rsp.IsDeleted = true
+	} else {
+		rsp.IsDeleted = false
 	}
 
-	go func() {
-		data, _ := json.Marshal(rsp)
-		myredis.SetKeyEx(cacheKey, string(data), time.Hour*24)
-	}()
+	// 4. 回写缓存
+	g.cache.SubmitTask(func() {
+		data, err := json.Marshal(rsp)
+		if err != nil {
+			return
+		}
+		_ = g.cache.Set(context.Background(), cacheKey, string(data), time.Hour*24)
+	})
 
 	return rsp, nil
 }
@@ -492,14 +534,14 @@ func (g *groupInfoService) GetGroupInfo(groupId string) (*respond.GetGroupInfoRe
 ### Handler
 
 ```go
-// GET /group/getGroupMemberList
-func GetGroupMemberListHandler(c *gin.Context) {
+// GET /group/getGroupMemberList?group_id=xxx
+func (h *GroupHandler) GetGroupMemberList(c *gin.Context) {
 	var req request.GetGroupMemberListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.Group.GetGroupMemberList(req.GroupId)
+	data, err := h.groupSvc.GetGroupMemberList(req.GroupId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -514,30 +556,39 @@ func GetGroupMemberListHandler(c *gin.Context) {
 func (g *groupInfoService) GetGroupMemberList(groupId string) ([]respond.GetGroupMemberListRespond, error) {
 	cacheKey := "group_memberlist_" + groupId
 
-	rspString, err := myredis.GetKeyNilIsErr(cacheKey)
-	if err == nil {
+	// 1. 尝试从缓存获取
+	rspString, err := g.cache.Get(context.Background(), cacheKey)
+	if err == nil && rspString != "" {
 		var rsp []respond.GetGroupMemberListRespond
-		if json.Unmarshal([]byte(rspString), &rsp) == nil {
+		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
 			return rsp, nil
 		}
 	}
 
+	// 2. 查库
 	members, err := g.repos.GroupMember.FindMembersWithUserInfo(groupId)
 	if err != nil {
 		return nil, errorx.ErrServerBusy
 	}
 
+	// 3. 组装响应
 	rspList := make([]respond.GetGroupMemberListRespond, 0, len(members))
 	for _, m := range members {
 		rspList = append(rspList, respond.GetGroupMemberListRespond{
-			UserId: m.UserId, Nickname: m.Nickname, Avatar: m.Avatar,
+			UserId:   m.UserId,
+			Nickname: m.Nickname,
+			Avatar:   m.Avatar,
 		})
 	}
 
-	go func() {
-		data, _ := json.Marshal(rspList)
-		myredis.SetKeyEx(cacheKey, string(data), time.Hour*24)
-	}()
+	// 4. 回写缓存
+	g.cache.SubmitTask(func() {
+		data, err := json.Marshal(rspList)
+		if err != nil {
+			return
+		}
+		_ = g.cache.Set(context.Background(), cacheKey, string(data), time.Hour*24)
+	})
 
 	return rspList, nil
 }
@@ -545,19 +596,66 @@ func (g *groupInfoService) GetGroupMemberList(groupId string) ([]respond.GetGrou
 
 ---
 
-## 10. 删除群组（管理员）
+## 10. 获取群列表（管理员）
 
 ### Handler
 
 ```go
-// POST /group/deleteGroups
-func DeleteGroupsHandler(c *gin.Context) {
+// GET /admin/group/list?page=1&page_size=10
+func (h *GroupHandler) GetGroupInfoList(c *gin.Context) {
+	var req request.GetGroupListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+	data, err := h.groupSvc.GetGroupInfoList(req)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+```
+
+### Service
+
+```go
+func (g *groupInfoService) GetGroupInfoList(req request.GetGroupListRequest) (*respond.GetGroupListWrapper, error) {
+	groupList, total, err := g.repos.Group.GetGroupList(req.Page, req.PageSize)
+	if err != nil {
+		return nil, errorx.ErrServerBusy
+	}
+
+	rsp := make([]respond.GetGroupListRespond, 0, len(groupList))
+	for _, group := range groupList {
+		rsp = append(rsp, respond.GetGroupListRespond{
+			Uuid:      group.Uuid,
+			Name:      group.Name,
+			OwnerId:   group.OwnerId,
+			Status:    group.Status,
+			IsDeleted: group.DeletedAt.Valid,
+		})
+	}
+
+	return &respond.GetGroupListWrapper{List: rsp, Total: total}, nil
+}
+```
+
+---
+
+## 11. 删除群组（管理员）
+
+### Handler
+
+```go
+// POST /admin/group/delete
+func (h *GroupHandler) DeleteGroups(c *gin.Context) {
 	var req request.DeleteGroupsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Group.DeleteGroups(req.UuidList); err != nil {
+	if err := h.groupSvc.DeleteGroups(req.UuidList); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -575,39 +673,233 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 		return nil
 	}
 
-	// 1. 收集信息用于清理缓存
-	groups, _ := g.repos.Group.FindByUuids(uuidList)
+	groups, err := g.repos.Group.FindByUuids(uuidList)
+	if err != nil {
+		return errorx.ErrServerBusy
+	}
 	ownerIds := make([]string, 0, len(groups))
 	for _, grp := range groups {
 		ownerIds = append(ownerIds, grp.OwnerId)
 	}
-	memberIds, _ := g.repos.GroupMember.GetMemberIdsByGroupUuids(uuidList)
 
-	// 2. 事务批量删除
-	g.repos.Transaction(func(txRepos *repository.Repositories) error {
-		txRepos.GroupMember.DeleteByGroupUuids(uuidList)
-		txRepos.Group.SoftDeleteByUuids(uuidList)
-		txRepos.Session.SoftDeleteByUsers(uuidList)
-		txRepos.Contact.SoftDeleteByUsers(uuidList)
-		txRepos.Apply.SoftDeleteByUsers(uuidList)
+	memberIds, err := g.repos.GroupMember.GetMemberIdsByGroupUuids(uuidList)
+	if err != nil {
+		return errorx.ErrServerBusy
+	}
+
+	if err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+		if err := txRepos.GroupMember.DeleteByGroupUuids(uuidList); err != nil {
+			return errorx.ErrServerBusy
+		}
+		if err := txRepos.Group.SoftDeleteByUuids(uuidList); err != nil {
+			return errorx.ErrServerBusy
+		}
+		if err := txRepos.Session.SoftDeleteByUsers(uuidList); err != nil {
+			return errorx.ErrServerBusy
+		}
+		if err := txRepos.Contact.SoftDeleteByUsers(uuidList); err != nil {
+			return errorx.ErrServerBusy
+		}
+		if err := txRepos.Apply.SoftDeleteByUsers(uuidList); err != nil {
+			return errorx.ErrServerBusy
+		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
 
-	// 3. 异步清理缓存
-	go func() {
+	g.cache.SubmitTask(func() {
 		for _, ownerId := range ownerIds {
-			myredis.DelKeysWithPattern("contact_mygroup_list_" + ownerId)
-			myredis.DelKeysWithPattern("group_session_list_" + ownerId)
+			_ = g.cache.DeleteByPattern(context.Background(), "contact_mygroup_list_"+ownerId+"*")
+			_ = g.cache.DeleteByPattern(context.Background(), "group_session_list_"+ownerId+"*")
 		}
 		for _, memId := range memberIds {
-			myredis.DelKeysWithPattern("my_joined_group_list_" + memId)
-			myredis.DelKeysWithPattern("group_session_list_" + memId)
+			_ = g.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+memId+"*")
+			_ = g.cache.DeleteByPattern(context.Background(), "group_session_list_"+memId+"*")
 		}
 		for _, grpId := range uuidList {
-			myredis.DelKeyIfExists("group_info_" + grpId)
-			myredis.DelKeyIfExists("group_memberlist_" + grpId)
+			_ = g.cache.Delete(context.Background(), "group_info_"+grpId)
+			_ = g.cache.Delete(context.Background(), "group_memberlist_"+grpId)
 		}
-	}()
+	})
+
+	return nil
+}
+```
+
+---
+
+## 12. 设置群状态（管理员）
+
+### Handler
+
+```go
+// POST /admin/group/setStatus
+func (h *GroupHandler) SetGroupsStatus(c *gin.Context) {
+	var req request.SetGroupsStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+	if err := h.groupSvc.SetGroupsStatus(req.UuidList, req.Status); err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, nil)
+}
+```
+
+### Service
+
+```go
+func (g *groupInfoService) SetGroupsStatus(uuidList []string, status int8) error {
+	if len(uuidList) == 0 {
+		return nil
+	}
+
+	if err := g.repos.Group.UpdateStatusByUuids(uuidList, status); err != nil {
+		return errorx.ErrServerBusy
+	}
+
+	if status == group_status_enum.DISABLE {
+		_ = g.repos.Session.SoftDeleteByUsers(uuidList)
+	}
+
+	g.cache.SubmitTask(func() {
+		keys := make([]string, 0, len(uuidList))
+		for _, uuid := range uuidList {
+			keys = append(keys, "group_info_"+uuid)
+		}
+		_ = g.cache.DeleteByPatterns(context.Background(), keys)
+	})
+
+	return nil
+}
+```
+
+---
+
+## 13. 更新群信息
+
+### Handler
+
+```go
+// POST /group/updateGroupInfo
+func (h *GroupHandler) UpdateGroupInfo(c *gin.Context) {
+	var req request.UpdateGroupInfoRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+	if err := h.groupSvc.UpdateGroupInfo(req); err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, nil)
+}
+```
+
+### Service
+
+```go
+func (g *groupInfoService) UpdateGroupInfo(req request.UpdateGroupInfoRequest) error {
+	group, err := g.repos.Group.FindByUuid(req.Uuid)
+	if err != nil {
+		return errorx.ErrServerBusy
+	}
+
+	if req.Name != "" {
+		group.Name = req.Name
+	}
+	if req.AddMode != -1 {
+		group.AddMode = req.AddMode
+	}
+	if req.Notice != "" {
+		group.Notice = req.Notice
+	}
+	if req.Avatar != "" {
+		group.Avatar = req.Avatar
+	}
+
+	if err := g.repos.Group.Update(group); err != nil {
+		return errorx.ErrServerBusy
+	}
+
+	sessionUpdates := map[string]interface{}{
+		"receive_name": group.Name,
+		"avatar":       group.Avatar,
+	}
+	_ = g.repos.Session.UpdateByReceiveId(req.Uuid, sessionUpdates)
+
+	g.cache.SubmitTask(func() {
+		_ = g.cache.Delete(context.Background(), "group_info_"+req.Uuid)
+	})
+
+	return nil
+}
+```
+
+---
+
+## 14. 移除群成员
+
+### Handler
+
+```go
+// POST /group/removeGroupMembers
+func (h *GroupHandler) RemoveGroupMembers(c *gin.Context) {
+	var req request.RemoveGroupMembersRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+	if err := h.groupSvc.RemoveGroupMembers(req); err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, nil)
+}
+```
+
+### Service
+
+```go
+func (g *groupInfoService) RemoveGroupMembers(req request.RemoveGroupMembersRequest) error {
+	if len(req.UuidList) == 0 {
+		return nil
+	}
+
+	for _, uuid := range req.UuidList {
+		if req.OwnerId == uuid {
+			return errorx.New(errorx.CodeInvalidParam, "不能移除群主")
+		}
+	}
+
+	if err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+		if err := txRepos.GroupMember.DeleteByUserUuids(req.GroupId, req.UuidList); err != nil {
+			return errorx.ErrServerBusy
+		}
+		if err := txRepos.Group.DecrementMemberCountBy(req.GroupId, len(req.UuidList)); err != nil {
+			return errorx.ErrServerBusy
+		}
+		for _, uuid := range req.UuidList {
+			_ = txRepos.Contact.SoftDelete(uuid, req.GroupId)
+			_ = txRepos.Apply.SoftDelete(uuid, req.GroupId)
+		}
+		_ = txRepos.Session.SoftDeleteByUsers([]string{req.GroupId})
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	g.cache.SubmitTask(func() {
+		for _, memId := range req.UuidList {
+			_ = g.cache.DeleteByPattern(context.Background(), "group_session_list_"+memId+"*")
+			_ = g.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+memId+"*")
+		}
+		_ = g.cache.Delete(context.Background(), "group_info_"+req.GroupId)
+		_ = g.cache.Delete(context.Background(), "group_memberlist_"+req.GroupId)
+	})
 
 	return nil
 }
@@ -626,9 +918,9 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 | LeaveGroup | ✅ | - | - | ✅ |
 | DismissGroup | ✅ | ✅ | - | ✅ |
 | GetGroupInfo | - | - | ✅ Cache-Aside | ✅ |
-| GetGroupInfoList | - | ✅ | - | - |
-| UpdateGroupInfo | - | - | - | ✅ |
 | GetGroupMemberList | - | - | ✅ Cache-Aside | ✅ |
-| RemoveGroupMembers | ✅ | ✅ | - | ✅ |
+| GetGroupInfoList | - | ✅ | - | - |
 | DeleteGroups | ✅ | ✅ | - | ✅ |
 | SetGroupsStatus | - | ✅ | - | ✅ |
+| UpdateGroupInfo | - | - | - | ✅ |
+| RemoveGroupMembers | ✅ | ✅ | - | ✅ |

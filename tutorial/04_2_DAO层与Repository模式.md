@@ -9,7 +9,7 @@
 - 理解 Repository 接口设计
 - 实现具体的 Repository 类
 - 掌握 GORM 的 CRUD 操作封装
-- 依赖注入与全局调用
+- 依赖注入与调用方式
 
 ---
 
@@ -36,38 +36,31 @@
 ```go
 package repository
 
-import (
-	"errors"
-
-	"kama_chat_server/internal/model"
-	"kama_chat_server/pkg/errorx"
-
-	"gorm.io/gorm"
-)
+import "gorm.io/gorm"
 
 // Repositories 聚合所有 Repository
+// Service 层通过注入 *Repositories 访问数据层。
 type Repositories struct {
-	db           *gorm.DB
-	User         UserRepository
-	Group        GroupRepository
-	Contact      ContactRepository
-	Session      SessionRepository
-	Message      MessageRepository
-	ContactApply ContactApplyRepository
-	GroupMember  GroupMemberRepository
+	db          *gorm.DB
+	User        UserRepository
+	Group       GroupRepository
+	Contact     ContactRepository
+	Session     SessionRepository
+	Message     MessageRepository
+	Apply       ApplyRepository
+	GroupMember GroupMemberRepository
 }
 
-// NewRepositories 创建所有 Repository 实例
 func NewRepositories(db *gorm.DB) *Repositories {
 	return &Repositories{
-		db:           db,
-		User:         NewUserRepository(db),
-		Group:        NewGroupRepository(db),
-		Contact:      NewContactRepository(db),
-		Session:      NewSessionRepository(db),
-		Message:      NewMessageRepository(db),
-		ContactApply: NewContactApplyRepository(db),
-		GroupMember:  NewGroupMemberRepository(db),
+		db:          db,
+		User:        NewUserRepository(db),
+		Group:       NewGroupRepository(db),
+		Contact:     NewContactRepository(db),
+		Session:     NewSessionRepository(db),
+		Message:     NewMessageRepository(db),
+		Apply:       NewApplyRepository(db),
+		GroupMember: NewGroupMemberRepository(db),
 	}
 }
 
@@ -95,7 +88,7 @@ type UserRepository interface {
 	FindByTelephone(telephone string) (*model.UserInfo, error)
 	FindAllExcept(excludeUuid string) ([]model.UserInfo, error)
 	FindByUuids(uuids []string) ([]model.UserInfo, error)
-	Create(user *model.UserInfo) error
+	CreateUser(user *model.UserInfo) error
 	UpdateUserInfo(user *model.UserInfo) error
 	UpdateUserStatusByUuids(uuids []string, status int8) error   // 批量更新状态
 	UpdateUserIsAdminByUuids(uuids []string, isAdmin int8) error // 批量设置管理员
@@ -105,7 +98,7 @@ type UserRepository interface {
 
 **接口方法分类**：
 - **查询方法**：`FindByXxx` - 根据不同条件查找
-- **创建方法**：`Create` - 创建新记录
+- **创建方法**：`CreateUser` - 创建新记录
 - **更新方法**：`UpdateUserInfo`、`UpdateUserStatusByUuids` - 单个/批量更新
 - **删除方法**：`SoftDeleteUserByUuids` - 批量软删除（保留数据）
 
@@ -122,13 +115,11 @@ type GroupRepository interface {
 	FindByOwnerId(ownerId string) ([]model.GroupInfo, error)
 	FindAll() ([]model.GroupInfo, error)
 	FindByUuids(uuids []string) ([]model.GroupInfo, error)
-	GetList(page, pageSize int) ([]model.GroupInfo, int64, error)  // 分页查询
-	Create(group *model.GroupInfo) error
+	GetGroupList(page, pageSize int) ([]model.GroupInfo, int64, error)  // 分页查询
+	CreateGroup(group *model.GroupInfo) error
 	Update(group *model.GroupInfo) error
-	UpdateStatus(uuid string, status int8) error
 	UpdateStatusByUuids(uuids []string, status int8) error  // 批量更新状态
 	IncrementMemberCount(uuid string) error                 // 增加成员数
-	DecrementMemberCount(uuid string) error                 // 减少成员数
 	DecrementMemberCountBy(uuid string, count int) error    // 减少指定数量成员
 	SoftDeleteByUuids(uuids []string) error                 // 批量软删除
 }
@@ -138,13 +129,12 @@ type GroupRepository interface {
 ```go
 type ContactRepository interface {
 	FindByUserIdAndContactId(userId, contactId string) (*model.Contact, error)
-	FindByUserId(userId string) ([]model.Contact, error)
 	// FindByUserIdWithType 根据用户ID和联系人类型查找
 	FindByUserIdAndType(userId string, contactType int8) ([]model.Contact, error)
 	// FindUsersByContactId 根据联系人ID反向查找
 	FindUsersByContactId(contactId string) ([]model.Contact, error)
 	// Create 创建联系人关系
-	Create(contact *model.Contact) error
+	CreateContact(contact *model.Contact) error
 	// UpdateStatus 更新联系人状态（正常/拉黑等）
 	UpdateStatus(userId, contactId string, status int8) error
 	SoftDelete(userId, contactId string) error
@@ -155,12 +145,9 @@ type ContactRepository interface {
 **SessionRepository** - 会话管理
 ```go
 type SessionRepository interface {
-	FindByUuid(uuid string) (*model.Session, error)
 	FindBySendIdAndReceiveId(sendId, receiveId string) (*model.Session, error)
 	FindBySendId(sendId string) ([]model.Session, error)
-	FindByReceiveId(receiveId string) ([]model.Session, error)
-	Create(session *model.Session) error
-	Update(session *model.Session) error
+	CreateSession(session *model.Session) error
 	SoftDeleteByUuids(uuids []string) error
 	SoftDeleteByUsers(userUuids []string) error
 	UpdateByReceiveId(receiveId string, updates map[string]interface{}) error
@@ -169,7 +156,7 @@ type SessionRepository interface {
 
 **其他接口**：
 - `MessageRepository` - 消息记录（`FindByUserIds`、`FindByGroupId`）
-- `ContactApplyRepository` - 好友申请（包含 `SoftDeleteByUsers` 批量方法）
+- `ApplyRepository` - 申请（包含 `SoftDeleteByUsers` 批量方法，覆盖好友申请/入群申请）
 - `GroupMemberRepository` - 群成员管理（包含 `DeleteByUserUuids`、`DeleteByGroupUuids`、`GetMemberIdsByGroupUuids`）
 
 ---
@@ -179,7 +166,7 @@ type SessionRepository interface {
 Repository 层使用 `wrapDBError` 辅助函数包装错误，为 Service 层提供统一的错误码：
 
 ```go
-// interfaces.go 中定义辅助函数
+// helper.go 中定义辅助函数
 func wrapDBError(err error, msg string) error {
 	if err == nil {
 		return nil
@@ -285,8 +272,8 @@ func (r *userRepository) FindAllExcept(excludeUuid string) ([]model.UserInfo, er
 ### 4.3 创建实现 (Create)
 
 ```go
-// Create 创建用户
-func (r *userRepository) Create(user *model.UserInfo) error {
+// CreateUser 创建用户
+func (r *userRepository) CreateUser(user *model.UserInfo) error {
 	return r.db.Create(user).Error
 }
 ```
@@ -332,27 +319,16 @@ func (r *userRepository) SoftDeleteUserByUuids(uuids []string) error {
 
 ## 5. 全局初始化与调用
 
-### 5.1 在 internal/dao/mysql/gorm.go 中初始化
+### 5.1 在 main.go 中初始化并向下游注入
 
-确保在数据库连接建立后，立即初始化 Repositories：
+当前项目采用“构造函数注入”为主：DAO 层初始化返回 `*repository.Repositories`，由 `main.go` 拿到返回值后传给 Service/ChatServer/Handler。
 
 ```go
-package dao
+repos := dao.Init()
+cacheService := myredis.Init()
 
-import (
-	"kama_chat_server/internal/dao/mysql/repository"
-	"gorm.io/gorm"
-)
-
-var GormDB *gorm.DB
-var Repos *repository.Repositories
-
-func Init() {
-	// ... GormDB 连接代码 ...
-
-	// 初始化全局实例
-	Repos = repository.NewRepositories(GormDB)
-}
+services := service.NewServices(repos, cacheService)
+handlers := handler.NewHandlers(services, chatServer.GetBroker())
 ```
 
 ### 5.2 在 Service 层调用

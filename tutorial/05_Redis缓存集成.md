@@ -36,75 +36,55 @@ go get github.com/redis/go-redis/v9
 
 ## 3. 实现 Redis 服务
 
-### 3.1 internal/dao/redis/redis.go
+### 3.1 `internal/dao/redis`：接口 + 实现（支持 DI）
 
-> **路径确认**：Redis 模块已归类到 DAO 层 (`internal/dao/redis`)
+> **当前仓库的真实形态**：
+> - 没有全局 `redisClient`，也不暴露包级 `SetKeyEx/GetKey` 这类函数
+> - `Init()` 返回 `AsyncCacheService` 接口，供 Service/ChatServer 注入使用
+> - 所有操作都显式传入 `context.Context`
+> - 内置 worker pool：可用 `SubmitTask` 异步执行缓存更新/清理
+
+#### 3.1.1 接口定义：`internal/dao/redis/interface.go`
 
 ```go
-package redis
+type CacheService interface {
+	Set(ctx context.Context, key string, value string, ttl time.Duration) error
+	Get(ctx context.Context, key string) (string, error)         // key 不存在："", nil
+	GetOrError(ctx context.Context, key string) (string, error)  // key 不存在：CodeNotFound
+	GetByPrefix(ctx context.Context, prefix string) (string, error)
 
-import (
-	"context"
-	"errors"
-	"kama_chat_server/internal/config"
-	"kama_chat_server/pkg/errorx"
-	"strconv"
-	"time"
+	Delete(ctx context.Context, key string) error
+	DeleteByPattern(ctx context.Context, pattern string) error
+	DeleteByPatterns(ctx context.Context, patterns []string) error
 
-	"github.com/redis/go-redis/v9"
-)
+	AddToSet(ctx context.Context, key string, members ...interface{}) error
+	GetSetMembers(ctx context.Context, key string) ([]string, error)
+	RemoveFromSet(ctx context.Context, key string, members ...interface{}) error
+}
 
-var redisClient *redis.Client
-var ctx = context.Background()
+type AsyncCacheService interface {
+	CacheService
+	SubmitTask(action func())
+}
+```
 
-// Init 初始化 Redis 连接
-func Init() {
+#### 3.1.2 初始化：`internal/dao/redis/init_redis.go`
+
+```go
+// Init 初始化 Redis 连接并返回缓存服务（用于依赖注入）
+func Init() AsyncCacheService {
 	conf := config.GetConfig()
-	host := conf.RedisConfig.Host
-	port := conf.RedisConfig.Port
-	password := conf.RedisConfig.Password
-	db := conf.Db
-	addr := host + ":" + strconv.Itoa(port)
+	addr := conf.RedisConfig.Host + ":" + strconv.Itoa(conf.RedisConfig.Port)
 
-	redisClient = redis.NewClient(&redis.Options{
-		Addr:     addr,
-		Password: password,
-		DB:       db,
+	client := redis.NewClient(&redis.Options{
+		Addr:         addr,
+		Password:     conf.RedisConfig.Password,
+		DB:           conf.RedisConfig.Db,
+		PoolSize:     50,
+		MinIdleConns: 15,
 	})
-}
 
-// ==================== 基础操作 ====================
-
-// SetKeyEx 设置带过期时间的键值
-func SetKeyEx(key string, value string, timeout time.Duration) error {
-	if err := redisClient.Set(ctx, key, value, timeout).Err(); err != nil {
-		return errorx.Wrapf(err, errorx.CodeCacheError, "redis set key %s", key)
-	}
-	return nil
-}
-
-// GetKey 获取键值（键不存在时返回空字符串，不报错）
-func GetKey(key string) (string, error) {
-	value, err := redisClient.Get(ctx, key).Result()
-	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return "", nil  // 键不存在返回空字符串，不视为错误
-		}
-		return "", errorx.Wrapf(err, errorx.CodeCacheError, "redis get key %s", key)
-	}
-	return value, nil
-}
-
-// GetKeyNilIsErr 获取键值（键不存在时返回 CodeNotFound 错误）
-func GetKeyNilIsErr(key string) (string, error) {
-	value, err := redisClient.Get(ctx, key).Result()
-	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return "", errorx.Wrapf(err, errorx.CodeNotFound, "redis key %s not found", key)
-		}
-		return "", errorx.Wrapf(err, errorx.CodeCacheError, "redis get key %s", key)
-	}
-	return value, nil
+	return NewRedisCache(client, 15, 3000)
 }
 ```
 
@@ -114,122 +94,32 @@ func GetKeyNilIsErr(key string) (string, error) {
 - `CodeNotFound` 用于键不存在的情况
 - Service 层可通过 `errorx.GetCode(err) == errorx.CodeNotFound` 判断
 
-### 3.2 模式匹配查询函数
+### 3.2 模式匹配查询（Scan）
 
-项目还提供了按前缀/后缀查找的工具函数：
+当前实现提供了“按前缀唯一键”读取：`GetByPrefix(ctx, prefix)`，其内部使用 `SCAN prefix*`。
 
 ```go
-// GetKeyWithPrefixNilIsErr 根据前缀查找唯一键
-func GetKeyWithPrefixNilIsErr(prefix string) (string, error) {
-	var cursor uint64
-	var foundKeys []string
-	for {
-		keys, cursor, err := redisClient.Scan(ctx, cursor, prefix+"*", 100).Result()
-		if err != nil {
-			return "", errorx.Wrapf(err, errorx.CodeCacheError, "redis scan prefix %s", prefix)
-		}
-		foundKeys = append(foundKeys, keys...)
-		if len(foundKeys) > 1 {
-			return "", errorx.Newf(errorx.CodeCacheError, "found %d keys, expected 1", len(foundKeys))
-		}
-		if cursor == 0 {
-			break
-		}
-	}
-	if len(foundKeys) == 0 {
-		return "", errorx.Wrapf(redis.Nil, errorx.CodeNotFound, "redis prefix %s not found", prefix)
-	}
-	return foundKeys[0], nil
-}
-
-// GetKeyWithSuffixNilIsErr 根据后缀查找唯一键
-func GetKeyWithSuffixNilIsErr(suffix string) (string, error) {
-	// 类似 GetKeyWithPrefixNilIsErr，使用 "*"+suffix 模式
-	// ...
+value, err := cache.GetByPrefix(ctx, "auth_code:")
+if err != nil {
+	// 可能是 CodeNotFound 或 CodeCacheError
 }
 ```
 
-### 3.3 删除操作
+### 3.3 删除操作（Scan + Unlink）
 
 ```go
-// DelKeyIfExists 删除存在的键（不存在也不报错）
-func DelKeyIfExists(key string) error {
-	exists, err := redisClient.Exists(ctx, key).Result()
-	if err != nil {
-		return errorx.Wrapf(err, errorx.CodeCacheError, "redis exists key %s", key)
-	}
-	if exists == 1 {
-		if err := redisClient.Del(ctx, key).Err(); err != nil {
-			return errorx.Wrapf(err, errorx.CodeCacheError, "redis delete key %s", key)
-		}
-	}
-	return nil
-}
+// 删除单个 key（不存在也不报错）
+_ = cache.Delete(ctx, "user_info_"+uuid)
 
-// DelKeysWithPattern 删除匹配模式的键（使用 Scan + Unlink）
-func DelKeysWithPattern(pattern string) error {
-	var cursor uint64
-	for {
-		keys, cursor, err := redisClient.Scan(ctx, cursor, pattern, 500).Result()
-		if err != nil {
-			return errorx.Wrapf(err, errorx.CodeCacheError, "redis scan pattern %s", pattern)
-		}
-		if len(keys) > 0 {
-			// 使用 Unlink 进行非阻塞异步删除
-			if err := redisClient.Unlink(ctx, keys...).Err(); err != nil {
-				return errorx.Wrapf(err, errorx.CodeCacheError, "redis unlink keys")
-			}
-		}
-		if cursor == 0 {
-			break
-		}
-	}
-	return nil
-}
+// 按 pattern 批量删除（内部是 Scan + Unlink）
+_ = cache.DeleteByPattern(ctx, "direct_session_list_"+uuid+"*")
 
-// DelKeysWithPatterns 批量删除多个模式匹配的 key
-func DelKeysWithPatterns(patterns []string) error {
-	if len(patterns) == 0 {
-		return nil
-	}
-	for _, pattern := range patterns {
-		if err := DelKeysWithPattern(pattern); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// DelKeysWithPrefix 删除所有匹配前缀的键
-func DelKeysWithPrefix(prefix string) error {
-	return DelKeysWithPattern(prefix + "*")
-}
-
-// DelKeysWithSuffix 删除所有匹配后缀的键
-func DelKeysWithSuffix(suffix string) error {
-	return DelKeysWithPattern("*" + suffix)
-}
-
-// DeleteAllRedisKeys 删除所有键（危险操作，仅用于测试）
-func DeleteAllRedisKeys() error {
-	var cursor uint64 = 0
-	for {
-		keys, nextCursor, err := redisClient.Scan(ctx, cursor, "*", 0).Result()
-		if err != nil {
-			return errorx.Wrap(err, errorx.CodeCacheError, "redis scan all keys")
-		}
-		if len(keys) > 0 {
-			if _, err := redisClient.Del(ctx, keys...).Result(); err != nil {
-				return errorx.Wrap(err, errorx.CodeCacheError, "redis delete all keys")
-			}
-		}
-		cursor = nextCursor
-		if cursor == 0 {
-			break
-		}
-	}
-	return nil
-}
+// 批量 patterns
+_ = cache.DeleteByPatterns(ctx, []string{
+	"user_info_" + uuid,
+	"direct_session_list_" + uuid + "*",
+	"group_session_list_" + uuid + "*",
+})
 ```
 
 **批量删除的优势**：
@@ -269,13 +159,16 @@ func main() {
 	}
 	defer logger.Sync()
 
-	// 3. 初始化数据库
-	dao.Init()
+	// 3. 初始化数据库（返回 Repositories，用于依赖注入）
+	repos := dao.Init()
 	zap.L().Info("数据库初始化成功")
 
-	// 4. 初始化 Redis
-	myredis.Init()
+	// 4. 初始化 Redis（返回 AsyncCacheService，用于依赖注入）
+	cacheService := myredis.Init()
 	zap.L().Info("Redis 初始化成功")
+
+	// 5. 初始化 Service 层（示例：把 repos/cacheService 注入进去）
+	_ = service.NewServices(repos, cacheService)
 
 	// TODO: 后续步骤
 	// 5. 启动服务
@@ -296,25 +189,28 @@ func main() {
 
 ```go
 import (
-	myredis "kama_chat_server/internal/dao/redis"
+	"context"
+	"fmt"
 	"time"
+
+	myredis "kama_chat_server/internal/dao/redis"
 )
 
-// 存储验证码，5分钟过期
-func SaveAuthCode(telephone, code string) error {
+// 存储验证码，5分钟过期（示例：把 cacheService 作为依赖传入）
+func SaveAuthCode(cacheService myredis.AsyncCacheService, telephone, code string) error {
 	key := fmt.Sprintf("auth_code:%s", telephone)
-	return myredis.SetKeyEx(key, code, 5*time.Minute)
+	return cacheService.Set(context.Background(), key, code, 5*time.Minute)
 }
 
 // 验证验证码
-func VerifyAuthCode(telephone, inputCode string) (bool, error) {
+func VerifyAuthCode(cacheService myredis.AsyncCacheService, telephone, inputCode string) (bool, error) {
 	key := fmt.Sprintf("auth_code:%s", telephone)
-	savedCode, err := myredis.GetKey(key)
+	savedCode, err := cacheService.Get(context.Background(), key)
 	if err != nil {
 		return false, err
 	}
 	if savedCode == "" {
-		return false, errors.New("验证码已过期")
+		return false, fmt.Errorf("验证码已过期")
 	}
 	return savedCode == inputCode, nil
 }
@@ -324,15 +220,15 @@ func VerifyAuthCode(telephone, inputCode string) (bool, error) {
 
 ```go
 // 设置用户在线状态（1小时过期）
-func SetUserOnline(uuid string) error {
+func SetUserOnline(cacheService myredis.AsyncCacheService, uuid string) error {
 	key := fmt.Sprintf("online:%s", uuid)
-	return myredis.SetKeyEx(key, "1", 1*time.Hour)
+	return cacheService.Set(context.Background(), key, "1", 1*time.Hour)
 }
 
 // 检查用户是否在线
-func IsUserOnline(uuid string) (bool, error) {
+func IsUserOnline(cacheService myredis.AsyncCacheService, uuid string) (bool, error) {
 	key := fmt.Sprintf("online:%s", uuid)
-	value, err := myredis.GetKey(key)
+	value, err := cacheService.Get(context.Background(), key)
 	if err != nil {
 		return false, err
 	}
@@ -340,9 +236,9 @@ func IsUserOnline(uuid string) (bool, error) {
 }
 
 // 用户下线
-func SetUserOffline(uuid string) error {
+func SetUserOffline(cacheService myredis.AsyncCacheService, uuid string) error {
 	key := fmt.Sprintf("online:%s", uuid)
-	return myredis.DelKeyIfExists(key)
+	return cacheService.Delete(context.Background(), key)
 }
 ```
 
@@ -350,10 +246,10 @@ func SetUserOffline(uuid string) error {
 
 ```go
 // 缓存最近的聊天消息（可配置过期时间）
-func CacheMessage(sendId, receiveId, messageContent string) error {
-	key := fmt.Sprintf("message_cache:%s:%s", sendId, receiveId)
-	// 缓存24小时
-	return myredis.SetKeyEx(key, messageContent, 24*time.Hour)
+func CacheMessage(cacheService myredis.AsyncCacheService, sendId, receiveId, messageContent string) error {
+	key := fmt.Sprintf("message_list_%s_%s", sendId, receiveId)
+	// 示例：缓存 24 小时
+	return cacheService.Set(context.Background(), key, messageContent, 24*time.Hour)
 }
 ```
 
@@ -365,10 +261,12 @@ func CacheMessage(sendId, receiveId, messageContent string) error {
 |-----|------|------|
 | 验证码 | `auth_code:{telephone}` | `auth_code:13800138000` |
 | 在线状态 | `online:{uuid}` | `online:U1234567890` |
-| 消息缓存 | `message_list_{sendId}_{receiveId}` | `message_list_U123_U456` |
+| 消息列表缓存 | `message_list_{sendId}_{receiveId}` | `message_list_U123_U456` |
 | 群消息缓存 | `group_messagelist_{groupId}` | `group_messagelist_G789` |
 | 用户信息 | `user_info_{uuid}` | `user_info_U123456` |
 | 群组信息 | `group_info_{groupId}` | `group_info_G789` |
+| 好友关系集合 | `contact_relation:user:{uuid}` | `contact_relation:user:U123` |
+| 入群关系集合 | `contact_relation:group:{uuid}` | `contact_relation:group:U123` |
 
 **命名原则**：
 - 使用冒号 `:` 或下划线 `_` 分隔层级
@@ -403,8 +301,8 @@ func CacheMessage(sendId, receiveId, messageContent string) error {
 func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond, error) {
 	key := "user_info_" + uuid
 
-	// 1. 尝试从 Redis 缓存获取
-	rspString, err := myredis.GetKey(key)
+	// 1. 尝试从 Redis 缓存获取（通过注入的 cacheService）
+	rspString, err := u.cache.Get(context.Background(), key)
 	if err == nil && rspString != "" {
 		var rsp respond.GetUserInfoRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
@@ -427,7 +325,7 @@ func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond,
 
 	// 4. 回写缓存 (设置过期时间 1 小时)
 	jsonData, _ := json.Marshal(rsp)
-	myredis.SetKeyEx(key, string(jsonData), time.Hour)
+	_ = u.cache.Set(context.Background(), key, string(jsonData), time.Hour)
 
 	return rsp, nil
 }
@@ -444,7 +342,7 @@ func (u *userInfoService) UpdateUserInfo(updateReq request.UpdateUserInfoRequest
 	u.repos.User.UpdateUserInfo(user)
 
 	// 2. 删除缓存（保证下次读取时拿到最新数据）
-	myredis.DelKeyIfExists("user_info_" + updateReq.Uuid)
+	_ = u.cache.Delete(context.Background(), "user_info_"+updateReq.Uuid)
 
 	return nil
 }
@@ -457,7 +355,7 @@ func (u *userInfoService) DisableUsers(uuidList []string) error {
 	}
 
 	// 2. 异步清除 Redis 缓存 (不阻塞主流程)
-	go func(uuids []string) {
+	u.cache.SubmitTask(func() {
 		var patterns []string
 		for _, uuid := range uuids {
 			patterns = append(patterns,
@@ -466,8 +364,8 @@ func (u *userInfoService) DisableUsers(uuidList []string) error {
 				"group_session_list_"+uuid+"*",
 			)
 		}
-		myredis.DelKeysWithPatterns(patterns)
-	}(uuidList)
+		_ = u.cache.DeleteByPatterns(context.Background(), patterns)
+	})
 
 	return nil
 }
@@ -475,10 +373,10 @@ func (u *userInfoService) DisableUsers(uuidList []string) error {
 
 ### 7.3 注意事项
 
-⚠️ **不要使用 `Keys()` 在生产环境**：
+⚠️ **不要使用 `KEYS` 在生产环境**：
 ```go
-// ❌ 错误 - Keys() 会阻塞 Redis
-keys, _ := redisClient.Keys(ctx, "user_*").Result()
+// ❌ 错误 - KEYS 会阻塞 Redis
+keys, _ := client.Keys(ctx, "user_*").Result()
 
 // ✅ 正确 - 使用 Scan 逐步遍历
 var cursor uint64
@@ -496,7 +394,7 @@ for {
 ```go
 // 使用随机过期时间，避免大量缓存同时失效
 randomOffset := time.Duration(rand.Intn(300)) * time.Second
-myredis.SetKeyEx(key, value, time.Hour + randomOffset)
+_ = cache.Set(ctx, key, value, time.Hour+randomOffset)
 ```
 
 ---

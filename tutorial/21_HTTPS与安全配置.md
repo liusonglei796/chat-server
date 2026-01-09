@@ -8,8 +8,9 @@
 
 - 生成自签名证书(开发用)
 - 配置 Gin 开启 HTTPS/WSS
+- 理解依赖注入与函数式服务器初始化
 - 理解自定义 Logger 中间件
-- 理解 Nginx 反向代理配置
+- 掌握 Nginx 反向代理配置
 - 掌握安全防护最佳实践
 
 ---
@@ -36,15 +37,17 @@ openssl req -new -x509 -key server.key -out server.crt -days 365
 
 ### 2.1 internal/https_server/https_server.go
 
-> **重要更新**：
-> - 使用 `gin.New()` 代替 `gin.Default()`
-> - 使用自定义 `logger.GinLogger()` 和 `logger.GinRecovery()`
+> **重要变更**：
+> - `Init` 函数接收 `*handler.Handlers` 参数
+> - 返回 `*gin.Engine` 实例，不再使用全局变量
+> - 使用 `router.NewRouter(handlers)` 注入依赖
 
 ```go
 package https_server
 
 import (
 	"kama_chat_server/internal/config"
+	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/infrastructure/logger"
 	"kama_chat_server/internal/router"
 
@@ -52,33 +55,35 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var GE *gin.Engine
-
-// Init 初始化 HTTPS 服务器
-func Init() {
+// Init 初始化 HTTP/HTTPS 服务器并返回 Gin 引擎实例
+// handlers: 通过依赖注入传入的 handler 聚合对象
+func Init(handlers *handler.Handlers) *gin.Engine {
 	// 使用 gin.New() 以便完全控制中间件
-	GE = gin.New()
-	
+	engine := gin.New()
+
 	// 使用自定义的 zap logger 中间件
-	GE.Use(logger.GinLogger())
-	GE.Use(logger.GinRecovery(true))
+	engine.Use(logger.GinLogger())
+	engine.Use(logger.GinRecovery(true))
 
 	// CORS 配置
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowOrigins = []string{"*"} // 生产环境请指定具体域名
 	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
-	GE.Use(cors.New(corsConfig))
+	engine.Use(cors.New(corsConfig))
 
 	// TLS 中间件（可选，生产环境通常由 Nginx 处理）
-	// GE.Use(middleware.TlsHandler(config.GetConfig().MainConfig.Host, config.GetConfig().MainConfig.Port))
+	// engine.Use(middleware.TlsHandler(config.GetConfig().MainConfig.Host, config.GetConfig().MainConfig.Port))
 
 	// 静态资源映射
-	GE.Static("/static/avatars", config.GetConfig().StaticAvatarPath)
-	GE.Static("/static/files", config.GetConfig().StaticFilePath)
+	engine.Static("/static/avatars", config.GetConfig().StaticAvatarPath)
+	engine.Static("/static/files", config.GetConfig().StaticFilePath)
 
-	// 注册所有路由
-	router.RegisterRoutes(GE)
+	// 创建路由管理器并注册所有业务路由
+	rt := router.NewRouter(handlers)
+	rt.RegisterRoutes(engine)
+
+	return engine
 }
 ```
 
@@ -86,6 +91,7 @@ func Init() {
 - `gin.New()` 创建空白引擎，不含默认中间件
 - 自定义 `logger.GinLogger()` 使用 Zap 记录结构化日志
 - `logger.GinRecovery(true)` 捕获 panic 并记录堆栈
+- 返回 `*gin.Engine` 供 main 函数使用
 
 ---
 
@@ -99,19 +105,25 @@ package main
 import (
 	"fmt"
 	"kama_chat_server/internal/config"
+	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/https_server"
 	"go.uber.org/zap"
 )
 
 func main() {
 	conf := config.GetConfig()
-	https_server.Init()
+	
+	// 初始化 Handlers（依赖注入）
+	handlers := handler.NewHandlers(/* 注入依赖 */)
+	
+	// 初始化 HTTP 服务器
+	engine := https_server.Init(handlers)
 
 	addr := fmt.Sprintf("%s:%d", conf.MainConfig.Host, conf.MainConfig.Port)
 	zap.L().Info("Starting HTTPS server on " + addr)
 
 	// HTTPS 模式
-	if err := https_server.GE.RunTLS(addr, "server.crt", "server.key"); err != nil {
+	if err := engine.RunTLS(addr, "server.crt", "server.key"); err != nil {
 		zap.L().Fatal("Server failed to start", zap.Error(err))
 	}
 }
@@ -121,7 +133,7 @@ func main() {
 
 ```go
 // 使用普通 HTTP 启动
-if err := https_server.GE.Run(":8000"); err != nil {
+if err := engine.Run(":8000"); err != nil {
 	zap.L().Fatal("Server failed to start", zap.Error(err))
 }
 ```
@@ -276,6 +288,7 @@ corsConfig.AllowOrigins = []string{"https://chat.example.com"}
 ## ✅ 本节完成
 
 你已经完成了：
+- [x] 依赖注入的服务器初始化
 - [x] 自定义 Logger 中间件配置
 - [x] CORS 跨域配置
 - [x] HTTPS/WSS 启动方式

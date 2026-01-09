@@ -8,8 +8,8 @@
 
 - 理解依赖注入的核心概念和优势
 - 掌握 Service 层的接口设计
-- 了解 Provider 模式的集中管理
-- 学会在 Handler 层正确调用 Service
+- 了解 Service 聚合（Services）与构造入口（NewServices）
+- 学会在 Handler 层通过构造函数注入调用 Service
 
 ---
 
@@ -40,13 +40,14 @@ func (u *userInfoService) GetUserInfo(uuid string) (*User, error) {
 ### 1.2 依赖注入的优势
 
 ```go
-// ✅ 新模式 - 统一 Repositories 指针注入
+// ✅ 新模式 - 显式注入 repos + cache
 type userInfoService struct {
     repos *repository.Repositories
+    cache myredis.AsyncCacheService
 }
 
-func NewUserService(repos *repository.Repositories) *userInfoService {
-    return &userInfoService{repos: repos}
+func NewUserService(repos *repository.Repositories, cache myredis.AsyncCacheService) *userInfoService {
+    return &userInfoService{repos: repos, cache: cache}
 }
 ```
 
@@ -65,19 +66,19 @@ func NewUserService(repos *repository.Repositories) *userInfoService {
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      Handler 层                              │
-│   使用 service.Svc.User / service.Svc.Group 调用服务         │
+│   Router 注入 handlers，Handler 持有 Service 接口            │
 └────────────────────────────┬────────────────────────────────┘
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    provider.go (DI 总控)                     │
+│                 service.NewServices (DI 入口)                 │
 │   ┌─────────────┐  ┌──────────────┐  ┌─────────────────┐    │
-│   │ UserService │  │ GroupService │  │ ContactService  │    │
+│   │ UserService │  │ GroupService │  │ ContactService   │    │
 │   └──────┬──────┘  └──────┬───────┘  └────────┬────────┘    │
 │          │                │                    │             │
 │          └────────────────┼────────────────────┘             │
 │                           │                                  │
-│                   依赖注入 Repositories                       │
+│             依赖注入 repos + cacheService                      │
 └───────────────────────────┼─────────────────────────────────┘
                             │
                             ▼
@@ -91,10 +92,11 @@ func NewUserService(repos *repository.Repositories) *userInfoService {
 
 ```
 internal/service/
-├── interfaces.go      # ⭐ 所有 Service 接口定义
-├── provider.go        # ⭐ DI 总控 + 全局入口
+├── interfaces.go      # ⭐ 接口 + Services 聚合 + NewServices 入口
 ├── user/
 │   └── service.go     # UserService 具体实现
+├── auth/
+│   └── service.go     # AuthService 具体实现
 ├── group/
 │   └── service.go     # GroupService 具体实现
 ├── contact/
@@ -103,13 +105,12 @@ internal/service/
 │   └── service.go     # SessionService 具体实现
 ├── message/
 │   └── service.go     # MessageService 具体实现
-├── chatroom/
-│   └── service.go     # ChatRoomService 具体实现
-└── chat/              # WebSocket + MQ 服务
-    ├── channel_server.go
-    ├── conn_manager.go
-    ├── kafka_consumer.go
-    └── mq_manager.go
+└── chat/              # ChatServer/WebSocket/MQ（独立于 Services，由 main 负责初始化）
+    ├── server.go
+    ├── ws_gateway.go
+    ├── channel_broker.go
+    ├── kafka_broker.go
+    └── kafka_client.go
 ```
 
 ---
@@ -125,6 +126,8 @@ package service
 import (
     "github.com/gin-gonic/gin"
 
+    "kama_chat_server/internal/dao/mysql/repository"
+    myredis "kama_chat_server/internal/dao/redis"
     "kama_chat_server/internal/dto/request"
     "kama_chat_server/internal/dto/respond"
 )
@@ -173,18 +176,32 @@ type GroupService interface {
 
 // ContactService 联系人业务接口
 type ContactService interface {
+    // 好友/群详情
+    GetFriendInfo(friendId string) (respond.GetFriendInfoRespond, error)
+    GetGroupDetail(groupId string) (respond.GetGroupDetailRespond, error)
+
+    // 联系人列表
     GetUserList(userId string) ([]respond.MyUserListRespond, error)
     GetJoinedGroupsExcludedOwn(userId string) ([]respond.LoadMyJoinedGroupRespond, error)
-    GetContactInfo(contactId string) (respond.GetContactInfoRespond, error)
     DeleteContact(userId, contactId string) error
-    ApplyContact(req request.ApplyContactRequest) error
-    GetNewContactList(userId string) ([]respond.NewContactListRespond, error)
-    GetAddGroupList(groupId string) ([]respond.AddGroupListRespond, error)
-    PassContactApply(targetId, applicantId string) error
-    RefuseContactApply(targetId, applicantId string) error
+
+    // 好友申请
+    ApplyFriend(req request.ApplyFriendRequest) error
+    GetFriendApplyList(userId string) ([]respond.NewContactListRespond, error)
+    PassFriendApply(userId, applicantId string) error
+    RefuseFriendApply(userId, applicantId string) error
+    BlackFriendApply(userId, applicantId string) error
+
+    // 入群申请
+    ApplyGroup(req request.ApplyGroupRequest) error
+    GetGroupApplyList(groupId string) ([]respond.AddGroupListRespond, error)
+    PassGroupApply(groupId, applicantId string) error
+    RefuseGroupApply(groupId, applicantId string) error
+    BlackGroupApply(groupId, applicantId string) error
+
+    // 联系人状态
     BlackContact(userId, contactId string) error
     CancelBlackContact(userId, contactId string) error
-    BlackApply(targetId, applicantId string) error
 }
 
 // MessageService 消息业务接口
@@ -195,10 +212,27 @@ type MessageService interface {
     UploadFile(c *gin.Context) ([]string, error)
 }
 
-// ChatRoomService 聊天室业务接口
-type ChatRoomService interface {
-    GetCurContactListInChatRoom(userId, contactId string) ([]respond.GetCurContactListInChatRoomRespond, error)
+// AuthService 认证业务接口（用于单点登录互踢等）
+type AuthService interface {
+    ValidateTokenID(userID, tokenID string) (bool, error)
 }
+
+// Services 聚合所有 Service 实例
+type Services struct {
+    User    UserService
+    Session SessionService
+    Group   GroupService
+    Contact ContactService
+    Message MessageService
+    Auth    AuthService
+}
+
+// NewServices 创建并注入所有 Service 实例
+func NewServices(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *Services {
+    // ...
+}
+
+// 注：当前项目没有 ChatRoomService（聊天室功能已并入 chat 子系统）。
 ```
 
 ### 3.2 接口设计原则
@@ -226,11 +260,12 @@ import (
 // userInfoService 用户服务实现
 type userInfoService struct {
     repos *repository.Repositories
+    cache myredis.AsyncCacheService
 }
 
-// NewUserService 构造函数 - 注入统一的 Repositories
-func NewUserService(repos *repository.Repositories) *userInfoService {
-    return &userInfoService{repos: repos}
+// NewUserService 构造函数 - 注入 repos + cache
+func NewUserService(repos *repository.Repositories, cache myredis.AsyncCacheService) *userInfoService {
+    return &userInfoService{repos: repos, cache: cache}
 }
 ```
 
@@ -278,17 +313,21 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 
 ---
 
-## 5. Provider 模式（provider.go）
+## 5. Services 聚合（NewServices）
 
-### 5.1 Services 聚合结构
+> **更新说明**：当前项目不再使用 `provider.go` + `service.Svc` 的全局入口。
+> Service 聚合与构造入口统一放在 `internal/service/interfaces.go` 的 `Services` / `NewServices` 中，并由 `main.go` 显式创建后注入到 Handler。
+
+### 5.1 Services 聚合结构（当前实现）
 
 ```go
-// 位置: internal/service/provider.go
+// 位置: internal/service/interfaces.go
 package service
 
 import (
     "kama_chat_server/internal/dao/mysql/repository"
-    "kama_chat_server/internal/service/chatroom"
+    myredis "kama_chat_server/internal/dao/redis"
+    "kama_chat_server/internal/service/auth"
     "kama_chat_server/internal/service/contact"
     "kama_chat_server/internal/service/group"
     "kama_chat_server/internal/service/message"
@@ -298,47 +337,31 @@ import (
 
 // Services 聚合所有 Service 实例
 type Services struct {
-    User     UserService
-    Session  SessionService
-    Group    GroupService
-    Contact  ContactService
-    Message  MessageService
-    ChatRoom ChatRoomService
+    User    UserService
+    Session SessionService
+    Group   GroupService
+    Contact ContactService
+    Message MessageService
+    Auth    AuthService
 }
-```
 
-### 5.2 工厂函数 - 集中注入依赖
-
-```go
 // NewServices 创建并注入所有 Service 实例
-func NewServices(repos *repository.Repositories) *Services {
-    sessionSvc := session.NewSessionService(repos)
-    userSvc := user.NewUserService(repos)
-    groupSvc := group.NewGroupService(repos)
-    contactSvc := contact.NewContactService(repos)
-    messageSvc := message.NewMessageService(repos)
-    chatRoomSvc := chatroom.NewChatRoomService(repos)
+func NewServices(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *Services {
+    sessionSvc := session.NewSessionService(repos, cacheService)
+    userSvc := user.NewUserService(repos, cacheService)
+    groupSvc := group.NewGroupService(repos, cacheService)
+    contactSvc := contact.NewContactService(repos, cacheService)
+    messageSvc := message.NewMessageService(repos, cacheService)
+    authSvc := auth.NewAuthService(cacheService)
 
     return &Services{
-        User:     userSvc,
-        Session:  sessionSvc,
-        Group:    groupSvc,
-        Contact:  contactSvc,
-        Message:  messageSvc,
-        ChatRoom: chatRoomSvc,
+        User:    userSvc,
+        Session: sessionSvc,
+        Group:   groupSvc,
+        Contact: contactSvc,
+        Message: messageSvc,
+        Auth:    authSvc,
     }
-}
-```
-
-### 5.3 全局入口
-
-```go
-// Svc 全局 Services 实例
-var Svc *Services
-
-// InitServices 初始化全局 Services 实例
-func InitServices(repos *repository.Repositories) {
-    Svc = NewServices(repos)
 }
 ```
 
@@ -349,32 +372,25 @@ func InitServices(repos *repository.Repositories) {
 ```go
 // 位置: cmd/kama_chat_server/main.go
 func main() {
-    // 1. 加载配置
-    config.Init()
-    
-    // 2. 初始化日志
-    logger.Init()
-    
-    // 3. 初始化数据库 -> 创建 dao.Repos
-    dao.InitMySQL()
-    
-    // 4. 初始化 Redis
-    myredis.Init()
-    
-    // 5. ⭐ 初始化 Service 层 (依赖注入)
-    service.InitServices(dao.Repos)
-    zap.L().Info("Service 层初始化成功")
-    
-    // 6. 注册路由并启动服务
-    router.Register(engine)
+    conf := config.GetConfig()
+    logger.Init(&conf.LogConfig, "dev")
+
+    repos := dao.Init()
+    cacheService := myredis.Init()
+
+    services := service.NewServices(repos, cacheService)
+    chatServer := chat.NewChatServer(chat.ChatServerConfig{ /* ... */ })
+    handlers := handler.NewHandlers(services, chatServer.GetBroker())
+
+    engine := https_server.Init(handlers)
     engine.Run(":8000")
 }
 ```
 
 **关键点**：
-- `dao.Repos` 是所有 Repository 实例的聚合
-- `service.InitServices` 将 Repository 注入到各 Service
-- Handler 层通过 `service.Svc` 访问已注入好的 Service
+- `dao.Init()` 返回 `*repository.Repositories`，由 main 显式持有并注入
+- `service.NewServices(repos, cacheService)` 创建 Service 聚合
+- `handler.NewHandlers(services, broker)` 将 Service 接口注入到各 Handler
 
 ---
 
@@ -391,16 +407,22 @@ import (
     "github.com/gin-gonic/gin"
 )
 
-// GetUserInfoHandler 获取用户信息
-func GetUserInfoHandler(c *gin.Context) {
+// UserHandler 获取用户信息
+type UserHandler struct {
+    userSvc service.UserService
+}
+
+func NewUserHandler(userSvc service.UserService) *UserHandler {
+    return &UserHandler{userSvc: userSvc}
+}
+
+func (h *UserHandler) GetUserInfo(c *gin.Context) {
     var req request.GetUserInfoRequest
     if err := c.ShouldBindQuery(&req); err != nil {
         HandleParamError(c, err)
         return
     }
-    
-    // ✅ 通过 service.Svc 调用（已注入依赖）
-    data, err := service.Svc.User.GetUserInfo(req.Uuid)
+    data, err := h.userSvc.GetUserInfo(req.Uuid)
     if err != nil {
         HandleError(c, err)
         return
@@ -416,9 +438,8 @@ func GetUserInfoHandler(c *gin.Context) {
 import "kama_chat_server/internal/service/user"
 data, err := user.Service.GetUserInfo(uuid)
 
-// ✅ 新模式
-import "kama_chat_server/internal/service"
-data, err := service.Svc.User.GetUserInfo(uuid)
+// ✅ 新模式：Handler 持有接口，通过 h.userSvc 调用
+data, err := h.userSvc.GetUserInfo(uuid)
 ```
 
 ---
@@ -467,8 +488,15 @@ func TestGetUserInfo(t *testing.T) {
         },
     }
     
-    // 注入 Mock 创建 Service
-    svc := user.NewUserService(mockRepos)
+    // 注入 Mock 创建 Service（示例：传入一个实现 myredis.AsyncCacheService 的 stub）
+    // type cacheStub struct{}
+    // func (cacheStub) SubmitTask(action func()) { action() }
+    // func (cacheStub) Set(ctx context.Context, key string, value string, ttl time.Duration) error { return nil }
+    // ...（其余方法按需返回零值即可）
+    // svc := user.NewUserService(mockRepos, cacheStub{})
+
+    // 这里为了突出“通过构造函数注入依赖”的思路，省略 stub 的完整实现。
+    svc := user.NewUserService(mockRepos, nil)
     
     // 执行测试
     result, err := svc.GetUserInfo("U123456")
@@ -494,27 +522,27 @@ func TestGetUserInfo(t *testing.T) {
 | **接口优先** | 先定义接口，再实现具体类型 |
 | **构造函数注入** | 通过 `New*Service` 函数注入依赖 |
 | **显式依赖** | 所有依赖都在构造函数参数中体现 |
-| **集中管理** | 通过 `provider.go` 统一管理所有服务实例 |
+| **集中管理** | 通过 `service.NewServices` 统一构造聚合实例 |
 
 ### 9.2 注意事项
 
 1. **避免循环依赖**：Service A 不应依赖 Service B，如果有此需求，考虑抽取公共接口
-2. **统一使用 repos**：每个 Service 只需注入 `*repository.Repositories`，通过它访问所有 Repository
-3. **全局变量过渡**：`service.Svc` 是过渡方案，未来可进一步将 Service 注入 Handler
+2. **统一依赖入口**：每个 Service 注入 `repos + cacheService`，通过它访问 Repository/缓存
+3. **避免全局入口**：当前项目直接把 `services` 注入到 `handlers`，不依赖 `service.Svc`
 
 ### 9.3 目录规范
 
 ```
 internal/service/
-├── interfaces.go      # 所有接口（必须）
-├── provider.go        # DI 总控（必须）
+├── interfaces.go      # 接口 + Services 聚合 + NewServices 入口
 ├── <module>/
 │   └── service.go     # 模块实现（每个模块一个）
-└── chat/              # 特殊模块：WebSocket + MQ
-    ├── channel_server.go
-    ├── conn_manager.go
-    ├── kafka_consumer.go
-    └── mq_manager.go
+└── chat/              # ChatServer/WebSocket/MQ（由 main 单独初始化）
+    ├── server.go
+    ├── ws_gateway.go
+    ├── channel_broker.go
+    ├── kafka_broker.go
+    └── kafka_client.go
 ```
 
 ---
@@ -526,7 +554,7 @@ internal/service/
 - [x] 理解依赖注入的优势
 - [x] 定义 Service 接口
 - [x] 实现构造函数注入
-- [x] 使用 Provider 模式集中管理
+- [x] 使用 Services 聚合集中管理
 - [x] 在 Handler 层正确调用 Service
 - [x] 编写可测试的代码
 

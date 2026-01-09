@@ -38,6 +38,7 @@ package https_server
 
 import (
 	"kama_chat_server/internal/config"
+	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/infrastructure/logger"
 	"kama_chat_server/internal/router"
 
@@ -45,28 +46,30 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var GE *gin.Engine
-
-// Init 初始化 HTTPS 服务器
-func Init() {
-	GE = gin.New()
+// Init 初始化 HTTP/HTTPS 服务器并返回 Gin 引擎实例
+// handlers: 通过依赖注入传入的 handler 聚合对象
+func Init(handlers *handler.Handlers) *gin.Engine {
+	engine := gin.New()
 	// 使用自定义的 zap logger 和 recovery 中间件
-	GE.Use(logger.GinLogger())
-	GE.Use(logger.GinRecovery(true))
+	engine.Use(logger.GinLogger())
+	engine.Use(logger.GinRecovery(true))
 
 	// CORS 配置
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowOrigins = []string{"*"}
 	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
-	GE.Use(cors.New(corsConfig))
+	engine.Use(cors.New(corsConfig))
 
 	// 静态资源
-	GE.Static("/static/avatars", config.GetConfig().StaticAvatarPath)
-	GE.Static("/static/files", config.GetConfig().StaticFilePath)
+	engine.Static("/static/avatars", config.GetConfig().StaticAvatarPath)
+	engine.Static("/static/files", config.GetConfig().StaticFilePath)
 
-	// 注册所有路由
-	router.RegisterRoutes(GE)
+	// 注册所有路由（通过 Router 对象封装注册逻辑）
+	rt := router.NewRouter(handlers)
+	rt.RegisterRoutes(engine)
+
+	return engine
 }
 ```
 
@@ -88,19 +91,43 @@ func Init() {
 package router
 
 import (
+	"kama_chat_server/internal/handler"
+	"kama_chat_server/internal/infrastructure/middleware"
+
 	"github.com/gin-gonic/gin"
 )
 
+// Router 路由管理器：封装所有路由注册逻辑，通过依赖注入接收 handlers
+type Router struct {
+	handlers *handler.Handlers
+}
+
+func NewRouter(handlers *handler.Handlers) *Router {
+	return &Router{handlers: handlers}
+}
+
 // RegisterRoutes 注册所有路由
-func RegisterRoutes(r *gin.Engine) {
-	RegisterAuthRoutes(r)      // 认证路由（Token 刷新）
-	RegisterUserRoutes(r)
-	RegisterGroupRoutes(r)
-	RegisterContactRoutes(r)
-	RegisterSessionRoutes(r)
-	RegisterMessageRoutes(r)
-	RegisterWebSocketRoutes(r)
-	RegisterChatRoomRoutes(r)
+// 路由分为两组：
+//   - 公开路由: 无需认证，用于登录、注册、Token 刷新
+//   - 私有路由: 需要 JWT 认证
+func (rt *Router) RegisterRoutes(r *gin.Engine) {
+	public := r.Group("")
+	{
+		rt.RegisterAuthRoutes(public)
+		rt.RegisterPublicUserRoutes(public)
+	}
+
+	private := r.Group("")
+	private.Use(middleware.JWTAuth())
+	{
+		rt.RegisterAdminRoutes(private)
+		rt.RegisterUserRoutes(private)
+		rt.RegisterFriendRoutes(private)
+		rt.RegisterGroupRoutes(private)
+		rt.RegisterSessionRoutes(private)
+		rt.RegisterMessageRoutes(private)
+		rt.RegisterWebSocketRoutes(private)
+	}
 }
 ```
 
@@ -112,40 +139,32 @@ func RegisterRoutes(r *gin.Engine) {
 package router
 
 import (
-	"kama_chat_server/internal/handler"
-	"kama_chat_server/internal/infrastructure/middleware"
-
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterUserRoutes 注册用户相关路由
-func RegisterUserRoutes(r *gin.Engine) {
-	// 公开接口 (无需认证)
-	r.POST("/login", handler.LoginHandler)
-	r.POST("/register", handler.RegisterHandler)
-	r.POST("/user/smsLogin", handler.SmsLoginHandler)
-	r.POST("/user/sendSmsCode", handler.SendSmsCodeHandler)
+// RegisterPublicUserRoutes 注册用户公开路由（无需认证）
+func (rt *Router) RegisterPublicUserRoutes(rg *gin.RouterGroup) {
+	rg.POST("/login", rt.handlers.User.Login)
+	rg.POST("/register", rt.handlers.User.Register)
+	rg.POST("/user/smsLogin", rt.handlers.User.SmsLogin)
+	rg.POST("/user/sendSmsCode", rt.handlers.User.SendSmsCode)
+}
 
-	// 需要认证的接口
-	userGroup := r.Group("/user")
-	userGroup.Use(middleware.JWTAuth())
+// RegisterUserRoutes 注册用户相关路由（需要认证）
+func (rt *Router) RegisterUserRoutes(rg *gin.RouterGroup) {
+	userGroup := rg.Group("/user")
 	{
-		userGroup.POST("/wsLogout", handler.WsLogoutHandler)
-		userGroup.POST("/updateUserInfo", handler.UpdateUserInfoHandler)
-		userGroup.GET("/getUserInfoList", handler.GetUserInfoListHandler)
-		userGroup.GET("/getUserInfo", handler.GetUserInfoHandler)
-		userGroup.POST("/ableUsers", handler.AbleUsersHandler)
-		userGroup.POST("/disableUsers", handler.DisableUsersHandler)
-		userGroup.POST("/deleteUsers", handler.DeleteUsersHandler)
-		userGroup.POST("/setAdmin", handler.SetAdminHandler)
+		userGroup.POST("/wsLogout", rt.handlers.Ws.WsLogoutHandler)
+		userGroup.POST("/updateUserInfo", rt.handlers.User.UpdateUserInfo)
+		userGroup.GET("/getUserInfo", rt.handlers.User.GetUserInfo)
 	}
 }
 ```
 
 **设计要点**：
 - 公开接口（登录、注册、短信登录）不需要 JWT
-- 其他接口使用 `middleware.JWTAuth()` 保护
-- 使用路由分组 `r.Group("/user")` 统一添加中间件
+- 私有接口统一在 `router.Router.RegisterRoutes()` 中使用 `middleware.JWTAuth()` 保护
+- 使用路由分组 `r.Group("/user")` 组织子路由
 
 ### 3.3 认证路由 (internal/router/auth_routes.go)
 
@@ -153,14 +172,15 @@ func RegisterUserRoutes(r *gin.Engine) {
 package router
 
 import (
-	"kama_chat_server/internal/handler"
-
 	"github.com/gin-gonic/gin"
 )
 
 // RegisterAuthRoutes 注册认证相关路由
-func RegisterAuthRoutes(r *gin.Engine) {
-	r.POST("/auth/refreshToken", handler.RefreshTokenHandler)
+func (rt *Router) RegisterAuthRoutes(rg *gin.RouterGroup) {
+	authGroup := rg.Group("/auth")
+	{
+		authGroup.POST("/refresh", rt.handlers.Auth.RefreshToken)
+	}
 }
 ```
 
@@ -184,14 +204,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterHandler 用户注册
-func RegisterHandler(c *gin.Context) {
+type UserHandler struct {
+	userSvc service.UserService
+}
+
+func NewUserHandler(userSvc service.UserService) *UserHandler {
+	return &UserHandler{userSvc: userSvc}
+}
+
+// Register 用户注册
+func (h *UserHandler) Register(c *gin.Context) {
 	var req request.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.User.Register(req)
+	data, err := h.userSvc.Register(req)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -199,14 +227,14 @@ func RegisterHandler(c *gin.Context) {
 	HandleSuccess(c, data)
 }
 
-// GetUserInfoHandler 获取用户信息
-func GetUserInfoHandler(c *gin.Context) {
+// GetUserInfo 获取用户信息
+func (h *UserHandler) GetUserInfo(c *gin.Context) {
 	var req request.GetUserInfoRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.User.GetUserInfo(req.Uuid)
+	data, err := h.userSvc.GetUserInfo(req.Uuid)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -215,7 +243,7 @@ func GetUserInfoHandler(c *gin.Context) {
 }
 ```
 
-**注意**：使用 `service.Svc.User` 调用服务，而不是直接导入 `service/user` 包。
+**注意**：当前仓库使用构造函数注入 `service.UserService`，通过 `handler.NewHandlers(services, broker)` 聚合后在路由层引用具体方法。
 
 ---
 
@@ -229,6 +257,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"go.uber.org/zap"
 	"kama_chat_server/internal/config"
@@ -237,53 +268,89 @@ import (
 	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/https_server"
 	"kama_chat_server/internal/infrastructure/logger"
+	"kama_chat_server/internal/infrastructure/sms"
 	"kama_chat_server/internal/service"
+	"kama_chat_server/internal/service/chat"
+	"kama_chat_server/pkg/util/jwt"
 )
 
 func main() {
-	fmt.Println("KamaChat Server Starting...")
-
 	// 1. 加载配置
-	cfg := config.GetConfig()
+	conf := config.GetConfig()
 
 	// 2. 初始化日志
-	if err := logger.Init(&cfg.LogConfig, "dev"); err != nil {
+	if err := logger.Init(&conf.LogConfig, "dev"); err != nil {
 		log.Fatalf("init logger failed: %v", err)
 	}
-	defer logger.Sync()
+	zap.L().Info("日志初始化成功")
 
 	// 3. 初始化数据库
-	dao.Init()
+	repos := dao.Init()
 	zap.L().Info("数据库初始化成功")
 
 	// 4. 初始化 Redis
-	myredis.Init()
+	cacheService := myredis.Init()
 	zap.L().Info("Redis 初始化成功")
 
-	// 5. 初始化 Service 层 (依赖注入)
-	service.InitServices(dao.Repos)
+	// 5. 初始化 JWT
+	jwt.Init(conf.JWTConfig.Secret, conf.JWTConfig.AccessTokenExpiry, conf.JWTConfig.RefreshTokenExpiry)
+	zap.L().Info("JWT 初始化成功")
+
+	// 6. 初始化 Service 层 (依赖注入)
+	services := service.NewServices(repos, cacheService)
 	zap.L().Info("Service 层初始化成功")
 
-	// 6. 初始化翻译器
-	if err := handler.InitTrans("zh"); err != nil {
-		zap.L().Fatal("init translator failed", zap.Error(err))
+	// 7. 初始化 ChatServer（依赖注入）
+	chatServer := chat.NewChatServer(chat.ChatServerConfig{
+		Mode:            conf.KafkaConfig.MessageMode,
+		MessageRepo:     repos.Message,
+		GroupMemberRepo: repos.GroupMember,
+		CacheService:    cacheService,
+	})
+	if conf.KafkaConfig.MessageMode == "kafka" {
+		chatServer.InitKafka()
 	}
+	zap.L().Info("ChatServer 初始化成功")
 
-	// 7. 初始化 HTTPS 服务路由
-	https_server.Init()
+	// 8. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 broker)
+	handlers := handler.NewHandlers(services, chatServer.GetBroker())
+	zap.L().Info("Handler 层初始化成功")
 
-	// 8. 启动服务
-	addr := fmt.Sprintf("%s:%d", cfg.MainConfig.Host, cfg.MainConfig.Port)
-	zap.L().Info("HTTP Server starting", zap.String("addr", addr))
-
-	if err := https_server.GE.Run(addr); err != nil {
-		zap.L().Fatal("Failed to start HTTP server", zap.Error(err))
+	// 9. 初始化 SMS Service (依赖注入缓存服务)
+	if err := sms.Init(cacheService); err != nil {
+		zap.L().Fatal("SMS Service 初始化失败", zap.Error(err))
 	}
+	zap.L().Info("SMS Service 初始化成功")
+
+	// 10. 初始化 HTTPS 服务器 (传入 handlers 进行依赖注入)
+	engine := https_server.Init(handlers)
+	zap.L().Info("HTTPS 服务器初始化成功")
+
+	// 11. 启动服务
+	host := conf.MainConfig.Host
+	port := conf.MainConfig.Port
+
+	// 启动聊天服务器
+	go chatServer.Start()
+
+	go func() {
+		if err := engine.Run(fmt.Sprintf("%s:%d", host, port)); err != nil {
+			zap.L().Fatal("server running fault")
+			return
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	chatServer.Close()
+	zap.L().Info("服务器已关闭")
 }
 ```
 
 **关键初始化顺序**：
-1. 配置 → 2. 日志 → 3. 数据库 → 4. Redis → 5. **Service 层** → 6. 翻译器 → 7. 路由 → 8. 启动
+1. 配置 → 2. 日志 → 3. 数据库 → 4. Redis → 5. JWT → 6. **Service 层** → 7. ChatServer → 8. Handlers → 9. SMS → 10. HTTP Server → 11. 启动
 
 ---
 

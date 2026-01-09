@@ -14,11 +14,11 @@
 | 验证码登录 | POST | `/user/smsLogin` | 短信验证码登录 |
 | 获取信息 | GET | `/user/getUserInfo?uuid=xxx` | 获取用户信息 |
 | 更新信息 | POST | `/user/updateUserInfo` | 更新用户信息 |
-| 获取用户列表 | GET | `/user/getUserInfoList?owner_id=xxx` | 获取用户列表（管理员） |
-| 启用用户 | POST | `/user/ableUsers` | 启用用户（管理员） |
-| 禁用用户 | POST | `/user/disableUsers` | 禁用用户（管理员） |
-| 删除用户 | POST | `/user/deleteUsers` | 删除用户（管理员） |
-| 设置管理员 | POST | `/user/setAdmin` | 设置管理员（管理员） |
+| 获取用户列表 | GET | `/admin/user/list?ownerId=xxx` | 获取用户列表（管理员） |
+| 启用用户 | POST | `/admin/user/able` | 启用用户（管理员） |
+| 禁用用户 | POST | `/admin/user/disable` | 禁用用户（管理员） |
+| 删除用户 | POST | `/admin/user/delete` | 删除用户（管理员） |
+| 设置管理员 | POST | `/admin/user/setAdmin` | 设置管理员（管理员） |
 
 ---
 
@@ -55,10 +55,11 @@ func (u *userInfoService) SendSmsCode(telephone string) error {
 ```go
 // 位置: internal/infrastructure/sms/auth_code_service.go
 func VerificationCode(telephone string) error {
-	// 1. 频率限制检查
-	// 2. 生成 6 位验证码
-	// 3. 存入 Redis (5 分钟过期)
-	// 4. 调用阿里云短信 API
+	// 1. 频率限制检查：Redis key = auth_code_<telephone>（key 存在则拒绝）
+	// 2. 生成 6 位数字验证码
+	// 3. 预写入 Redis（默认 1 分钟有效期，用于限流与占位）
+	// 4. 调用阿里云短信 API（若失败会回滚删除 key）
+	// 5. 未配置真实 AK/SK 时会走 Mock 模式（仅写入 Redis 并打印验证码）
 }
 ```
 
@@ -91,14 +92,16 @@ func RegisterHandler(c *gin.Context) {
 func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respond.RegisterRespond, error) {
 	// 1. 验证验证码
 	key := "auth_code_" + registerReq.Telephone
-	code, err := myredis.GetKey(key)
+	code, err := u.cache.Get(context.Background(), key)
 	if err != nil {
 		return nil, errorx.ErrServerBusy
 	}
 	if code != registerReq.SmsCode {
 		return nil, errorx.New(errorx.CodeInvalidParam, "验证码不正确，请重试")
 	}
-	myredis.DelKeyIfExists(key)
+	if err := u.cache.Delete(context.Background(), key); err != nil {
+		return nil, errorx.ErrServerBusy
+	}
 
 	// 2. 检查用户是否存在
 	if err := u.checkTelephoneExist(registerReq.Telephone); err != nil {
@@ -115,7 +118,7 @@ func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respon
 	newUser.CreatedAt = time.Now()
 	newUser.Status = user_status_enum.NORMAL
 
-	if err := u.repos.User.Create(&newUser); err != nil {
+	if err := u.repos.User.CreateUser(&newUser); err != nil {
 		return nil, errorx.ErrServerBusy
 	}
 
@@ -134,7 +137,7 @@ func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respon
 
 ```go
 // UserRepository.Create
-func (r *userRepository) Create(user *model.UserInfo) error {
+func (r *userRepository) CreateUser(user *model.UserInfo) error {
 	if err := r.db.Create(user).Error; err != nil {
 		return wrapDBError(err, "创建用户")
 	}
@@ -192,14 +195,19 @@ func (u *userInfoService) Login(loginReq request.LoginRequest) (*respond.LoginRe
 		return nil, errorx.New(errorx.CodeInvalidPassword, "密码不正确，请重试")
 	}
 
-	// 3. 生成 JWT Token
-	tokenId := random.GetNowAndLenRandomString(10)
-	accessToken, _ := jwt.GenerateAccessToken(user.Uuid, tokenId)
-	refreshToken, _ := jwt.GenerateRefreshToken(user.Uuid, tokenId)
+	// 3. 生成双 Token（Access + Refresh）
+	accessToken, err := jwt.GenerateAccessToken(user.Uuid)
+	if err != nil {
+		return nil, errorx.ErrServerBusy
+	}
+	refreshToken, tokenID, err := jwt.GenerateRefreshToken(user.Uuid)
+	if err != nil {
+		return nil, errorx.ErrServerBusy
+	}
 
-	// 4. 将 tokenId 存入 Redis (用于 SSO 踢人)
-	tokenKey := "refresh_token_" + user.Uuid
-	myredis.SetKeyEx(tokenKey, tokenId, time.Hour*24*7)
+	// 4. 将 Refresh Token 的 tokenID 存入缓存（用于单点互踢 / SSO）
+	// key: user_token:<uuid>
+	_ = u.cache.Set(context.Background(), "user_token:"+user.Uuid, tokenID, time.Hour*24*7)
 
 	// 5. 构造响应
 	loginRsp := &respond.LoginRespond{
@@ -276,12 +284,25 @@ func (u *userInfoService) SmsLogin(req request.SmsLoginRequest) (*respond.LoginR
 	}
 	myredis.DelKeyIfExists(key)
 
-	// 3. 构造响应
+	// 3. 生成双 Token，并写入缓存用于单点互踢
+	accessToken, err := jwt.GenerateAccessToken(user.Uuid)
+	if err != nil {
+		return nil, errorx.ErrServerBusy
+	}
+	refreshToken, tokenID, err := jwt.GenerateRefreshToken(user.Uuid)
+	if err != nil {
+		return nil, errorx.ErrServerBusy
+	}
+	_ = u.cache.Set(context.Background(), "user_token:"+user.Uuid, tokenID, time.Hour*24*7)
+
+	// 4. 构造响应
 	loginRsp := &respond.LoginRespond{
 		Uuid:      user.Uuid,
 		Telephone: user.Telephone,
 		Nickname:  user.Nickname,
 		// ...其他字段
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
 	}
 	return loginRsp, nil
 }
@@ -467,7 +488,7 @@ func (r *userRepository) UpdateUserInfo(user *model.UserInfo) error {
 ### Handler
 
 ```go
-// GET /user/getUserInfoList?owner_id=xxx
+// GET /admin/user/list?ownerId=xxx
 func GetUserInfoListHandler(c *gin.Context) {
 	var req request.GetUserInfoListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
@@ -530,7 +551,7 @@ func (r *userRepository) FindAllExcept(excludeUuid string) ([]model.UserInfo, er
 ### Handler
 
 ```go
-// POST /user/ableUsers
+// POST /admin/user/able
 func AbleUsersHandler(c *gin.Context) {
 	var req request.AbleUsersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -583,7 +604,7 @@ func (r *userRepository) UpdateUserStatusByUuids(uuids []string, status int8) er
 ### Handler
 
 ```go
-// POST /user/disableUsers
+// POST /admin/user/disable
 func DisableUsersHandler(c *gin.Context) {
 	var req request.AbleUsersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -618,18 +639,18 @@ func (u *userInfoService) DisableUsers(uuidList []string) error {
 		return errorx.ErrServerBusy
 	}
 
-	// 3. 异步清除 Redis 缓存
-	go func(uuids []string) {
+	// 3. 异步清除缓存（不阻塞主流程）
+	u.cache.SubmitTask(func() {
 		var patterns []string
-		for _, uuid := range uuids {
+		for _, uuid := range uuidList {
 			patterns = append(patterns,
 				"user_info_"+uuid,
 				"direct_session_list_"+uuid+"*",
 				"group_session_list_"+uuid+"*",
 			)
 		}
-		myredis.DelKeysWithPatterns(patterns)
-	}(uuidList)
+		_ = u.cache.DeleteByPatterns(context.Background(), patterns)
+	})
 
 	return nil
 }
@@ -649,7 +670,7 @@ func (u *userInfoService) DisableUsers(uuidList []string) error {
 ### Handler
 
 ```go
-// POST /user/deleteUsers
+// POST /admin/user/delete
 func DeleteUsersHandler(c *gin.Context) {
 	var req request.AbleUsersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -691,7 +712,7 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 		}
 
 		// 4. 批量软删除联系人申请
-		if err := txRepos.ContactApply.SoftDeleteByUsers(uuidList); err != nil {
+		if err := txRepos.Apply.SoftDeleteByUsers(uuidList); err != nil {
 			return errorx.ErrServerBusy
 		}
 		return nil
@@ -701,19 +722,19 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 		return err
 	}
 
-	// 5. 异步清除 Redis 缓存
-	go func(uuids []string) {
+	// 5. 异步清除缓存（不阻塞主流程）
+	u.cache.SubmitTask(func() {
 		var patterns []string
-		for _, uuid := range uuids {
+		for _, uuid := range uuidList {
 			patterns = append(patterns,
 				"user_info_"+uuid,
 				"direct_session_list_"+uuid+"*",
 				"group_session_list_"+uuid+"*",
-				"contact_user_list_"+uuid+"*",
+				"contact_relation:user:"+uuid+"*",
 			)
 		}
-		myredis.DelKeysWithPatterns(patterns)
-	}(uuidList)
+		_ = u.cache.DeleteByPatterns(context.Background(), patterns)
+	})
 
 	return nil
 }
@@ -741,7 +762,7 @@ func (r *userRepository) SoftDeleteUserByUuids(uuids []string) error {
 ### Handler
 
 ```go
-// POST /user/setAdmin
+// POST /admin/user/setAdmin
 func SetAdminHandler(c *gin.Context) {
 	var req request.AbleUsersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
