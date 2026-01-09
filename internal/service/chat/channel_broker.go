@@ -11,7 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"kama_chat_server/internal/dao/mysql/repository"
+	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
@@ -42,15 +42,15 @@ type StandaloneServer struct {
 	Logout chan *UserConn
 
 	// 依赖注入字段（遵循依赖倒置原则）
-	messageRepo     repository.MessageRepository
-	groupMemberRepo repository.GroupMemberRepository
+	messageRepo     mysql.MessageRepository
+	groupMemberRepo mysql.GroupMemberRepository
 	cacheService    myredis.AsyncCacheService
 }
 
 // NewStandaloneServer 创建 ChannelBroker 实例（依赖注入）
 func NewStandaloneServer(
-	messageRepo repository.MessageRepository,
-	groupMemberRepo repository.GroupMemberRepository,
+	messageRepo mysql.MessageRepository,
+	groupMemberRepo mysql.GroupMemberRepository,
 	cacheService myredis.AsyncCacheService,
 ) *StandaloneServer {
 	return &StandaloneServer{
@@ -504,6 +504,6 @@ func (s *StandaloneServer) UnregisterClient(client *UserConn) {
 }
 
 // GetMessageRepo 实现 MessageBroker 接口：获取消息 Repository
-func (s *StandaloneServer) GetMessageRepo() repository.MessageRepository {
+func (s *StandaloneServer) GetMessageRepo() mysql.MessageRepository {
 	return s.messageRepo
 }

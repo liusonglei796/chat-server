@@ -13,12 +13,32 @@ import (
 )
 
 // RedisCache Redis 缓存实现
-// 实现 AsyncCacheService 接口
+// 该结构体同时实现了 CacheService（基础同步读写）和 AsyncCacheService（异步任务）两个接口。
+// 这种设计允许不同模块根据需求声明依赖最小的接口：
+// 1. SmsService 只需要 CacheService，因此它无法访问 SubmitTask 方法，保证了安全性。
+// 2. ChatServer 需要异步队列，因此它依赖 AsyncCacheService。
+// 从而实现了“同一个实现类，不同的视图限制（接口隔离）”。
 type RedisCache struct {
 	client       *redis.Client
 	taskChan     chan func()
 	workerNum    int
 	taskChanSize int
+}
+
+// NewRedisCache 创建 Redis 缓存实例
+func NewRedisCache(client *redis.Client, workerNum, taskChanSize int) *RedisCache {
+	rc := &RedisCache{
+		client:       client,
+		taskChan:     make(chan func(), taskChanSize),
+		workerNum:    workerNum,
+		taskChanSize: taskChanSize,
+	}
+	// 启动 Worker Pool
+	for i := 0; i < workerNum; i++ {
+		go rc.startWorker()
+	}
+	zap.L().Info("Redis Cache Workers started", zap.Int("workers", workerNum), zap.Int("buffer", taskChanSize))
+	return rc
 }
 
 // startWorker 启动单个 Worker 消费循环

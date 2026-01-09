@@ -8,7 +8,7 @@ import (
 	"syscall"
 
 	"kama_chat_server/internal/config"
-	dao "kama_chat_server/internal/dao/mysql"
+    mysqldb "kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/https_server"
@@ -32,7 +32,7 @@ func main() {
 	zap.L().Info("日志初始化成功")
 
 	// 3. 初始化数据库
-	repos := dao.Init()
+	repos := mysqldb.Init()
 	zap.L().Info("数据库初始化成功")
 
 	// 4. 初始化 Redis
@@ -43,9 +43,16 @@ func main() {
 	jwt.Init(conf.JWTConfig.Secret, conf.JWTConfig.AccessTokenExpiry, conf.JWTConfig.RefreshTokenExpiry)
 	zap.L().Info("JWT 初始化成功")
 
-	// 6. 初始化 Service 层 (依赖注入)
-	services := service.NewServices(repos, cacheService)
-	zap.L().Info("Service 层初始化成功")
+        // 6. 初始化 SMS Service (依赖注入缓存服务)
+        smsService, err := sms.Init(cacheService)
+        if err != nil {
+                zap.L().Fatal("SMS Service 初始化失败", zap.Error(err))
+        }
+        zap.L().Info("SMS Service 初始化成功")
+
+        // 7. 初始化 Service 层 (依赖注入)
+        services := service.NewServices(repos, cacheService, smsService)
+        zap.L().Info("Service 层初始化成功")
 
 	// 7. 初始化 ChatServer（依赖注入）
 	chatServer := chat.NewChatServer(chat.ChatServerConfig{
@@ -64,11 +71,6 @@ func main() {
 	zap.L().Info("Handler 层初始化成功")
 
 	// 9. 初始化 SMS Service (依赖注入缓存服务)
-	if err := sms.Init(cacheService); err != nil {
-		zap.L().Fatal("SMS Service 初始化失败", zap.Error(err))
-	}
-	zap.L().Info("SMS Service 初始化成功")
-
 	// 10. 初始化 HTTPS 服务器 (传入 handlers 进行依赖注入)
 	engine := https_server.Init(handlers)
 	zap.L().Info("HTTPS 服务器初始化成功")
@@ -78,7 +80,7 @@ func main() {
 	port := conf.MainConfig.Port
 
 	// 启动聊天服务器
-	go chatServer.Start()
+	go chatServer.Run()
 
 	go func() {
 		// Ubuntu22.04云服务器部署
@@ -97,7 +99,7 @@ func main() {
 	<-quit
 
 	// 关闭聊天服务器（包括 Kafka 客户端）
-	chatServer.Close()
+	chatServer.Shutdown()
 
 	zap.L().Info("关闭服务器...")
 

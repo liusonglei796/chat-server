@@ -58,9 +58,9 @@ func (k *KafkaClient) KafkaClose() {
 	}
 }
 
-// WriteMessage 提供给 Producer (UserConn) 使用的写入接口
+// SendMessage 提供给 Producer (UserConn) 使用的写入接口
 // 用于向 Kafka 发送消息
-func (k *KafkaClient) WriteMessage(ctx context.Context, key, value []byte) error {
+func (k *KafkaClient) SendMessage(ctx context.Context, key, value []byte) error {
 	return k.Producer.WriteMessages(ctx, kafka.Message{
 		Key:   key,
 		Value: value,

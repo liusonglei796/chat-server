@@ -46,3 +46,11 @@ type GroupInfo struct {
 func (GroupInfo) TableName() string {
 	return "group_info"
 }
+
+// GroupMemberWithUserInfo 群成员详细信息（含用户资料）
+// 用于群成员列表展示，包含用户的基本信息
+type GroupMemberWithUserInfo struct {
+	UserId   string `json:"userId"`   // 用户 UUID
+	Nickname string `json:"nickname"` // 用户昵称
+	Avatar   string `json:"avatar"`   // 用户头像
+}

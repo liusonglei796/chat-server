@@ -10,7 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"kama_chat_server/internal/dao/mysql/repository"
+	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
@@ -23,6 +23,7 @@ import (
 	"os"
 	"sync"
 	"time"
+
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
@@ -39,8 +40,8 @@ type MsgConsumer struct {
 
 	// 依赖注入字段（遵循依赖倒置原则）
 	kafkaClient     *KafkaClient
-	messageRepo     repository.MessageRepository
-	groupMemberRepo repository.GroupMemberRepository
+	messageRepo     mysql.MessageRepository
+	groupMemberRepo mysql.GroupMemberRepository
 	cacheService    myredis.AsyncCacheService
 }
 
@@ -50,8 +51,8 @@ var kafkaQuit = make(chan os.Signal, 1)
 // NewMsgConsumer 创建 KafkaBroker 实例（依赖注入）
 func NewMsgConsumer(
 	kafkaClient *KafkaClient,
-	messageRepo repository.MessageRepository,
-	groupMemberRepo repository.GroupMemberRepository,
+	messageRepo mysql.MessageRepository,
+	groupMemberRepo mysql.GroupMemberRepository,
 	cacheService myredis.AsyncCacheService,
 ) *MsgConsumer {
 	return &MsgConsumer{
@@ -65,6 +66,12 @@ func NewMsgConsumer(
 		groupMemberRepo: groupMemberRepo,
 		cacheService:    cacheService,
 	}
+}
+
+// Publish 实现 MessageBroker 接口：producer发布消息到 Kafka
+func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
+	key := []byte("0") // 默认分区
+	return k.kafkaClient.SendMessage(ctx, key, msg)
 }
 
 // normalizePath 函数已在 channel_server.go 中定义
@@ -187,12 +194,6 @@ func (k *MsgConsumer) GetClient(userId string) *UserConn {
 	return value.(*UserConn)
 }
 
-// Publish 实现 MessageBroker 接口：producer发布消息到 Kafka
-func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
-	key := []byte("0") // 默认分区
-	return k.kafkaClient.WriteMessage(ctx, key, msg)
-}
-
 // RegisterClient 实现 MessageBroker 接口：注册客户端
 func (k *MsgConsumer) RegisterClient(client *UserConn) {
 	k.Login <- client
@@ -204,7 +205,7 @@ func (k *MsgConsumer) UnregisterClient(client *UserConn) {
 }
 
 // GetMessageRepo 实现 MessageBroker 接口：获取消息 Repository
-func (k *MsgConsumer) GetMessageRepo() repository.MessageRepository {
+func (k *MsgConsumer) GetMessageRepo() mysql.MessageRepository {
 	return k.messageRepo
 }
 

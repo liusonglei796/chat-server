@@ -6,7 +6,7 @@ package chat
 
 import (
 	"context"
-	"kama_chat_server/internal/dao/mysql/repository"
+	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 )
 
@@ -26,7 +26,7 @@ type MessageBroker interface {
 	// Close 关闭代理资源
 	Close()
 	// GetMessageRepo 获取消息 Repository（供 ws_gateway 使用）
-	GetMessageRepo() repository.MessageRepository
+	GetMessageRepo() mysql.MessageRepository
 }
 
 // ChatServer 聊天服务器聚合结构
@@ -40,10 +40,10 @@ type ChatServer struct {
 	KafkaClient *KafkaClient
 
 	// messageRepo 消息 Repository
-	messageRepo repository.MessageRepository
+	messageRepo mysql.MessageRepository
 
 	// groupMemberRepo 群成员 Repository
-	groupMemberRepo repository.GroupMemberRepository
+	groupMemberRepo mysql.GroupMemberRepository
 
 	// cacheService 缓存服务
 	cacheService myredis.AsyncCacheService
@@ -55,8 +55,8 @@ type ChatServer struct {
 // ChatServerConfig 聊天服务器配置
 type ChatServerConfig struct {
 	Mode            string // "channel" 或 "kafka"
-	MessageRepo     repository.MessageRepository
-	GroupMemberRepo repository.GroupMemberRepository
+	MessageRepo     mysql.MessageRepository
+	GroupMemberRepo mysql.GroupMemberRepository
 	CacheService    myredis.AsyncCacheService
 	KafkaHostPort   string
 	KafkaTopic      string
@@ -93,13 +93,13 @@ func (cs *ChatServer) InitKafka() {
 	}
 }
 
-// Start 启动聊天服务器
-func (cs *ChatServer) Start() {
+// Run 启动聊天服务器
+func (cs *ChatServer) Run() {
 	cs.Broker.Start()
 }
 
-// Close 关闭聊天服务器
-func (cs *ChatServer) Close() {
+// Shutdown 关闭聊天服务器
+func (cs *ChatServer) Shutdown() {
 	cs.Broker.Close()
 	if cs.KafkaClient != nil {
 		cs.KafkaClient.KafkaClose()

@@ -1,0 +1,61 @@
+完整的聊天数据流向 (Kafka 分布式模式)
+假设用户 A (UserA) 发送消息给用户 B (UserB)。
+
+第一阶段：消息上行 (UserA -> Server)
+UserA 前端: 通过 WebSocket 发送 JSON 数据。
+ws_gateway.go
+ / UserConn.Read():
+后端收到了 UserA 的原始消息。
+调用接口 c.broker.Publish(ctx, jsonMessage)。
+kafka_broker.go
+ / MsgConsumer.Publish():
+调用 k.kafkaClient.WriteMessage。
+kafka_client.go
+ / KafkaClient.WriteMessage():
+动作：将消息写入 Kafka 消息队列。
+此时，消息已离开应用服务器内存，进入中间件。
+第二阶段：消息分发 (Kafka -> Server Cluster)
+Kafka 集群: 广播这条消息给订阅了 chat topic 的所有消费者组实例。
+所有后端 ChatServer 实例: 都在运行 MsgConsumer.Start() 中的读取循环。
+每台服务器都会从 Kafka 读到这条消息。
+第三阶段：消息下行 (Server -> UserB)
+kafka_broker.go
+ / MsgConsumer.Start() (读取循环):
+从 Kafka 读到消息 -> 反序列化 -> 识别出 
+ReceiveId
+ 是 UserB。
+调用 k.handleTextMessage()。
+kafka_broker.go
+ / 
+handleTextMessage()
+:
+生成消息 ID (Snowflake)，持久化到 MySQL 数据库。
+调用 k.sendToUser(message)。
+kafka_broker.go
+ / 
+sendToUser()
+:
+检查 UserB 是否在线：k.Clients.Load(UserB_UUID)。
+情况 A：UserB 连在当前这台服务器
+找到 UserB 的 *UserConn 对象。
+动作：receiveClient.SendBack <- messageBack (塞入 UserB 的发送通道)。
+情况 B：UserB 连在其他服务器 (或不在线)
+Load 返回 false，当前服务器啥也不做（其他那台连接了 UserB 的服务器会处理，或者都没连就是不在线）。
+ws_gateway.go
+ / UserConn.Write() (UserB 的协程):
+监控到 SendBack 通道有新数据。
+取出数据 -> 调用 c.Conn.WriteMessage()。
+WebSocket 网络: 数据发往 UserB 的浏览器/客户端。
+第四阶段：回显与状态更新
+回显给发送者 UserA：
+在 
+sendToUser
+ 中，同样会尝试 k.Clients.Load(UserA_UUID)。
+如果 UserA 连在当前机器，也会往 UserA 的 SendBack 通道塞一份消息（用于前端展示“我刚发的消息”）。
+更新状态：
+UserB 的 
+Write()
+ 成功后，调用 repo.UpdateStatus 将消息状态改为 Sent。
+更新缓存:
+sendToUser
+ 最后会提交一个异步任务给 Redis，更新聊天列表的缓存。

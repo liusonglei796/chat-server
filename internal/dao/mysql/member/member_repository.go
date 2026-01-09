@@ -1,8 +1,9 @@
-// Package repository 提供数据访问层的具体实现
+// Package member 提供群成员相关数据访问层的具体实现
 // 本文件实现 GroupMemberRepository 接口，处理群成员相关的数据库操作
-package repository
+package member
 
 import (
+	"kama_chat_server/internal/dao/mysql/internal"
 	"kama_chat_server/internal/model"
 
 	"gorm.io/gorm"
@@ -14,7 +15,7 @@ type groupMemberRepository struct {
 }
 
 // NewGroupMemberRepository 创建 GroupMemberRepository 实例
-func NewGroupMemberRepository(db *gorm.DB) GroupMemberRepository {
+func NewGroupMemberRepository(db *gorm.DB) *groupMemberRepository {
 	return &groupMemberRepository{db: db}
 }
 
@@ -24,7 +25,7 @@ func NewGroupMemberRepository(db *gorm.DB) GroupMemberRepository {
 func (r *groupMemberRepository) FindByGroupUuid(groupUuid string) ([]model.GroupMember, error) {
 	var members []model.GroupMember
 	if err := r.db.Where("group_uuid = ?", groupUuid).Find(&members).Error; err != nil {
-		return nil, wrapDBErrorf(err, "查询群成员 group_uuid=%s", groupUuid)
+		return nil, internal.WrapDBErrorf(err, "查询群成员 group_uuid=%s", groupUuid)
 	}
 	return members, nil
 }
@@ -33,15 +34,15 @@ func (r *groupMemberRepository) FindByGroupUuid(groupUuid string) ([]model.Group
 // 通过 JOIN 查询关联用户表获取昵称和头像
 // groupUuid: 群组 UUID
 // 返回: 带用户信息的群成员列表
-func (r *groupMemberRepository) FindMembersWithUserInfo(groupUuid string) ([]GroupMemberWithUserInfo, error) {
-	var members []GroupMemberWithUserInfo
+func (r *groupMemberRepository) FindMembersWithUserInfo(groupUuid string) ([]model.GroupMemberWithUserInfo, error) {
+	var members []model.GroupMemberWithUserInfo
 	// 使用 LEFT JOIN 关联 user_info 表
 	if err := r.db.Table("group_member").
 		Select("user_info.uuid as user_id, user_info.nickname, user_info.avatar").
 		Joins("LEFT JOIN user_info ON group_member.user_uuid = user_info.uuid").
 		Where("group_member.group_uuid = ? AND group_member.deleted_at IS NULL", groupUuid).
 		Scan(&members).Error; err != nil {
-		return nil, wrapDBErrorf(err, "查询群成员详情 group_uuid=%s", groupUuid)
+		return nil, internal.WrapDBErrorf(err, "查询群成员详情  group_uuid=%s", groupUuid)
 	}
 	return members, nil
 }
@@ -49,7 +50,7 @@ func (r *groupMemberRepository) FindMembersWithUserInfo(groupUuid string) ([]Gro
 // CreateGroupMember 添加群成员
 func (r *groupMemberRepository) CreateGroupMember(member *model.GroupMember) error {
 	if err := r.db.Create(member).Error; err != nil {
-		return wrapDBError(err, "创建群成员")
+		return internal.WrapDBError(err, "创建群成员")
 	}
 	return nil
 }
@@ -58,7 +59,7 @@ func (r *groupMemberRepository) CreateGroupMember(member *model.GroupMember) err
 // 用于解散群组时清理成员数据
 func (r *groupMemberRepository) DeleteByGroupUuid(groupUuid string) error {
 	if err := r.db.Where("group_uuid = ?", groupUuid).Delete(&model.GroupMember{}).Error; err != nil {
-		return wrapDBErrorf(err, "删除群所有成员 group_uuid=%s", groupUuid)
+		return internal.WrapDBErrorf(err, "删除群所有成员 group_uuid=%s", groupUuid)
 	}
 	return nil
 }
@@ -66,7 +67,7 @@ func (r *groupMemberRepository) DeleteByGroupUuid(groupUuid string) error {
 // DeleteByUserUuids 批量删除指定用户（踢人）
 func (r *groupMemberRepository) DeleteByUserUuids(groupUuid string, userUuids []string) error {
 	if err := r.db.Where("group_uuid = ? AND user_uuid IN ?", groupUuid, userUuids).Delete(&model.GroupMember{}).Error; err != nil {
-		return wrapDBErrorf(err, "批量删除群成员 group_uuid=%s", groupUuid)
+		return internal.WrapDBErrorf(err, "批量删除群成员 group_uuid=%s", groupUuid)
 	}
 	return nil
 }
@@ -78,7 +79,7 @@ func (r *groupMemberRepository) DeleteByGroupUuids(groupUuids []string) error {
 		return nil
 	}
 	if err := r.db.Where("group_uuid IN ?", groupUuids).Delete(&model.GroupMember{}).Error; err != nil {
-		return wrapDBError(err, "批量删除群所有成员")
+		return internal.WrapDBError(err, "批量删除群所有成员")
 	}
 	return nil
 }
@@ -93,7 +94,7 @@ func (r *groupMemberRepository) GetMemberIdsByGroupUuids(groupUuids []string) ([
 	// Distinct: 去重，避免用户在多个群中时重复
 	// Pluck: 只获取指定字段的值
 	if err := r.db.Model(&model.GroupMember{}).Distinct("user_uuid").Where("group_uuid IN ?", groupUuids).Pluck("user_uuid", &members).Error; err != nil {
-		return nil, wrapDBError(err, "批量查询群成员ID")
+		return nil, internal.WrapDBError(err, "批量查询群成员ID")
 	}
 	return members, nil
 }

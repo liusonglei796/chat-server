@@ -78,17 +78,15 @@ type aliyunSmsService struct {
 	cache  myredis.CacheService // 依赖抽象接口而非具体 Redis 实现
 }
 
-// GlobalSmsService 全局短信服务实例
-var GlobalSmsService SmsService
+
 
 // Init 初始化阿里云 SMS Client 并创建服务实例
 // cacheService: 缓存服务接口实例（用于频率限制和验证码存储）
-func Init(cacheService myredis.CacheService) error {
+func Init(cacheService myredis.CacheService) (SmsService, error) {
 	authCfg := config.GetConfig().AuthCodeConfig
 	if shouldUseMock(authCfg) {
-		GlobalSmsService = &localSmsService{cache: cacheService}
 		zap.L().Warn("SMS Service 使用本地 Mock 模式（仅写入 Redis，不调用第三方短信）")
-		return nil
+		return &localSmsService{cache: cacheService}, nil
 	}
 
 	conf := &openapi.Config{
@@ -99,11 +97,10 @@ func Init(cacheService myredis.CacheService) error {
 	client, err := dysmsapi20170525.NewClient(conf)
 	if err != nil {
 		zap.L().Error("Aliyun SMS Client Init Failed", zap.Error(err))
-		return err
+		return nil, err
 	}
 
-	GlobalSmsService = &aliyunSmsService{client: client, cache: cacheService}
-	return nil
+	return &aliyunSmsService{client: client, cache: cacheService}, nil
 }
 
 // NewAliyunSmsService 创建阿里云短信服务实例（用于依赖注入）
@@ -192,11 +189,4 @@ func (s *aliyunSmsService) SendVerificationCode(telephone string) error {
 	return nil
 }
 
-// VerificationCode 兼容旧接口（已弃用，请使用 GlobalSmsService.SendVerificationCode）
-// Deprecated: Use GlobalSmsService.SendVerificationCode instead
-func VerificationCode(telephone string) error {
-	if GlobalSmsService == nil {
-		return errorx.New(errorx.CodeServerBusy, "短信服务未初始化")
-	}
-	return GlobalSmsService.SendVerificationCode(telephone)
-}
+

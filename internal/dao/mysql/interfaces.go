@@ -1,12 +1,10 @@
-// Package repository 定义数据访问层接口和聚合结构
+// Package mysql 定义数据访问层接口和聚合结构
 // 采用 Repository 模式将数据访问逻辑与业务逻辑分离
-// 所有 Repository 接口在此文件定义，具体实现在各自的文件中
-package repository
+// 所有 Repository 接口在此文件定义，具体实现在各自的模块中
+package mysql
 
 import (
 	"kama_chat_server/internal/model"
-
-	"gorm.io/gorm"
 )
 
 // ==================== Repository 接口定义 ====================
@@ -128,23 +126,14 @@ type ApplyRepository interface {
 	SoftDeleteByUsers(userUuids []string) error
 }
 
-// ==================== 复合结构 ====================
-
-// GroupMemberWithUserInfo 群成员详细信息（含用户资料）
-// 用于群成员列表展示，包含用户的基本信息
-type GroupMemberWithUserInfo struct {
-	UserId   string `json:"userId"`   // 用户 UUID
-	Nickname string `json:"nickname"` // 用户昵称
-	Avatar   string `json:"avatar"`   // 用户头像
-}
-
 // GroupMemberRepository 群成员数据访问接口
 // 管理群组成员关系
+// GroupMemberWithUserInfo 定义在 model 包中
 type GroupMemberRepository interface {
 	// FindByGroupUuid 根据群组UUID查找所有成员
 	FindByGroupUuid(groupUuid string) ([]model.GroupMember, error)
 	// FindMembersWithUserInfo 查找群成员（含用户详细信息）
-	FindMembersWithUserInfo(groupUuid string) ([]GroupMemberWithUserInfo, error)
+	FindMembersWithUserInfo(groupUuid string) ([]model.GroupMemberWithUserInfo, error)
 	// CreateGroupMember 添加群成员
 	CreateGroupMember(member *model.GroupMember) error
 
@@ -156,47 +145,4 @@ type GroupMemberRepository interface {
 	DeleteByGroupUuids(groupUuids []string) error
 	// GetMemberIdsByGroupUuids 获取多个群组的所有成员ID
 	GetMemberIdsByGroupUuids(groupUuids []string) ([]string, error)
-}
-
-// ==================== Repository 聚合 ====================
-
-// Repositories 聚合所有 Repository 实例
-// 作为依赖注入的入口，Service 层通过此结构访问数据层
-type Repositories struct {
-	db          *gorm.DB              // GORM 数据库实例
-	User        UserRepository        // 用户 Repository
-	Group       GroupRepository       // 群组 Repository
-	Contact     ContactRepository     // 联系人 Repository
-	Session     SessionRepository     // 会话 Repository
-	Message     MessageRepository     // 消息 Repository
-	Apply       ApplyRepository       // 申请 Repository
-	GroupMember GroupMemberRepository // 群成员 Repository
-}
-
-// NewRepositories 创建所有 Repository 实例
-// 接收 GORM 数据库实例，初始化并返回 Repositories 聚合
-// db: GORM 数据库实例
-// 返回: Repositories 聚合指针
-func NewRepositories(db *gorm.DB) *Repositories {
-	return &Repositories{
-		db:          db,
-		User:        NewUserRepository(db),
-		Group:       NewGroupRepository(db),
-		Contact:     NewContactRepository(db),
-		Session:     NewSessionRepository(db),
-		Message:     NewMessageRepository(db),
-		Apply:       NewApplyRepository(db),
-		GroupMember: NewGroupMemberRepository(db),
-	}
-}
-
-// Transaction 在数据库事务中执行函数
-// 事务内的所有操作要么全部成功，要么全部回滚
-// fn: 事务执行函数，接收事务内的 Repositories 实例
-// 返回: 操作错误（如有错误会自动回滚）
-func (r *Repositories) Transaction(fn func(txRepos *Repositories) error) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
-		// 使用事务 db 创建新的 Repositories 实例
-		return fn(NewRepositories(tx))
-	})
 }

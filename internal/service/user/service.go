@@ -9,7 +9,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"kama_chat_server/internal/dao/mysql/repository"
+	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
@@ -25,15 +25,17 @@ import (
 // userInfoService 用户业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖
 type userInfoService struct {
-	repos *repository.Repositories
-	cache myredis.AsyncCacheService
+	repos      *mysql.Repositories
+	cache      myredis.AsyncCacheService
+	smsService sms.SmsService
 }
 
 // NewUserService 构造函数，注入所有依赖
-func NewUserService(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *userInfoService {
+func NewUserService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, smsService sms.SmsService) *userInfoService {
 	return &userInfoService{
-		repos: repos,
-		cache: cacheService,
+		repos:      repos,
+		cache:      cacheService,
+		smsService: smsService,
 	}
 }
 
@@ -184,7 +186,7 @@ func (u *userInfoService) SmsLogin(req request.SmsLoginRequest) (*respond.LoginR
 
 // SendSmsCode 发送短信验证码 - 验证码登录
 func (u *userInfoService) SendSmsCode(telephone string) error {
-	return sms.VerificationCode(telephone)
+	return u.smsService.SendVerificationCode(telephone)
 }
 
 // checkTelephoneExist 检查手机号是否存在
@@ -370,7 +372,7 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 		return nil
 	}
 
-	err := u.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 批量软删除用户
 		if err := txRepos.User.SoftDeleteUserByUuids(uuidList); err != nil {
 			zap.L().Error("Batch delete users error", zap.Error(err))

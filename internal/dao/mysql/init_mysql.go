@@ -1,17 +1,16 @@
-// Package dao 提供数据访问层的初始化和全局数据库实例管理
+// Package mysql 提供数据访问层的初始化和全局数据库实例管理
 // 负责建立 MySQL 连接、自动迁移表结构、初始化 Repository 层
-package dao
+package mysql
 
 import (
 	"fmt"
 
-	"kama_chat_server/internal/config"               // 配置管理
-	"kama_chat_server/internal/dao/mysql/repository" // Repository 层接口
-	"kama_chat_server/internal/model"                // 数据模型
+	"kama_chat_server/internal/config" // 配置管理
+	"kama_chat_server/internal/model"  // 数据模型
 
-	"go.uber.org/zap"      // 日志库
-	"gorm.io/driver/mysql" // GORM MySQL 驱动
-	"gorm.io/gorm"         // GORM ORM 框架
+	"go.uber.org/zap"                  // 日志库
+	mysqldriver "gorm.io/driver/mysql" // GORM MySQL 驱动
+	"gorm.io/gorm"                     // GORM ORM 框架
 )
 
 // Init 初始化数据库连接并返回 Repository 层实例
@@ -23,7 +22,7 @@ import (
 //  5. 创建并返回 Repository 实例
 //
 // 返回: Repository 实例集合
-func Init() *repository.Repositories {
+func Init() *Repositories {
 	// 获取配置
 	conf := config.GetConfig()
 
@@ -38,7 +37,7 @@ func Init() *repository.Repositories {
 	)
 
 	// 使用 GORM 打开数据库连接
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(mysqldriver.Open(dsn), &gorm.Config{})
 	if err != nil {
 		// 连接失败，记录致命错误并退出程序
 		zap.L().Fatal(err.Error())
@@ -62,5 +61,5 @@ func Init() *repository.Repositories {
 	}
 
 	// 创建并返回 Repository 实例集合
-	return repository.NewRepositories(db)
+	return NewRepositories(db)
 }

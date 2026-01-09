@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"kama_chat_server/internal/dao/mysql/repository"
+	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
@@ -23,12 +23,12 @@ import (
 // groupInfoService 群组业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖
 type groupInfoService struct {
-	repos *repository.Repositories
+	repos *mysql.Repositories
 	cache myredis.AsyncCacheService
 }
 
 // NewGroupService 构造函数，注入所有依赖
-func NewGroupService(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *groupInfoService {
+func NewGroupService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *groupInfoService {
 	return &groupInfoService{
 		repos: repos,
 		cache: cacheService,
@@ -48,7 +48,7 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 		Status:    group_status_enum.NORMAL,
 	}
 
-	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		if err := txRepos.Group.CreateGroup(&group); err != nil {
 			zap.L().Error(err.Error())
 			return errorx.ErrServerBusy
@@ -195,7 +195,7 @@ func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
 
 // EnterGroupDirectly 直接进群
 func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
-	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		member := model.GroupMember{
 			GroupUuid: groupId,
 			UserUuid:  userId,
@@ -244,7 +244,7 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 
 // LeaveGroup 退群
 func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
-	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		if err := txRepos.GroupMember.DeleteByUserUuids(groupId, []string{userId}); err != nil {
 			zap.L().Error(err.Error())
 			return errorx.ErrServerBusy
@@ -298,7 +298,7 @@ func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 	var memberIds []string
 
-	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 获取涉及的成员ID
 		contacts, err := txRepos.Contact.FindUsersByContactId(groupId)
 		if err != nil {
@@ -484,7 +484,7 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 	}
 
 	// 2. 事务执行删除操作
-	err = g.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err = g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 删除群成员 (Batch)
 		if err := txRepos.GroupMember.DeleteByGroupUuids(uuidList); err != nil {
 			zap.L().Error("Batch delete group members error", zap.Error(err))
@@ -698,7 +698,7 @@ func (g *groupInfoService) RemoveGroupMembers(req request.RemoveGroupMembersRequ
 	}
 
 	// 2. 事务执行删除操作
-	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 删除群成员
 		if err := txRepos.GroupMember.DeleteByUserUuids(req.GroupId, req.UuidList); err != nil {
 			zap.L().Error("Delete group members error", zap.Error(err))

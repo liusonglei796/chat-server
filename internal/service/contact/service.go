@@ -10,7 +10,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"kama_chat_server/internal/dao/mysql/repository"
+	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
@@ -27,12 +27,12 @@ import (
 // contactService 联系人业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖，遵循依赖倒置原则
 type contactService struct {
-	repos *repository.Repositories
+	repos *mysql.Repositories
 	cache myredis.AsyncCacheService
 }
 
 // NewContactService 构造函数，注入所有依赖
-func NewContactService(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *contactService {
+func NewContactService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *contactService {
 	return &contactService{
 		repos: repos,
 		cache: cacheService,
@@ -307,7 +307,7 @@ func (u *contactService) GetGroupDetail(groupId string) (respond.GetGroupDetailR
 // DeleteContact 删除联系人
 func (u *contactService) DeleteContact(userId, contactId string) error {
 	// 使用事务确保操作原子性
-	err := u.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 仅从“我的”联系人列表中移除对方 (单向操作)
 		if err := txRepos.Contact.SoftDelete(userId, contactId); err != nil {
 			zap.L().Error("Delete contact relation error", zap.Error(err))
@@ -596,7 +596,7 @@ func (u *contactService) PassFriendApply(userId string, applicantId string) erro
 	}
 
 	// 2. 事务执行数据库操作
-	err = u.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 校验申请人状态
 		user, err := txRepos.User.FindByUuid(applicantId)
 		if err != nil {
@@ -659,7 +659,7 @@ func (u *contactService) PassGroupApply(groupId string, applicantId string) erro
 	}
 
 	// 2. 事务执行数据库操作
-	err = u.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 校验群组状态
 		group, err := txRepos.Group.FindByUuid(groupId)
 		if err != nil {
@@ -750,7 +750,7 @@ func (u *contactService) RefuseGroupApply(groupId string, applicantId string) er
 // BlackContact 拉黑联系人
 func (u *contactService) BlackContact(userId string, contactId string) error {
 	// 开启事务
-	err := u.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 更新拉黑者的状态为 BLACK
 		if err := txRepos.Contact.UpdateStatus(userId, contactId, contact_status_enum.BLACK); err != nil {
 			zap.L().Error("Update status to BLACK error", zap.Error(err))
@@ -806,7 +806,7 @@ func (u *contactService) CancelBlackContact(userId string, contactId string) err
 	}
 
 	// 2. 使用事务确保双方状态更新的原子性
-	err = u.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		if err := txRepos.Contact.UpdateStatus(userId, contactId, contact_status_enum.NORMAL); err != nil {
 			zap.L().Error("Update black contact status error", zap.Error(err))
 			return errorx.ErrServerBusy

@@ -1,8 +1,9 @@
-// Package repository 提供数据访问层的具体实现
+// Package session 提供会话相关数据访问层的具体实现
 // 本文件实现 SessionRepository 接口，处理会话相关的数据库操作
-package repository
+package session
 
 import (
+	"kama_chat_server/internal/dao/mysql/internal"
 	"kama_chat_server/internal/model"
 
 	"gorm.io/gorm"
@@ -14,7 +15,7 @@ type sessionRepository struct {
 }
 
 // NewSessionRepository 创建 SessionRepository 实例
-func NewSessionRepository(db *gorm.DB) SessionRepository {
+func NewSessionRepository(db *gorm.DB) *sessionRepository {
 	return &sessionRepository{db: db}
 }
 
@@ -23,7 +24,7 @@ func NewSessionRepository(db *gorm.DB) SessionRepository {
 func (r *sessionRepository) FindBySendIdAndReceiveId(sendId, receiveId string) (*model.Session, error) {
 	var session model.Session
 	if err := r.db.Where("send_id = ? AND receive_id = ?", sendId, receiveId).First(&session).Error; err != nil {
-		return nil, wrapDBErrorf(err, "查询会话 send_id=%s receive_id=%s", sendId, receiveId)
+		return nil, internal.WrapDBErrorf(err, "查询会话 send_id=%s receive_id=%s", sendId, receiveId)
 	}
 	return &session, nil
 }
@@ -33,7 +34,7 @@ func (r *sessionRepository) FindBySendIdAndReceiveId(sendId, receiveId string) (
 func (r *sessionRepository) FindBySendId(sendId string) ([]model.Session, error) {
 	var sessions []model.Session
 	if err := r.db.Where("send_id = ?", sendId).Find(&sessions).Error; err != nil {
-		return nil, wrapDBErrorf(err, "查询会话列表 send_id=%s", sendId)
+		return nil, internal.WrapDBErrorf(err, "查询会话列表 send_id=%s", sendId)
 	}
 	return sessions, nil
 }
@@ -41,7 +42,7 @@ func (r *sessionRepository) FindBySendId(sendId string) ([]model.Session, error)
 // CreateSession 创建会话
 func (r *sessionRepository) CreateSession(session *model.Session) error {
 	if err := r.db.Create(session).Error; err != nil {
-		return wrapDBError(err, "创建会话")
+		return internal.WrapDBError(err, "创建会话")
 	}
 	return nil
 }
@@ -52,7 +53,7 @@ func (r *sessionRepository) SoftDeleteByUuids(uuids []string) error {
 		return nil
 	}
 	if err := r.db.Where("uuid IN ?", uuids).Delete(&model.Session{}).Error; err != nil {
-		return wrapDBError(err, "批量删除会话")
+		return internal.WrapDBError(err, "批量删除会话")
 	}
 	return nil
 }
@@ -64,7 +65,7 @@ func (r *sessionRepository) SoftDeleteByUsers(userUuids []string) error {
 		return nil
 	}
 	if err := r.db.Where("send_id IN ? OR receive_id IN ?", userUuids, userUuids).Delete(&model.Session{}).Error; err != nil {
-		return wrapDBError(err, "批量删除会话")
+		return internal.WrapDBError(err, "批量删除会话")
 	}
 	return nil
 }
@@ -74,7 +75,7 @@ func (r *sessionRepository) SoftDeleteByUsers(userUuids []string) error {
 // updates: 要更新的字段 map，如 {"receive_name": "新群名", "avatar": "新头像"}
 func (r *sessionRepository) UpdateByReceiveId(receiveId string, updates map[string]interface{}) error {
 	if err := r.db.Model(&model.Session{}).Where("receive_id = ?", receiveId).Updates(updates).Error; err != nil {
-		return wrapDBErrorf(err, "批量更新会话 receive_id=%s", receiveId)
+		return internal.WrapDBErrorf(err, "批量更新会话 receive_id=%s", receiveId)
 	}
 	return nil
 }

@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"kama_chat_server/internal/dao/mysql/repository"
+	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
@@ -24,12 +24,12 @@ import (
 // sessionService 会话业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖
 type sessionService struct {
-	repos *repository.Repositories
+	repos *mysql.Repositories
 	cache myredis.AsyncCacheService
 }
 
 // NewSessionService 构造函数，注入所有依赖
-func NewSessionService(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *sessionService {
+func NewSessionService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *sessionService {
 	return &sessionService{
 		repos: repos,
 		cache: cacheService,
