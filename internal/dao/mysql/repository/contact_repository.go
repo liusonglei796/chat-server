@@ -48,8 +48,8 @@ func (r *contactRepository) FindUsersByContactId(contactId string) ([]model.Cont
 	return contacts, nil
 }
 
-// Create 创建联系人关系
-func (r *contactRepository) Create(contact *model.Contact) error {
+// CreateContact 创建联系人关系
+func (r *contactRepository) CreateContact(contact *model.Contact) error {
 	if err := r.db.Create(contact).Error; err != nil {
 		return wrapDBError(err, "创建联系人关系")
 	}

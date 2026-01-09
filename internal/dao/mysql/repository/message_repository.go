@@ -45,3 +45,24 @@ func (r *messageRepository) FindByGroupId(receiveId string) ([]model.Message, er
 	}
 	return messages, nil
 }
+
+// UpdateStatus 更新消息状态
+// uuid: 消息唯一标识
+// status: 新状态值
+// 返回: 操作错误
+func (r *messageRepository) UpdateStatus(uuid int64, status int8) error {
+	if err := r.db.Model(&model.Message{}).Where("uuid = ?", uuid).Update("status", status).Error; err != nil {
+		return wrapDBErrorf(err, "更新消息状态 uuid=%d", uuid)
+	}
+	return nil
+}
+
+// Create 创建新消息
+// message: 消息结构体
+// 返回: 操作错误
+func (r *messageRepository) Create(message *model.Message) error {
+	if err := r.db.Create(message).Error; err != nil {
+		return wrapDBError(err, "创建消息")
+	}
+	return nil
+}

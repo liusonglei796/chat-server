@@ -3,7 +3,6 @@ package message
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"kama_chat_server/pkg/util/random"
 	"mime/multipart"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/config"
@@ -26,13 +24,18 @@ import (
 )
 
 // messageService 消息业务逻辑实现
+// 通过构造函数注入 Repository 和 Cache 依赖，遵循依赖倒置原则
 type messageService struct {
 	repos *repository.Repositories
+	cache myredis.AsyncCacheService
 }
 
-// NewMessageService 构造函数
-func NewMessageService(repos *repository.Repositories) *messageService {
-	return &messageService{repos: repos}
+// NewMessageService 构造函数，注入所有依赖
+func NewMessageService(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *messageService {
+	return &messageService{
+		repos: repos,
+		cache: cacheService,
+	}
 }
 
 // GetMessageList 获取聊天记录
@@ -43,7 +46,8 @@ func (m *messageService) GetMessageList(userOneId, userTwoId string) ([]respond.
 	}
 	cacheKey := "message_list_" + userOneId + "_" + userTwoId
 
-	rspString, err := myredis.GetKeyNilIsErr(context.Background(), cacheKey)
+	// 通过注入的 cache 接口获取缓存，遵循依赖倒置原则
+	rspString, err := m.cache.GetOrError(context.Background(), cacheKey)
 	if err == nil {
 		var rsp []respond.GetMessageListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err != nil {
@@ -52,7 +56,7 @@ func (m *messageService) GetMessageList(userOneId, userTwoId string) ([]respond.
 		} else {
 			return rsp, nil
 		}
-	} else if !errors.Is(err, redis.Nil) {
+	} else if errorx.GetCode(err) != errorx.CodeNotFound {
 		// Log error but continue to DB
 		zap.L().Error("redis get key error", zap.Error(err))
 	}
@@ -81,14 +85,14 @@ func (m *messageService) GetMessageList(userOneId, userTwoId string) ([]respond.
 		})
 	}
 
-	// 更新缓存
-	myredis.SubmitCacheTask(func() {
+	// 通过注入的 cache 接口异步更新缓存
+	m.cache.SubmitTask(func() {
 		jsonBytes, err := json.Marshal(rspList)
 		if err != nil {
 			zap.L().Error("json marshal error", zap.Error(err))
 			return
 		}
-		if err := myredis.SetKeyEx(context.Background(), cacheKey, string(jsonBytes), time.Duration(constants.REDIS_TIMEOUT)*time.Minute); err != nil {
+		if err := m.cache.Set(context.Background(), cacheKey, string(jsonBytes), time.Duration(constants.REDIS_TIMEOUT)*time.Minute); err != nil {
 			zap.L().Error("redis set key error", zap.Error(err))
 		}
 	})
@@ -99,7 +103,8 @@ func (m *messageService) GetMessageList(userOneId, userTwoId string) ([]respond.
 // GetGroupMessageList 获取群聊消息记录
 func (m *messageService) GetGroupMessageList(groupId string) ([]respond.GetGroupMessageListRespond, error) {
 	cacheKey := "group_messagelist_" + groupId
-	rspString, err := myredis.GetKeyNilIsErr(context.Background(), cacheKey)
+	// 通过注入的 cache 接口获取缓存
+	rspString, err := m.cache.GetOrError(context.Background(), cacheKey)
 	if err == nil {
 		var rsp []respond.GetGroupMessageListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err != nil {
@@ -107,7 +112,7 @@ func (m *messageService) GetGroupMessageList(groupId string) ([]respond.GetGroup
 		} else {
 			return rsp, nil
 		}
-	} else if !errors.Is(err, redis.Nil) {
+	} else if errorx.GetCode(err) != errorx.CodeNotFound {
 		zap.L().Error("redis get key error", zap.Error(err))
 	}
 
@@ -134,14 +139,14 @@ func (m *messageService) GetGroupMessageList(groupId string) ([]respond.GetGroup
 		})
 	}
 
-	// 更新缓存
-	myredis.SubmitCacheTask(func() {
+	// 通过注入的 cache 接口异步更新缓存
+	m.cache.SubmitTask(func() {
 		jsonBytes, err := json.Marshal(rspList)
 		if err != nil {
 			zap.L().Error("json marshal error", zap.Error(err))
 			return
 		}
-		if err := myredis.SetKeyEx(context.Background(), cacheKey, string(jsonBytes), time.Duration(constants.REDIS_TIMEOUT)*time.Minute); err != nil {
+		if err := m.cache.Set(context.Background(), cacheKey, string(jsonBytes), time.Duration(constants.REDIS_TIMEOUT)*time.Minute); err != nil {
 			zap.L().Error("redis set key error", zap.Error(err))
 		}
 	})

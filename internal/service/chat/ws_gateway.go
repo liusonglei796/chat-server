@@ -8,8 +8,6 @@ package chat
 
 import (
 	"context"
-	dao "kama_chat_server/internal/dao/mysql"
-	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/message/message_status_enum"
 	"log"
@@ -27,7 +25,7 @@ type MessageBack struct {
 }
 
 // UserConn 表示一个 WebSocket 客户端连接
-//代表的是你的后端服务器和用户浏览器之间的一条那根网线。
+// 代表的是你的后端服务器和用户浏览器之间的一条那根网线。
 type UserConn struct {
 	Conn     *websocket.Conn
 	Uuid     string
@@ -38,7 +36,7 @@ type UserConn struct {
 //  gorilla/websocket 默认的安全机制会拦截跨域请求。
 
 // 比如：你的 Go 后端运行在 localhost:8080，但你的 Vue/React 前端运行在 localhost:3000。如果不写这段代码，默认会连接失败（报 403 Forbidden 错误）。
-	// return true 就是为了解决跨域问题，允许任何来源的连接。
+// return true 就是为了解决跨域问题，允许任何来源的连接。
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  2048,
 	WriteBufferSize: 2048,
@@ -76,9 +74,11 @@ func (c *UserConn) Write() {
 			zap.L().Error(err.Error())
 			return
 		}
-		// 更新消息状态为已发送
-		if res := dao.GormDB.Model(&model.Message{}).Where("uuid = ?", messageBack.Uuid).Update("status", message_status_enum.Sent); res.Error != nil {
-			zap.L().Error(res.Error.Error())
+		// 通过 Repository 接口更新消息状态（遵循依赖倒置原则）
+		if GlobalMessageRepo != nil {
+			if err := GlobalMessageRepo.UpdateStatus(messageBack.Uuid, message_status_enum.Sent); err != nil {
+				zap.L().Error("更新消息状态失败", zap.Error(err))
+			}
 		}
 	}
 }

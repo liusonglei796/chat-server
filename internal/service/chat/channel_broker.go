@@ -11,8 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	dao "kama_chat_server/internal/dao/mysql"
-	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
 	"kama_chat_server/internal/model"
@@ -171,9 +169,11 @@ func (s *StandaloneServer) handleTextMessage(req request.ChatMessageRequest) {
 	// 规范化头像路径
 	message.SendAvatar = normalizePath(message.SendAvatar)
 
-	// 存入 MySQL 数据库
-	if res := dao.GormDB.Create(&message); res.Error != nil {
-		zap.L().Error(res.Error.Error())
+	// 通过 Repository 接口存入数据库（遵循依赖倒置原则）
+	if GlobalMessageRepo != nil {
+		if err := GlobalMessageRepo.Create(&message); err != nil {
+			zap.L().Error("创建消息失败", zap.Error(err))
+		}
 	}
 
 	// 根据 ReceiveId 的前缀判断是单聊还是群聊
@@ -209,9 +209,11 @@ func (s *StandaloneServer) handleFileMessage(req request.ChatMessageRequest) {
 	// 规范化头像路径
 	message.SendAvatar = normalizePath(message.SendAvatar)
 
-	// 存入 MySQL 数据库
-	if res := dao.GormDB.Create(&message); res.Error != nil {
-		zap.L().Error(res.Error.Error())
+	// 通过 Repository 接口存入数据库
+	if GlobalMessageRepo != nil {
+		if err := GlobalMessageRepo.Create(&message); err != nil {
+			zap.L().Error("创建文件消息失败", zap.Error(err))
+		}
 	}
 
 	// 路由分发
@@ -255,8 +257,10 @@ func (s *StandaloneServer) handleAVMessage(req request.ChatMessageRequest) {
 	// 这有助于后续的历史记录查询，而中间的 Candidate 交换等过程则不存储
 	if avData.MessageId == "PROXY" && (avData.Type == "start_call" || avData.Type == "receive_call" || avData.Type == "reject_call") {
 		message.SendAvatar = normalizePath(message.SendAvatar)
-		if res := dao.GormDB.Create(&message); res.Error != nil {
-			zap.L().Error(res.Error.Error())
+		if GlobalMessageRepo != nil {
+			if err := GlobalMessageRepo.Create(&message); err != nil {
+				zap.L().Error("创建音视频消息失败", zap.Error(err))
+			}
 		}
 	}
 
@@ -348,26 +352,28 @@ func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar stri
 		sendClient.SendBack <- messageBack
 	}
 
-	// Update Redis async via Worker Pool
-	myredis.SubmitCacheTask(func() {
-		userOneId := message.SendId
-		userTwoId := message.ReceiveId
-		if userOneId > userTwoId {
-			userOneId, userTwoId = userTwoId, userOneId
-		}
-		key := "message_list_" + userOneId + "_" + userTwoId
+	// 通过注入的缓存服务异步更新缓存
+	if GlobalCacheService != nil {
+		GlobalCacheService.SubmitTask(func() {
+			userOneId := message.SendId
+			userTwoId := message.ReceiveId
+			if userOneId > userTwoId {
+				userOneId, userTwoId = userTwoId, userOneId
+			}
+			key := "message_list_" + userOneId + "_" + userTwoId
 
-		rspString, err := myredis.GetKeyNilIsErr(context.Background(), key)
-		if err == nil {
-			var list []respond.GetMessageListRespond
-			if err := json.Unmarshal([]byte(rspString), &list); err == nil {
-				list = append(list, messageRsp)
-				if rspByte, err := json.Marshal(list); err == nil {
-					myredis.SetKeyEx(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+			rspString, err := GlobalCacheService.GetOrError(context.Background(), key)
+			if err == nil {
+				var list []respond.GetMessageListRespond
+				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
+					list = append(list, messageRsp)
+					if rspByte, err := json.Marshal(list); err == nil {
+						_ = GlobalCacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+					}
 				}
 			}
-		}
-	})
+		})
+	}
 }
 
 // sendToGroup 辅助方法：发送消息给群组
@@ -405,10 +411,14 @@ func (s *StandaloneServer) sendToGroup(message model.Message, originalAvatar str
 		Uuid:    message.Uuid,
 	}
 
-	// 查询群成员列表
+	// 通过 Repository 接口查询群成员列表
 	var groupMembers []model.GroupMember
-	if res := dao.GormDB.Where("group_uuid = ?", message.ReceiveId).Find(&groupMembers); res.Error != nil {
-		zap.L().Error(res.Error.Error())
+	if GlobalGroupMemberRepo != nil {
+		var err error
+		groupMembers, err = GlobalGroupMemberRepo.FindByGroupUuid(message.ReceiveId)
+		if err != nil {
+			zap.L().Error("查询群成员失败", zap.Error(err))
+		}
 	}
 
 	// 分发消息 (sync.Map 自动处理并发安全)
@@ -428,20 +438,22 @@ func (s *StandaloneServer) sendToGroup(message model.Message, originalAvatar str
 		}
 	}
 
-	// Update Redis async via Worker Pool
-	myredis.SubmitCacheTask(func() {
-		key := "group_messagelist_" + message.ReceiveId
-		rspString, err := myredis.GetKeyNilIsErr(context.Background(), key)
-		if err == nil {
-			var list []respond.GetGroupMessageListRespond
-			if err := json.Unmarshal([]byte(rspString), &list); err == nil {
-				list = append(list, messageRsp)
-				if rspByte, err := json.Marshal(list); err == nil {
-					myredis.SetKeyEx(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+	// 通过注入的缓存服务异步更新缓存
+	if GlobalCacheService != nil {
+		GlobalCacheService.SubmitTask(func() {
+			key := "group_messagelist_" + message.ReceiveId
+			rspString, err := GlobalCacheService.GetOrError(context.Background(), key)
+			if err == nil {
+				var list []respond.GetGroupMessageListRespond
+				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
+					list = append(list, messageRsp)
+					if rspByte, err := json.Marshal(list); err == nil {
+						_ = GlobalCacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
+					}
 				}
 			}
-		}
-	})
+		})
+	}
 }
 
 // Close 关闭服务通道

@@ -4,6 +4,7 @@ package https_server
 
 import (
 	"kama_chat_server/internal/config"                // 配置管理
+	"kama_chat_server/internal/handler"               // Handler 聚合对象
 	"kama_chat_server/internal/infrastructure/logger" // 自定义日志中间件
 	"kama_chat_server/internal/router"                // 路由注册
 
@@ -16,13 +17,14 @@ import (
 var GE *gin.Engine
 
 // Init 初始化 HTTP/HTTPS 服务器
+// handlers: 通过依赖注入传入的 handler 聚合对象
 // 配置顺序：
 //  1. 创建 Gin 引擎（空白，不含默认中间件）
 //  2. 注册日志和恢复中间件
 //  3. 配置 CORS 跨域规则
 //  4. 映射静态资源目录
 //  5. 注册业务路由
-func Init() {
+func Init(handlers *handler.Handlers) {
 	// 创建空白 Gin 引擎（不使用 gin.Default() 以便完全控制中间件）
 	GE = gin.New()
 
@@ -51,6 +53,7 @@ func Init() {
 	// /static/files -> 普通上传文件目录
 	GE.Static("/static/files", config.GetConfig().StaticFilePath)
 
-	// 注册所有业务路由（用户、联系人、群组、消息、WebSocket 等）
-	router.RegisterRoutes(GE)
+	// 创建路由管理器并注册所有业务路由
+	rt := router.NewRouter(handlers)
+	rt.RegisterRoutes(GE)
 }

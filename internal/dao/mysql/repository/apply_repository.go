@@ -43,8 +43,8 @@ func (r *applyRepository) FindByTargetIdPending(targetId string) ([]model.Apply,
 	return applies, nil
 }
 
-// Create 创建新的申请记录
-func (r *applyRepository) Create(apply *model.Apply) error {
+// CreateApply 创建新的申请记录
+func (r *applyRepository) CreateApply(apply *model.Apply) error {
 	if err := r.db.Create(apply).Error; err != nil {
 		return wrapDBError(err, "创建联系人申请")
 	}

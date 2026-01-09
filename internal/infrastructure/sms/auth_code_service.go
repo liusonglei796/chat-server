@@ -13,15 +13,24 @@ import (
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/config"
-	"kama_chat_server/internal/dao/redis"
+	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/util/random"
 )
 
-var smsClient *dysmsapi20170525.Client
+// aliyunSmsService 阿里云短信服务实现
+// 实现 SmsService 接口，遵循依赖倒置原则
+type aliyunSmsService struct {
+	client *dysmsapi20170525.Client
+	cache  myredis.CacheService // 依赖抽象接口而非具体 Redis 实现
+}
 
-// Init 初始化阿里云 SMS Client
-func Init() error {
+// GlobalSmsService 全局短信服务实例
+var GlobalSmsService SmsService
+
+// Init 初始化阿里云 SMS Client 并创建服务实例
+// cacheService: 缓存服务接口实例（用于频率限制和验证码存储）
+func Init(cacheService myredis.CacheService) error {
 	cfgPath := config.GetConfig().AuthCodeConfig
 	conf := &openapi.Config{
 		AccessKeyId:     tea.String(cfgPath.AccessKeyID),
@@ -33,26 +42,38 @@ func Init() error {
 		zap.L().Error("Aliyun SMS Client Init Failed", zap.Error(err))
 		return err
 	}
-	smsClient = client
+
+	// 创建服务实例，注入依赖
+	GlobalSmsService = &aliyunSmsService{
+		client: client,
+		cache:  cacheService,
+	}
 	return nil
 }
 
-// VerificationCode 发送验证码核心逻辑
-// 包含：频率限制检查、验证码生成、Redis 预存、阿里云 API 调用以及失败回滚机制
-func VerificationCode(telephone string) error {
-	// 1. 安全检查：确保全局短信客户端已初始化
-	// 防止因为 Init 函数失败导致的空指针异常
-	if smsClient == nil {
+// NewAliyunSmsService 创建阿里云短信服务实例（用于依赖注入）
+func NewAliyunSmsService(client *dysmsapi20170525.Client, cacheService myredis.CacheService) SmsService {
+	return &aliyunSmsService{
+		client: client,
+		cache:  cacheService,
+	}
+}
+
+// SendVerificationCode 发送验证码核心逻辑（实现 SmsService 接口）
+// 包含：频率限制检查、验证码生成、缓存预存、阿里云 API 调用以及失败回滚机制
+func (s *aliyunSmsService) SendVerificationCode(telephone string) error {
+	// 1. 安全检查：确保短信客户端已初始化
+	if s.client == nil {
 		zap.L().Error("短信服务调用失败：smsClient 未初始化")
 		return errorx.New(errorx.CodeServerBusy, "短信服务未初始化")
 	}
 
 	// 2. 频率限制检查 (Throttling)
-	// 通过 Redis 查询该手机号是否已有未过期的验证码
+	// 通过缓存接口查询该手机号是否已有未过期的验证码
 	key := "auth_code_" + telephone
-	code, err := redis.GetKey(context.Background(), key)
+	code, err := s.cache.Get(context.Background(), key)
 	if err != nil {
-		zap.L().Error("Redis 频率检查异常", zap.Error(err), zap.String("phone", telephone))
+		zap.L().Error("缓存频率检查异常", zap.Error(err), zap.String("phone", telephone))
 		return errorx.ErrServerBusy
 	}
 
@@ -66,10 +87,10 @@ func VerificationCode(telephone string) error {
 	// 开发环境调试使用，生产环境应通过日志等级控制或移除
 	fmt.Printf("【Debug】手机号: %s, 生成验证码: %s\n", telephone, code)
 
-	// 4. 预存 Redis：设置 1 分钟有效期
+	// 4. 预存缓存：设置 1 分钟有效期
 	// 先占位，后发送。如果先发送后占位，在极高并发下可能被绕过频率限制
-	if err := redis.SetKeyEx(context.Background(), key, code, time.Minute); err != nil {
-		zap.L().Error("Redis 写入验证码失败", zap.Error(err))
+	if err := s.cache.Set(context.Background(), key, code, time.Minute); err != nil {
+		zap.L().Error("缓存写入验证码失败", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
@@ -96,15 +117,15 @@ func VerificationCode(telephone string) error {
 
 	// 7. 执行发送操作
 	runtime := &util.RuntimeOptions{}
-	rsp, err := smsClient.SendSmsWithOptions(sendSmsRequest, runtime)
+	rsp, err := s.client.SendSmsWithOptions(sendSmsRequest, runtime)
 
 	// 8. 异常处理与事务回滚
 	if err != nil {
 		zap.L().Error("调用阿里云短信接口发生系统级错误", zap.Error(err))
 
-		// 【关键逻辑】回滚：如果发送失败，必须删除 Redis 中的占位 Key
+		// 【关键逻辑】回滚：如果发送失败，必须删除缓存中的占位 Key
 		// 否则用户在接下来的 1 分钟内无法再次触发发送请求，体验极差
-		_ = redis.DelKeyIfExists(context.Background(), key)
+		_ = s.cache.Delete(context.Background(), key)
 
 		return errorx.ErrServerBusy
 	}
@@ -114,4 +135,13 @@ func VerificationCode(telephone string) error {
 	zap.L().Info("短信发送接口响应", zap.String("response", *util.ToJSONString(rsp)))
 
 	return nil
+}
+
+// VerificationCode 兼容旧接口（已弃用，请使用 GlobalSmsService.SendVerificationCode）
+// Deprecated: Use GlobalSmsService.SendVerificationCode instead
+func VerificationCode(telephone string) error {
+	if GlobalSmsService == nil {
+		return errorx.New(errorx.CodeServerBusy, "短信服务未初始化")
+	}
+	return GlobalSmsService.SendVerificationCode(telephone)
 }

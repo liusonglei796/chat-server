@@ -38,8 +38,8 @@ func (r *sessionRepository) FindBySendId(sendId string) ([]model.Session, error)
 	return sessions, nil
 }
 
-// Create 创建会话
-func (r *sessionRepository) Create(session *model.Session) error {
+// CreateSession 创建会话
+func (r *sessionRepository) CreateSession(session *model.Session) error {
 	if err := r.db.Create(session).Error; err != nil {
 		return wrapDBError(err, "创建会话")
 	}

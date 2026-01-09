@@ -23,14 +23,18 @@ import (
 )
 
 // userInfoService 用户业务逻辑实现
-// 通过构造函数注入 Repository 依赖，不再使用全局 dao.Repos
+// 通过构造函数注入 Repository 和 Cache 依赖
 type userInfoService struct {
 	repos *repository.Repositories
+	cache myredis.AsyncCacheService
 }
 
-// NewUserService 构造函数，注入所有依赖的 Repository
-func NewUserService(repos *repository.Repositories) *userInfoService {
-	return &userInfoService{repos: repos}
+// NewUserService 构造函数，注入所有依赖
+func NewUserService(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *userInfoService {
+	return &userInfoService{
+		repos: repos,
+		cache: cacheService,
+	}
 }
 
 // checkTelephoneValid 检验电话是否有效
@@ -87,10 +91,10 @@ func (u *userInfoService) Login(loginReq request.LoginRequest) (*respond.LoginRe
 		return nil, errorx.ErrServerBusy
 	}
 
-	// 将 Refresh Token ID 存入 Redis，实现单点互踢
+	// 将 Refresh Token ID 存入缓存，实现单点互踢
 	redisKey := "user_token:" + user.Uuid
-	if err := myredis.SetKeyEx(context.Background(), redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
-		zap.L().Error("存储 Token ID 到 Redis 失败", zap.Error(err))
+	if err := u.cache.Set(context.Background(), redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
+		zap.L().Error("存储 Token ID 到缓存失败", zap.Error(err))
 		// 不阻塞登录流程，仅记录日志
 	}
 
@@ -126,7 +130,7 @@ func (u *userInfoService) SmsLogin(req request.SmsLoginRequest) (*respond.LoginR
 	}
 
 	key := "auth_code_" + req.Telephone
-	code, err := myredis.GetKey(context.Background(), key)
+	code, err := u.cache.Get(context.Background(), key)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return nil, errorx.ErrServerBusy
@@ -134,7 +138,7 @@ func (u *userInfoService) SmsLogin(req request.SmsLoginRequest) (*respond.LoginR
 	if code != req.SmsCode {
 		return nil, errorx.New(errorx.CodeInvalidParam, "验证码不正确，请重试")
 	}
-	if err := myredis.DelKeyIfExists(context.Background(), key); err != nil {
+	if err := u.cache.Delete(context.Background(), key); err != nil {
 		zap.L().Error(err.Error())
 		return nil, errorx.ErrServerBusy
 	}
@@ -152,10 +156,10 @@ func (u *userInfoService) SmsLogin(req request.SmsLoginRequest) (*respond.LoginR
 		return nil, errorx.ErrServerBusy
 	}
 
-	// 将 Refresh Token ID 存入 Redis，实现单点互踢
+	// 将 Refresh Token ID 存入缓存，实现单点互踢
 	redisKey := "user_token:" + user.Uuid
-	if err := myredis.SetKeyEx(context.Background(), redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
-		zap.L().Error("存储 Token ID 到 Redis 失败", zap.Error(err))
+	if err := u.cache.Set(context.Background(), redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
+		zap.L().Error("存储 Token ID 到缓存失败", zap.Error(err))
 	}
 
 	loginRsp := &respond.LoginRespond{
@@ -201,7 +205,7 @@ func (u *userInfoService) checkTelephoneExist(telephone string) error {
 // Register 注册
 func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respond.RegisterRespond, error) {
 	key := "auth_code_" + registerReq.Telephone
-	code, err := myredis.GetKey(context.Background(), key)
+	code, err := u.cache.Get(context.Background(), key)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return nil, errorx.ErrServerBusy
@@ -209,7 +213,7 @@ func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respon
 	if code != registerReq.SmsCode {
 		return nil, errorx.New(errorx.CodeInvalidParam, "验证码不正确，请重试")
 	}
-	if err := myredis.DelKeyIfExists(context.Background(), key); err != nil {
+	if err := u.cache.Delete(context.Background(), key); err != nil {
 		zap.L().Error(err.Error())
 		return nil, errorx.ErrServerBusy
 	}
@@ -229,7 +233,7 @@ func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respon
 	newUser.IsAdmin = u.checkUserIsAdminOrNot(newUser)
 	newUser.Status = user_status_enum.NORMAL
 
-	err = u.repos.User.Create(&newUser)
+	err = u.repos.User.CreateUser(&newUser)
 	if err != nil {
 		zap.L().Error(err.Error())
 		return nil, errorx.ErrServerBusy
@@ -281,8 +285,8 @@ func (u *userInfoService) UpdateUserInfo(updateReq request.UpdateUserInfoRequest
 	}
 
 	// 异步清理缓存
-	myredis.SubmitCacheTask(func() {
-		if err := myredis.DelKeyIfExists(context.Background(), "user_info_"+updateReq.Uuid); err != nil {
+	u.cache.SubmitTask(func() {
+		if err := u.cache.Delete(context.Background(), "user_info_"+updateReq.Uuid); err != nil {
 			zap.L().Error(err.Error())
 		}
 	})
@@ -342,8 +346,8 @@ func (u *userInfoService) DisableUsers(uuidList []string) error {
 		return errorx.ErrServerBusy
 	}
 
-	// 3. 异步清除 Redis 缓存
-	myredis.SubmitCacheTask(func() {
+	// 3. 异步清除缓存
+	u.cache.SubmitTask(func() {
 		var patterns []string
 		for _, uuid := range uuidList {
 			patterns = append(patterns,
@@ -352,7 +356,7 @@ func (u *userInfoService) DisableUsers(uuidList []string) error {
 				"group_session_list_"+uuid+"*",
 			)
 		}
-		if err := myredis.DelKeysWithPatterns(context.Background(), patterns); err != nil {
+		if err := u.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
 			zap.L().Error("批量清除用户相关缓存失败", zap.Error(err))
 		}
 	})
@@ -397,8 +401,8 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 		return err
 	}
 
-	// 5. 异步清除 Redis 缓存 (不阻塞主流程)
-	myredis.SubmitCacheTask(func() {
+	// 5. 异步清除缓存 (不阻塞主流程)
+	u.cache.SubmitTask(func() {
 		// 收集所有需要删除的缓存模式
 		var patterns []string
 		for _, uuid := range uuidList {
@@ -409,7 +413,7 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 				"contact_relation:user:"+uuid+"*",
 			)
 		}
-		if err := myredis.DelKeysWithPatterns(context.Background(), patterns); err != nil {
+		if err := u.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
 			zap.L().Error("批量清除用户相关缓存失败", zap.Error(err))
 		}
 	})
@@ -421,15 +425,15 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond, error) {
 	key := "user_info_" + uuid
 
-	// 1. 尝试从 Redis 缓存获取
-	rspString, err := myredis.GetKey(context.Background(), key)
+	// 1. 尝试从缓存获取
+	rspString, err := u.cache.Get(context.Background(), key)
 	if err == nil && rspString != "" {
 		var rsp respond.GetUserInfoRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
 			return &rsp, nil
 		}
 		// 如果反序列化失败，视同缓存失效，继续查库
-		zap.L().Error("Redis cache unmarshal failed", zap.Error(err))
+		zap.L().Error("Cache unmarshal failed", zap.Error(err))
 	}
 
 	// 2. 缓存未命中或异常，查询数据库
@@ -458,14 +462,14 @@ func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond,
 	}
 
 	// 4. 异步回写缓存
-	myredis.SubmitCacheTask(func() {
+	u.cache.SubmitTask(func() {
 		jsonData, err := json.Marshal(rsp)
 		if err != nil {
 			zap.L().Error("JSON marshal failed", zap.Error(err))
 			return
 		}
-		if err := myredis.SetKeyEx(context.Background(), key, string(jsonData), time.Hour); err != nil {
-			zap.L().Error("Redis set key failed", zap.Error(err))
+		if err := u.cache.Set(context.Background(), key, string(jsonData), time.Hour); err != nil {
+			zap.L().Error("Cache set key failed", zap.Error(err))
 		}
 	})
 
@@ -485,12 +489,12 @@ func (u *userInfoService) SetAdmin(uuidList []string, isAdmin int8) error {
 	}
 
 	// 2. 异步批量清除用户信息缓存
-	myredis.SubmitCacheTask(func() {
+	u.cache.SubmitTask(func() {
 		var patterns []string
 		for _, uuid := range uuidList {
 			patterns = append(patterns, "user_info_"+uuid)
 		}
-		if err := myredis.DelKeysWithPatterns(context.Background(), patterns); err != nil {
+		if err := u.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
 			zap.L().Error("批量清除用户缓存失败", zap.Error(err))
 		}
 	})

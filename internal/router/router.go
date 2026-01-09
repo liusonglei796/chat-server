@@ -3,34 +3,47 @@
 package router
 
 import (
+	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/infrastructure/middleware"
 
 	"github.com/gin-gonic/gin"
 )
+
+// Router 路由管理器
+// 封装所有路由注册逻辑，通过依赖注入接收 handlers
+type Router struct {
+	handlers *handler.Handlers
+}
+
+// NewRouter 创建路由管理器
+// handlers: 通过依赖注入传入的 handler 聚合对象
+func NewRouter(handlers *handler.Handlers) *Router {
+	return &Router{handlers: handlers}
+}
 
 // RegisterRoutes 注册所有路由
 // 在 https_server.Init() 中调用
 // 路由分为两组:
 //   - 公开路由: 无需认证，用于登录、注册、Token刷新
 //   - 私有路由: 需要 JWT 认证
-func RegisterRoutes(r *gin.Engine) {
+func (rt *Router) RegisterRoutes(r *gin.Engine) {
 	// ==================== 公开路由 (无需认证) ====================
 	public := r.Group("")
 	{
-		RegisterAuthRoutes(public)       // 认证路由（Token 刷新）
-		RegisterPublicUserRoutes(public) // 用户公开路由（登录、注册）
+		rt.RegisterAuthRoutes(public)       // 认证路由（Token 刷新）
+		rt.RegisterPublicUserRoutes(public) // 用户公开路由（登录、注册）
 	}
 
 	// ==================== 私有路由 (需要认证) ====================
 	private := r.Group("")
 	private.Use(middleware.JWTAuth())
 	{
-		RegisterAdminRoutes(private)     // 管理员路由
-		RegisterUserRoutes(private)      // 用户路由
-		RegisterFriendRoutes(private)    // 好友路由
-		RegisterGroupRoutes(private)     // 群组路由
-		RegisterSessionRoutes(private)   // 会话路由
-		RegisterMessageRoutes(private)   // 消息路由
-		RegisterWebSocketRoutes(private) // WebSocket 路由
+		rt.RegisterAdminRoutes(private)     // 管理员路由
+		rt.RegisterUserRoutes(private)      // 用户路由
+		rt.RegisterFriendRoutes(private)    // 好友路由
+		rt.RegisterGroupRoutes(private)     // 群组路由
+		rt.RegisterSessionRoutes(private)   // 会话路由
+		rt.RegisterMessageRoutes(private)   // 消息路由
+		rt.RegisterWebSocketRoutes(private) // WebSocket 路由
 	}
 }

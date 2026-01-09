@@ -18,6 +18,17 @@ func NewGroupMemberRepository(db *gorm.DB) GroupMemberRepository {
 	return &groupMemberRepository{db: db}
 }
 
+// FindByGroupUuid 根据群组UUID查找所有成员
+// groupUuid: 群组 UUID
+// 返回: 群成员列表
+func (r *groupMemberRepository) FindByGroupUuid(groupUuid string) ([]model.GroupMember, error) {
+	var members []model.GroupMember
+	if err := r.db.Where("group_uuid = ?", groupUuid).Find(&members).Error; err != nil {
+		return nil, wrapDBErrorf(err, "查询群成员 group_uuid=%s", groupUuid)
+	}
+	return members, nil
+}
+
 // FindMembersWithUserInfo 查询群成员详细信息（包含用户基本资料）
 // 通过 JOIN 查询关联用户表获取昵称和头像
 // groupUuid: 群组 UUID
@@ -35,8 +46,8 @@ func (r *groupMemberRepository) FindMembersWithUserInfo(groupUuid string) ([]Gro
 	return members, nil
 }
 
-// Create 添加群成员
-func (r *groupMemberRepository) Create(member *model.GroupMember) error {
+// CreateGroupMember 添加群成员
+func (r *groupMemberRepository) CreateGroupMember(member *model.GroupMember) error {
 	if err := r.db.Create(member).Error; err != nil {
 		return wrapDBError(err, "创建群成员")
 	}

@@ -4,45 +4,10 @@
 package repository
 
 import (
-	"errors"
-
 	"kama_chat_server/internal/model"
-	"kama_chat_server/pkg/errorx"
 
 	"gorm.io/gorm"
 )
-
-// ==================== 错误包装辅助函数 ====================
-
-// wrapDBError 包装数据库错误
-// 根据错误类型返回不同的错误码：
-//   - ErrRecordNotFound -> CodeNotFound
-//   - 其他错误 -> CodeDBError
-//
-// err: 原始错误
-// msg: 错误描述
-// 返回: 包装后的错误
-func wrapDBError(err error, msg string) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return errorx.Wrap(err, errorx.CodeNotFound, msg)
-	}
-	return errorx.Wrap(err, errorx.CodeDBError, msg)
-}
-
-// wrapDBErrorf 包装数据库错误（支持格式化消息）
-// 功能同 wrapDBError，但支持 fmt.Sprintf 风格的格式化
-func wrapDBErrorf(err error, format string, args ...any) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return errorx.Wrapf(err, errorx.CodeNotFound, format, args...)
-	}
-	return errorx.Wrapf(err, errorx.CodeDBError, format, args...)
-}
 
 // ==================== Repository 接口定义 ====================
 
@@ -57,8 +22,8 @@ type UserRepository interface {
 	FindAllExcept(excludeUuid string) ([]model.UserInfo, error)
 	// FindByUuids 批量根据 UUID 查找用户
 	FindByUuids(uuids []string) ([]model.UserInfo, error)
-	// Create 创建新用户
-	Create(user *model.UserInfo) error
+	// CreateUser 创建新用户
+	CreateUser(user *model.UserInfo) error
 	// UpdateUserInfo 更新用户信息
 	UpdateUserInfo(user *model.UserInfo) error
 	// UpdateUserStatusByUuids 批量更新用户状态（启用/禁用）
@@ -82,8 +47,8 @@ type GroupRepository interface {
 	FindByUuids(uuids []string) ([]model.GroupInfo, error)
 	// GetList 分页获取群组列表
 	GetGroupList(page, pageSize int) ([]model.GroupInfo, int64, error)
-	// Create 创建新群组
-	Create(group *model.GroupInfo) error
+	// CreateGroup 创建新群组
+	CreateGroup(group *model.GroupInfo) error
 	// Update 更新群组信息
 	Update(group *model.GroupInfo) error
 
@@ -106,8 +71,8 @@ type ContactRepository interface {
 	FindByUserIdAndType(userId string, contactType int8) ([]model.Contact, error)
 	// FindUsersByContactId 根据联系人ID反向查找
 	FindUsersByContactId(contactId string) ([]model.Contact, error)
-	// Create 创建联系人关系
-	Create(contact *model.Contact) error
+	// CreateContact 创建联系人关系
+	CreateContact(contact *model.Contact) error
 	// UpdateStatus 更新联系人状态（正常/拉黑等）
 	UpdateStatus(userId, contactId string, status int8) error
 	// SoftDelete 软删除联系人关系
@@ -123,8 +88,8 @@ type SessionRepository interface {
 	FindBySendIdAndReceiveId(sendId, receiveId string) (*model.Session, error)
 	// FindBySendId 根据发送者ID查找所有会话
 	FindBySendId(sendId string) ([]model.Session, error)
-	// Create 创建新会话
-	Create(session *model.Session) error
+	// CreateSession 创建新会话
+	CreateSession(session *model.Session) error
 	// SoftDeleteByUuids 批量软删除会话
 	SoftDeleteByUuids(uuids []string) error
 	// SoftDeleteByUsers 软删除指定用户的所有会话
@@ -140,6 +105,10 @@ type MessageRepository interface {
 	FindByUserIds(userOneId, userTwoId string) ([]model.Message, error)
 	// FindByGroupId 根据群组ID查找群聊消息
 	FindByGroupId(groupId string) ([]model.Message, error)
+	// UpdateStatus 更新消息状态
+	UpdateStatus(uuid int64, status int8) error
+	// Create 创建新消息
+	Create(message *model.Message) error
 }
 
 // ApplyRepository 联系人申请数据访问接口
@@ -149,8 +118,8 @@ type ApplyRepository interface {
 	FindByApplicantIdAndTargetId(applicantId, targetId string) (*model.Apply, error)
 	// FindByTargetIdPending 查找目标用户的待处理申请
 	FindByTargetIdPending(targetId string) ([]model.Apply, error)
-	// Create 创建新申请
-	Create(apply *model.Apply) error
+	// CreateApply 创建新申请
+	CreateApply(apply *model.Apply) error
 	// Update 更新申请信息
 	Update(apply *model.Apply) error
 	// SoftDelete 软删除申请
@@ -172,11 +141,12 @@ type GroupMemberWithUserInfo struct {
 // GroupMemberRepository 群成员数据访问接口
 // 管理群组成员关系
 type GroupMemberRepository interface {
-
+	// FindByGroupUuid 根据群组UUID查找所有成员
+	FindByGroupUuid(groupUuid string) ([]model.GroupMember, error)
 	// FindMembersWithUserInfo 查找群成员（含用户详细信息）
 	FindMembersWithUserInfo(groupUuid string) ([]GroupMemberWithUserInfo, error)
-	// Create 添加群成员
-	Create(member *model.GroupMember) error
+	// CreateGroupMember 添加群成员
+	CreateGroupMember(member *model.GroupMember) error
 
 	// DeleteByGroupUuid 删除群组所有成员
 	DeleteByGroupUuid(groupUuid string) error

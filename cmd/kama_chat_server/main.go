@@ -10,6 +10,7 @@ import (
 	"kama_chat_server/internal/config"
 	dao "kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
+	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/https_server"
 	"kama_chat_server/internal/infrastructure/logger"
 	"kama_chat_server/internal/infrastructure/sms"
@@ -38,21 +39,31 @@ func main() {
 	myredis.Init()
 	zap.L().Info("Redis 初始化成功")
 
+	// 获取缓存服务实例（遵循依赖倒置原则）
+	cacheService := myredis.GetCacheService()
+
 	// 5. 初始化 JWT
 	jwt.Init(conf.JWTConfig.Secret, conf.JWTConfig.AccessTokenExpiry, conf.JWTConfig.RefreshTokenExpiry)
 	zap.L().Info("JWT 初始化成功")
 
 	// 6. 初始化 Service 层 (依赖注入)
-	service.InitServices(dao.Repos)
+	service.InitServices(dao.Repos, cacheService)
 	zap.L().Info("Service 层初始化成功")
 
-	// 7. 初始化 SMS Service
-	if err := sms.Init(); err != nil {
+	// 7. 初始化 Handler 层 (依赖注入)
+	handler.InitHandlers(service.Svc)
+	zap.L().Info("Handler 层初始化成功")
+
+	// 8. 初始化 SMS Service (依赖注入缓存服务)
+	if err := sms.Init(cacheService); err != nil {
 		zap.L().Fatal("SMS Service 初始化失败", zap.Error(err))
 	}
 	zap.L().Info("SMS Service 初始化成功")
 
-	// 6. 初始化 ChatServer
+	// 8. 初始化 ChatServer（注入依赖）
+	chat.InitMessageRepo(dao.Repos.Message)
+	chat.InitGroupMemberRepo(dao.Repos.GroupMember)
+	chat.InitCacheService(cacheService)
 	chat.Init()
 	if conf.KafkaConfig.MessageMode == "kafka" {
 		chat.GlobalKafkaClient.KafkaInit()
@@ -60,8 +71,8 @@ func main() {
 	}
 	zap.L().Info("ChatServer 初始化成功")
 
-	// 6. 初始化 HTTPS 服务器
-	https_server.Init()
+	// 9. 初始化 HTTPS 服务器 (传入 handlers 进行依赖注入)
+	https_server.Init(handler.H)
 	zap.L().Info("HTTPS 服务器初始化成功")
 
 	// 7. 启动服务

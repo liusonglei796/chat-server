@@ -83,8 +83,8 @@ func (r *groupRepository) FindByUuids(uuids []string) ([]model.GroupInfo, error)
 	return groups, nil
 }
 
-// Create 创建群组
-func (r *groupRepository) Create(group *model.GroupInfo) error {
+// CreateGroup 创建群组
+func (r *groupRepository) CreateGroup(group *model.GroupInfo) error {
 	if err := r.db.Create(group).Error; err != nil {
 		return wrapDBError(err, "创建群组")
 	}

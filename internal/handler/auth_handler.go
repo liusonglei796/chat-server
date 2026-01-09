@@ -3,17 +3,27 @@
 package handler
 
 import (
-	"context"
-
-	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
+	"kama_chat_server/internal/service"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/util/jwt"
 
 	"github.com/gin-gonic/gin"
 )
 
-// RefreshTokenHandler 刷新 Access Token
+// AuthHandler 认证请求处理器
+// 通过构造函数注入 AuthService，遵循依赖倒置原则
+type AuthHandler struct {
+	authSvc service.AuthService
+}
+
+// NewAuthHandler 创建认证处理器实例
+// authSvc: 认证服务接口
+func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
+	return &AuthHandler{authSvc: authSvc}
+}
+
+// RefreshToken 刷新 Access Token
 // POST /auth/refresh
 // 请求体: request.RefreshTokenRequest
 // 响应: { access_token: string }
@@ -27,7 +37,7 @@ import (
 //   - 用户登录时会在 Redis 中存储 Token ID
 //   - 如果用户在其他设备登录，会覆盖旧的 Token ID
 //   - 使用旧 Token ID 刷新时会被拒绝
-func RefreshTokenHandler(c *gin.Context) {
+func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req request.RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
@@ -47,16 +57,15 @@ func RefreshTokenHandler(c *gin.Context) {
 		return
 	}
 
-	// 3. 从 Redis 获取最新的 Token ID，实现单点互踢
-	redisKey := "user_token:" + claims.UserID
-	validTokenID, err := myredis.GetKey(context.Background(), redisKey)
-	if err != nil || validTokenID == "" {
+	// 3. 通过 Service 层验证 Token ID，实现单点互踢（遵循依赖倒置原则）
+	valid, err := h.authSvc.ValidateTokenID(claims.UserID, claims.TokenID)
+	if err != nil {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "登录状态已失效，请重新登录"))
 		return
 	}
 
 	// 4. 比对 Token ID（如果不一致，说明用户在其他设备登录过）
-	if claims.TokenID != validTokenID {
+	if !valid {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "您的账号已在其他设备登录，请重新登录"))
 		return
 	}

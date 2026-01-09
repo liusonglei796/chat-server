@@ -3,11 +3,9 @@ package session
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/dao/mysql/repository"
@@ -24,14 +22,18 @@ import (
 )
 
 // sessionService 会话业务逻辑实现
-// 通过构造函数注入 Repository 依赖
+// 通过构造函数注入 Repository 和 Cache 依赖
 type sessionService struct {
 	repos *repository.Repositories
+	cache myredis.AsyncCacheService
 }
 
-// NewSessionService 构造函数，注入所有依赖的 Repository
-func NewSessionService(repos *repository.Repositories) *sessionService {
-	return &sessionService{repos: repos}
+// NewSessionService 构造函数，注入所有依赖
+func NewSessionService(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *sessionService {
+	return &sessionService{
+		repos: repos,
+		cache: cacheService,
+	}
 }
 
 // CreateSession 创建会话
@@ -143,7 +145,7 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 	}
 
 	// 5. 创建会话
-	if err := s.repos.Session.Create(&session); err != nil {
+	if err := s.repos.Session.CreateSession(&session); err != nil {
 		zap.L().Error("创建会话失败",
 			zap.String("send_id", req.SendId),
 			zap.String("receive_id", req.ReceiveId),
@@ -154,8 +156,8 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 	}
 
 	// 6. 异步清理缓存
-	myredis.SubmitCacheTask(func() {
-		clearSessionCacheForUser(req.SendId)
+	s.cache.SubmitTask(func() {
+		s.clearSessionCacheForUser(req.SendId)
 	})
 
 	zap.L().Info("会话创建成功",
@@ -168,10 +170,16 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 }
 
 // clearSessionCacheForUser 清理用户的会话缓存
-func clearSessionCacheForUser(userId string) {
-	myredis.DelKeysWithPattern(context.Background(), "group_session_list_"+userId)
-	myredis.DelKeysWithPattern(context.Background(), "session_list_"+userId)
-	myredis.DelKeysWithPattern(context.Background(), "direct_session_list_"+userId)
+func (s *sessionService) clearSessionCacheForUser(userId string) {
+	if err := s.cache.DeleteByPattern(context.Background(), "group_session_list_"+userId+"*"); err != nil {
+		zap.L().Error("清除群会话列表缓存失败", zap.Error(err))
+	}
+	if err := s.cache.DeleteByPattern(context.Background(), "session_list_"+userId+"*"); err != nil {
+		zap.L().Error("清除会话列表缓存失败", zap.Error(err))
+	}
+	if err := s.cache.DeleteByPattern(context.Background(), "direct_session_list_"+userId+"*"); err != nil {
+		zap.L().Error("清除私聊会话列表缓存失败", zap.Error(err))
+	}
 }
 
 // CheckOpenSessionAllowed 检查是否允许发起会话
@@ -215,7 +223,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 	if targetId[0] == 'U' {
 		key := "user_info_" + targetId
 		// 1. 尝试从 Redis 获取
-		if val, err := myredis.GetKey(context.Background(), key); err == nil && val != "" {
+		if val, err := s.cache.Get(context.Background(), key); err == nil && val != "" {
 			var userRsp respond.GetUserInfoRespond
 			if err := json.Unmarshal([]byte(val), &userRsp); err == nil {
 				if userRsp.Status == user_status_enum.DISABLE {
@@ -243,7 +251,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 	if targetId[0] == 'G' {
 		key := "group_info_" + targetId
 		// 1. 尝试从 Redis 获取
-		if val, err := myredis.GetKey(context.Background(), key); err == nil && val != "" {
+		if val, err := s.cache.Get(context.Background(), key); err == nil && val != "" {
 			var groupRsp respond.GetGroupInfoRespond
 			if err := json.Unmarshal([]byte(val), &groupRsp); err == nil {
 				if groupRsp.Status == group_status_enum.DISABLE {
@@ -276,7 +284,7 @@ func (s *sessionService) OpenSession(req request.OpenSessionRequest) (string, er
 	cacheKey := "session_" + req.SendId + "_" + req.ReceiveId
 
 	// 1. 查缓存
-	rspString, err := myredis.GetKeyWithPrefixNilIsErr(context.Background(), cacheKey)
+	rspString, err := s.cache.Get(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
 		var session model.Session
 		if err := json.Unmarshal([]byte(rspString), &session); err == nil {
@@ -302,9 +310,9 @@ func (s *sessionService) OpenSession(req request.OpenSessionRequest) (string, er
 	}
 
 	// 3. 【优化点】缓存回写
-	myredis.SubmitCacheTask(func() {
+	s.cache.SubmitTask(func() {
 		if data, err := json.Marshal(session); err == nil {
-			_ = myredis.SetKeyEx(context.Background(), cacheKey, string(data), time.Minute*constants.REDIS_TIMEOUT)
+			_ = s.cache.Set(context.Background(), cacheKey, string(data), time.Minute*constants.REDIS_TIMEOUT)
 		}
 	})
 
@@ -316,7 +324,7 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 	cacheKey := "direct_session_list_" + ownerId
 
 	// 1. 尝试读缓存
-	rspString, err := myredis.GetKeyNilIsErr(context.Background(), cacheKey)
+	rspString, err := s.cache.Get(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
 		var rsp []respond.UserSessionListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
@@ -324,10 +332,9 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 		}
 		// 反序列化失败，记录日志并降级查库
 		zap.L().Error("Unmarshal user session list cache failed", zap.Error(err))
-	} else if err != nil && !errors.Is(err, redis.Nil) {
-		// Redis 报错（非key不存在），记录日志返回错误
+	} else if err != nil {
+		// Redis 报错（非key不存在），记录日志
 		zap.L().Error(err.Error())
-		return nil, errorx.ErrServerBusy
 	}
 
 	// 2. 查库（缓存Miss或反序列化失败）
@@ -351,13 +358,13 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 	}
 
 	// 3. 回写缓存
-	myredis.SubmitCacheTask(func() {
+	s.cache.SubmitTask(func() {
 		rspBytes, err := json.Marshal(sessionListRsp)
 		if err != nil {
 			zap.L().Error("Marshal failed", zap.Error(err))
 			return
 		}
-		_ = myredis.SetKeyEx(context.Background(), cacheKey, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
+		_ = s.cache.Set(context.Background(), cacheKey, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
 	})
 
 	return sessionListRsp, nil
@@ -368,7 +375,7 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 	cacheKey := "group_session_list_" + ownerId
 
 	// 1. 尝试读缓存
-	rspString, err := myredis.GetKeyNilIsErr(context.Background(), cacheKey)
+	rspString, err := s.cache.Get(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
 		var rsp []respond.GroupSessionListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
@@ -376,10 +383,9 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 		}
 		// 反序列化失败，视为缓存失效，记录日志并降级查库
 		zap.L().Error("Unmarshal group session list cache failed", zap.Error(err))
-	} else if err != nil && !errors.Is(err, redis.Nil) {
+	} else if err != nil {
 		// Redis 系统错误
 		zap.L().Error(err.Error())
-		return nil, errorx.ErrServerBusy
 	}
 
 	// 2. 查库（缓存Miss或反序列化失败）
@@ -403,13 +409,13 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 	}
 
 	// 3. 回写缓存
-	myredis.SubmitCacheTask(func() {
+	s.cache.SubmitTask(func() {
 		rspBytes, err := json.Marshal(sessionListRsp)
 		if err != nil {
 			zap.L().Error("Marshal failed", zap.Error(err))
 			return
 		}
-		_ = myredis.SetKeyEx(context.Background(), cacheKey, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
+		_ = s.cache.Set(context.Background(), cacheKey, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
 	})
 
 	return sessionListRsp, nil
@@ -428,7 +434,9 @@ func (s *sessionService) DeleteSession(ownerId, sessionId string) error {
 	}
 
 	// 异步清理缓存
-	go clearSessionCacheForUser(ownerId)
+	s.cache.SubmitTask(func() {
+		s.clearSessionCacheForUser(ownerId)
+	})
 
 	return nil
 }

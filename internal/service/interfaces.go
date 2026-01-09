@@ -142,3 +142,13 @@ type MessageService interface {
 	// UploadFile 上传文件，返回文件名列表
 	UploadFile(c *gin.Context) ([]string, error)
 }
+
+// AuthService 认证业务接口
+// 处理 Token 刷新和验证等功能
+type AuthService interface {
+	// ValidateTokenID 验证用户的 Token ID 是否有效（用于单点登录互踢）
+	// userID: 用户ID
+	// tokenID: 需要验证的 Token ID
+	// 返回: 是否有效, 错误信息
+	ValidateTokenID(userID, tokenID string) (bool, error)
+}

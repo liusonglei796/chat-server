@@ -25,13 +25,18 @@ import (
 )
 
 // contactService 联系人业务逻辑实现
+// 通过构造函数注入 Repository 和 Cache 依赖，遵循依赖倒置原则
 type contactService struct {
 	repos *repository.Repositories
+	cache myredis.AsyncCacheService
 }
 
-// NewContactService 构造函数
-func NewContactService(repos *repository.Repositories) *contactService {
-	return &contactService{repos: repos}
+// NewContactService 构造函数，注入所有依赖
+func NewContactService(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *contactService {
+	return &contactService{
+		repos: repos,
+		cache: cacheService,
+	}
 }
 
 // GetUserList 获取指定用户的“好友（联系人）的用户信息列表”。
@@ -40,8 +45,8 @@ func (u *contactService) GetUserList(userId string) ([]respond.MyUserListRespond
 	// 这可以避免存储巨大的 JSON 列表，并确保与 UserInfo 缓存的数据一致性。
 	cacheKey := "contact_relation:user:" + userId
 
-	// 1. 尝试从 Redis 获取成员 ID
-	memberIds, err := myredis.GetMembers(context.Background(), cacheKey)
+	// 1. 尝试从缓存获取成员 ID（通过注入的 cache 接口）
+	memberIds, err := u.cache.GetSetMembers(context.Background(), cacheKey)
 	if err != nil || len(memberIds) == 0 {
 		// 2. 缓存未击中或为空：从数据库获取
 		contactList, dbErr := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.USER)
@@ -62,11 +67,7 @@ func (u *contactService) GetUserList(userId string) ([]respond.MyUserListRespond
 			for i, v := range memberIds {
 				membersArgs[i] = v
 			}
-			// 设置过期时间（例如 24 小时）- Set 操作通常不能在单个命令中轻松支持 EX（不使用 Pipeline），
-			// 但我们可以使用通用的 Expire 或直接让其持久化并确保清理逻辑正常工作。
-			// 这里我们只进行 SAdd 操作。
-			_ = myredis.AddMember(context.Background(), cacheKey, membersArgs...)
-			// 可选：如果需要，设置过期时间。
+			_ = u.cache.AddToSet(context.Background(), cacheKey, membersArgs...)
 		}
 	}
 
@@ -103,8 +104,8 @@ func (u *contactService) GetJoinedGroupsExcludedOwn(userId string) ([]respond.Lo
 	// 优化：为群组 ID 使用 Redis Set
 	cacheKey := "contact_relation:group:" + userId
 
-	// 1. 尝试从 Redis 获取群组 ID
-	groupUuids, err := myredis.GetMembers(context.Background(), cacheKey)
+	// 1. 尝试从缓存获取群组 ID
+	groupUuids, err := u.cache.GetSetMembers(context.Background(), cacheKey)
 	if err != nil || len(groupUuids) == 0 {
 		// 2. 缓存未击中：从数据库获取
 		contactList, dbErr := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.GROUP)
@@ -121,13 +122,13 @@ func (u *contactService) GetJoinedGroupsExcludedOwn(userId string) ([]respond.Lo
 			}
 		}
 
-		// 回写到 Redis
+		// 回写到缓存
 		if len(groupUuids) > 0 {
 			args := make([]interface{}, len(groupUuids))
 			for i, v := range groupUuids {
 				args[i] = v
 			}
-			_ = myredis.AddMember(context.Background(), cacheKey, args...)
+			_ = u.cache.AddToSet(context.Background(), cacheKey, args...)
 		}
 	}
 
@@ -168,7 +169,7 @@ func (u *contactService) GetFriendInfo(friendId string) (respond.GetFriendInfoRe
 
 	// 2. 尝试从缓存获取
 	cacheKey := "user_info_" + friendId
-	cachedStr, err := myredis.GetKey(context.Background(), cacheKey)
+	cachedStr, err := u.cache.Get(context.Background(), cacheKey)
 	if err == nil && cachedStr != "" {
 		var userRsp respond.GetUserInfoRespond
 		if err := json.Unmarshal([]byte(cachedStr), &userRsp); err == nil {
@@ -227,7 +228,7 @@ func (u *contactService) GetFriendInfo(friendId string) (respond.GetFriendInfoRe
 		Status:    user.Status,
 	}
 	if data, err := json.Marshal(userRsp); err == nil {
-		_ = myredis.SetKeyEx(context.Background(), cacheKey, string(data), time.Hour)
+		_ = u.cache.Set(context.Background(), cacheKey, string(data), time.Hour)
 	}
 
 	return rsp, nil
@@ -242,7 +243,7 @@ func (u *contactService) GetGroupDetail(groupId string) (respond.GetGroupDetailR
 
 	// 2. 尝试从缓存获取
 	cacheKey := "group_info_" + groupId
-	cachedStr, err := myredis.GetKey(context.Background(), cacheKey)
+	cachedStr, err := u.cache.Get(context.Background(), cacheKey)
 	if err == nil && cachedStr != "" {
 		var groupRsp respond.GetGroupInfoRespond
 		if err := json.Unmarshal([]byte(cachedStr), &groupRsp); err == nil {
@@ -297,7 +298,7 @@ func (u *contactService) GetGroupDetail(groupId string) (respond.GetGroupDetailR
 		IsDeleted: group.DeletedAt.Valid,
 	}
 	if data, err := json.Marshal(groupRsp); err == nil {
-		_ = myredis.SetKeyEx(context.Background(), cacheKey, string(data), time.Hour)
+		_ = u.cache.Set(context.Background(), cacheKey, string(data), time.Hour)
 	}
 
 	return rsp, nil
@@ -335,9 +336,9 @@ func (u *contactService) DeleteContact(userId, contactId string) error {
 	}
 
 	// 4. 异步清理"我的"缓存
-	myredis.SubmitCacheTask(func() {
-		_ = myredis.RemoveMember(context.Background(), "contact_relation:user:"+userId, contactId)
-		_ = myredis.DelKeysWithPattern(context.Background(), "direct_session_list_"+userId)
+	u.cache.SubmitTask(func() {
+		_ = u.cache.RemoveFromSet(context.Background(), "contact_relation:user:"+userId, contactId)
+		_ = u.cache.DeleteByPattern(context.Background(), "direct_session_list_"+userId)
 	})
 
 	return nil
@@ -382,7 +383,7 @@ func (u *contactService) ApplyFriend(req request.ApplyFriendRequest) error {
 				Message:     req.Message,
 				LastApplyAt: time.Now(),
 			}
-			if err := u.repos.Apply.Create(apply); err != nil {
+			if err := u.repos.Apply.CreateApply(apply); err != nil {
 				zap.L().Error("Create friend apply error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
@@ -449,7 +450,7 @@ func (u *contactService) ApplyGroup(req request.ApplyGroupRequest) error {
 				Message:     req.Message,
 				LastApplyAt: time.Now(),
 			}
-			if err := u.repos.Apply.Create(apply); err != nil {
+			if err := u.repos.Apply.CreateApply(apply); err != nil {
 				zap.L().Error("Create group apply error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
@@ -619,7 +620,7 @@ func (u *contactService) PassFriendApply(userId string, applicantId string) erro
 			ContactType: contact_type_enum.USER,
 			Status:      contact_status_enum.NORMAL,
 		}
-		if err := txRepos.Contact.Create(&newContact); err != nil {
+		if err := txRepos.Contact.CreateContact(&newContact); err != nil {
 			return err
 		}
 
@@ -629,7 +630,7 @@ func (u *contactService) PassFriendApply(userId string, applicantId string) erro
 			ContactType: contact_type_enum.USER,
 			Status:      contact_status_enum.NORMAL,
 		}
-		if err := txRepos.Contact.Create(&anotherContact); err != nil {
+		if err := txRepos.Contact.CreateContact(&anotherContact); err != nil {
 			return err
 		}
 		return nil
@@ -640,9 +641,9 @@ func (u *contactService) PassFriendApply(userId string, applicantId string) erro
 	}
 
 	// 3. 异步清理缓存
-	myredis.SubmitCacheTask(func() {
-		_ = myredis.DelKeysWithPattern(context.Background(), "contact_relation:user:"+userId)
-		_ = myredis.DelKeysWithPattern(context.Background(), "contact_relation:user:"+applicantId)
+	u.cache.SubmitTask(func() {
+		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+userId)
+		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+applicantId)
 	})
 
 	return nil
@@ -682,7 +683,7 @@ func (u *contactService) PassGroupApply(groupId string, applicantId string) erro
 			ContactType: contact_type_enum.GROUP,
 			Status:      contact_status_enum.NORMAL,
 		}
-		if err := txRepos.Contact.Create(&newContact); err != nil {
+		if err := txRepos.Contact.CreateContact(&newContact); err != nil {
 			return err
 		}
 
@@ -692,7 +693,7 @@ func (u *contactService) PassGroupApply(groupId string, applicantId string) erro
 			UserUuid:  applicantId,
 			Role:      1,
 		}
-		if err := txRepos.GroupMember.Create(&member); err != nil {
+		if err := txRepos.GroupMember.CreateGroupMember(&member); err != nil {
 			return err
 		}
 
@@ -708,9 +709,9 @@ func (u *contactService) PassGroupApply(groupId string, applicantId string) erro
 	}
 
 	// 3. 异步清理缓存
-	myredis.SubmitCacheTask(func() {
-		_ = myredis.DelKeysWithPattern(context.Background(), "contact_relation:group:"+applicantId)
-		_ = myredis.DelKeysWithPattern(context.Background(), "group_info_"+groupId)
+	u.cache.SubmitTask(func() {
+		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+applicantId)
+		_ = u.cache.DeleteByPattern(context.Background(), "group_info_"+groupId)
 	})
 
 	return nil
@@ -773,11 +774,11 @@ func (u *contactService) BlackContact(userId string, contactId string) error {
 	}
 
 	// 4. 清理缓存
-	myredis.SubmitCacheTask(func() {
-		_ = myredis.DelKeysWithPattern(context.Background(), "direct_session_list_"+userId)
-		_ = myredis.DelKeysWithPattern(context.Background(), "direct_session_list_"+contactId)
-		_ = myredis.DelKeysWithPattern(context.Background(), "contact_relation:user:"+userId)
-		_ = myredis.DelKeysWithPattern(context.Background(), "contact_relation:user:"+contactId)
+	u.cache.SubmitTask(func() {
+		_ = u.cache.DeleteByPattern(context.Background(), "direct_session_list_"+userId)
+		_ = u.cache.DeleteByPattern(context.Background(), "direct_session_list_"+contactId)
+		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+userId)
+		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+contactId)
 	})
 
 	return nil
@@ -822,9 +823,9 @@ func (u *contactService) CancelBlackContact(userId string, contactId string) err
 	}
 
 	// 3. 异步清理缓存
-	myredis.SubmitCacheTask(func() {
-		_ = myredis.DelKeysWithPattern(context.Background(), "contact_relation:user:"+userId)
-		_ = myredis.DelKeysWithPattern(context.Background(), "contact_relation:user:"+contactId)
+	u.cache.SubmitTask(func() {
+		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+userId)
+		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+contactId)
 	})
 
 	return nil

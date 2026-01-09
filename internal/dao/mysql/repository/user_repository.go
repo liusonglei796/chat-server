@@ -72,11 +72,11 @@ func (r *userRepository) FindByUuids(uuids []string) ([]model.UserInfo, error) {
 	return users, nil
 }
 
-// Create 创建新用户
+// CreateUser 创建新用户
 // 密码会在 BeforeSave Hook 中自动加密
 // user: 用户信息结构体
 // 返回: 操作错误
-func (r *userRepository) Create(user *model.UserInfo) error {
+func (r *userRepository) CreateUser(user *model.UserInfo) error {
 	if err := r.db.Create(user).Error; err != nil {
 		return wrapDBError(err, "创建用户")
 	}

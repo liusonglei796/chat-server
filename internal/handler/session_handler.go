@@ -9,17 +9,29 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// OpenSessionHandler 打开/创建会话
+// SessionHandler 会话请求处理器
+// 通过构造函数注入 SessionService，遵循依赖倒置原则
+type SessionHandler struct {
+	sessionSvc service.SessionService
+}
+
+// NewSessionHandler 创建会话处理器实例
+// sessionSvc: 会话服务接口
+func NewSessionHandler(sessionSvc service.SessionService) *SessionHandler {
+	return &SessionHandler{sessionSvc: sessionSvc}
+}
+
+// OpenSession 打开/创建会话
 // POST /session/openSession
 // 请求体: request.OpenSessionRequest
 // 响应: string (会话ID)
-func OpenSessionHandler(c *gin.Context) {
+func (h *SessionHandler) OpenSession(c *gin.Context) {
 	var req request.OpenSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	sessionId, err := service.Svc.Session.OpenSession(req)
+	sessionId, err := h.sessionSvc.OpenSession(req)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -27,17 +39,17 @@ func OpenSessionHandler(c *gin.Context) {
 	HandleSuccess(c, sessionId)
 }
 
-// GetUserSessionListHandler 获取单聊会话列表
+// GetUserSessionList 获取单聊会话列表
 // GET /session/getUserSessionList?userId=xxx
 // 查询参数: request.OwnlistRequest
 // 响应: []respond.UserSessionListRespond
-func GetUserSessionListHandler(c *gin.Context) {
+func (h *SessionHandler) GetUserSessionList(c *gin.Context) {
 	var req request.OwnlistRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.Session.GetUserSessionList(req.UserId)
+	data, err := h.sessionSvc.GetUserSessionList(req.UserId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -45,17 +57,17 @@ func GetUserSessionListHandler(c *gin.Context) {
 	HandleSuccess(c, data)
 }
 
-// GetGroupSessionListHandler 获取群聊会话列表
+// GetGroupSessionList 获取群聊会话列表
 // GET /session/getGroupSessionList?userId=xxx
 // 查询参数: request.OwnlistRequest
 // 响应: []respond.GroupSessionListRespond
-func GetGroupSessionListHandler(c *gin.Context) {
+func (h *SessionHandler) GetGroupSessionList(c *gin.Context) {
 	var req request.OwnlistRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.Session.GetGroupSessionList(req.UserId)
+	data, err := h.sessionSvc.GetGroupSessionList(req.UserId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -63,35 +75,35 @@ func GetGroupSessionListHandler(c *gin.Context) {
 	HandleSuccess(c, data)
 }
 
-// DeleteSessionHandler 删除会话
+// DeleteSession 删除会话
 // POST /session/deleteSession
 // 请求体: request.DeleteSessionRequest
 // 响应: nil
-func DeleteSessionHandler(c *gin.Context) {
+func (h *SessionHandler) DeleteSession(c *gin.Context) {
 	var req request.DeleteSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Session.DeleteSession(req.UserId, req.SessionId); err != nil {
+	if err := h.sessionSvc.DeleteSession(req.UserId, req.SessionId); err != nil {
 		HandleError(c, err)
 		return
 	}
 	HandleSuccess(c, nil)
 }
 
-// CheckOpenSessionAllowedHandler 检查是否允许打开会话
+// CheckOpenSessionAllowed 检查是否允许打开会话
 // 用于检查两个用户之间的关系是否允许建立会话
 // GET /session/checkOpenSessionAllowed?sendId=xxx&receiveId=xxx
 // 查询参数: request.CreateSessionRequest
 // 响应: bool
-func CheckOpenSessionAllowedHandler(c *gin.Context) {
+func (h *SessionHandler) CheckOpenSessionAllowed(c *gin.Context) {
 	var req request.CreateSessionRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	allowed, err := service.Svc.Session.CheckOpenSessionAllowed(req.SendId, req.ReceiveId)
+	allowed, err := h.sessionSvc.CheckOpenSessionAllowed(req.SendId, req.ReceiveId)
 	if err != nil {
 		HandleError(c, err)
 		return
