@@ -32,26 +32,23 @@ func main() {
 	zap.L().Info("日志初始化成功")
 
 	// 3. 初始化数据库
-	dao.Init()
+	repos := dao.Init()
 	zap.L().Info("数据库初始化成功")
 
 	// 4. 初始化 Redis
-	myredis.Init()
+	cacheService := myredis.Init()
 	zap.L().Info("Redis 初始化成功")
-
-	// 获取缓存服务实例（遵循依赖倒置原则）
-	cacheService := myredis.GetCacheService()
 
 	// 5. 初始化 JWT
 	jwt.Init(conf.JWTConfig.Secret, conf.JWTConfig.AccessTokenExpiry, conf.JWTConfig.RefreshTokenExpiry)
 	zap.L().Info("JWT 初始化成功")
 
 	// 6. 初始化 Service 层 (依赖注入)
-	service.InitServices(dao.Repos, cacheService)
+	services := service.NewServices(repos, cacheService)
 	zap.L().Info("Service 层初始化成功")
 
 	// 7. 初始化 Handler 层 (依赖注入)
-	handler.InitHandlers(service.Svc)
+	handlers := handler.NewHandlers(services)
 	zap.L().Info("Handler 层初始化成功")
 
 	// 8. 初始化 SMS Service (依赖注入缓存服务)
@@ -61,8 +58,8 @@ func main() {
 	zap.L().Info("SMS Service 初始化成功")
 
 	// 8. 初始化 ChatServer（注入依赖）
-	chat.InitMessageRepo(dao.Repos.Message)
-	chat.InitGroupMemberRepo(dao.Repos.GroupMember)
+	chat.InitMessageRepo(repos.Message)
+	chat.InitGroupMemberRepo(repos.GroupMember)
 	chat.InitCacheService(cacheService)
 	chat.Init()
 	if conf.KafkaConfig.MessageMode == "kafka" {
@@ -72,7 +69,7 @@ func main() {
 	zap.L().Info("ChatServer 初始化成功")
 
 	// 9. 初始化 HTTPS 服务器 (传入 handlers 进行依赖注入)
-	https_server.Init(handler.H)
+	engine := https_server.Init(handlers)
 	zap.L().Info("HTTPS 服务器初始化成功")
 
 	// 7. 启动服务
@@ -89,7 +86,7 @@ func main() {
 	go func() {
 		// Ubuntu22.04云服务器部署
 		// 运行 HTTP 服务
-		if err := https_server.GE.Run(fmt.Sprintf("%s:%d", host, port)); err != nil {
+		if err := engine.Run(fmt.Sprintf("%s:%d", host, port)); err != nil {
 			zap.L().Fatal("server running fault")
 			return
 		}

@@ -52,15 +52,3 @@ func NewServices(repos *repository.Repositories, cacheService myredis.AsyncCache
 		Auth:    authSvc,
 	}
 }
-
-// Svc 全局 Services 实例
-// Handler 层通过 service.Svc.User.Login() 等方式调用
-var Svc *Services
-
-// InitServices 初始化全局 Services 实例
-// 应在 main.go 中调用，在 Repository 初始化之后
-// repos: Repository 层聚合实例
-// cacheService: 缓存服务接口实例
-func InitServices(repos *repository.Repositories, cacheService myredis.AsyncCacheService) {
-	Svc = NewServices(repos, cacheService)
-}

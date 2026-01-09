@@ -14,22 +14,16 @@ import (
 	"gorm.io/gorm"         // GORM ORM 框架
 )
 
-// GormDB 全局 GORM 数据库实例
-// 供 Repository 层和直接数据库操作使用
-var GormDB *gorm.DB
-
-// Repos 全局 Repository 实例集合
-// 聚合所有 Repository，供 Service 层通过依赖注入使用
-var Repos *repository.Repositories
-
-// Init 初始化数据库连接和 Repository 层
+// Init 初始化数据库连接并返回 Repository 层实例
 // 执行步骤：
 //  1. 从配置读取 MySQL 连接信息
 //  2. 构建 DSN（Data Source Name）连接字符串
 //  3. 使用 GORM 建立数据库连接
 //  4. 执行 AutoMigrate 自动迁移表结构
-//  5. 初始化全局 Repository 实例
-func Init() {
+//  5. 创建并返回 Repository 实例
+//
+// 返回: Repository 实例集合
+func Init() *repository.Repositories {
 	// 获取配置
 	conf := config.GetConfig()
 
@@ -44,8 +38,7 @@ func Init() {
 	)
 
 	// 使用 GORM 打开数据库连接
-	var err error
-	GormDB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		// 连接失败，记录致命错误并退出程序
 		zap.L().Fatal(err.Error())
@@ -54,7 +47,7 @@ func Init() {
 	// AutoMigrate 自动迁移表结构
 	// 如果表不存在则创建，如果字段变更则更新结构
 	// 注意：不会删除已有字段或数据
-	err = GormDB.AutoMigrate(
+	err = db.AutoMigrate(
 		&model.UserInfo{},    // 用户信息表
 		&model.GroupInfo{},   // 群组信息表
 		&model.Contact{},     // 用户联系人表
@@ -68,7 +61,6 @@ func Init() {
 		zap.L().Fatal(err.Error())
 	}
 
-	// 初始化全局 Repository 实例集合
-	// 将 GormDB 注入到所有 Repository
-	Repos = repository.NewRepositories(GormDB)
+	// 创建并返回 Repository 实例集合
+	return repository.NewRepositories(db)
 }

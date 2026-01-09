@@ -36,14 +36,3 @@ func NewHandlers(svc *service.Services) *Handlers {
 		Message: NewMessageHandler(svc.Message),
 	}
 }
-
-// H 全局 Handlers 实例
-// Router 层通过 handler.H.User.Login 等方式调用
-var H *Handlers
-
-// InitHandlers 初始化全局 Handlers 实例
-// 应在 main.go 中调用，在 Services 初始化之后
-// svc: Service 层聚合实例
-func InitHandlers(svc *service.Services) {
-	H = NewHandlers(svc)
-}

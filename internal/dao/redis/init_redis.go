@@ -11,15 +11,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// redisClient 全局 Redis 客户端实例（包内可见）
-var redisClient *redis.Client
-
-// cacheService 全局缓存服务实例，遵循依赖倒置原则
-var cacheService AsyncCacheService
-
-// Init 初始化 Redis 连接
+// Init 初始化 Redis 连接并返回缓存服务
 // 从配置文件读取连接参数并创建客户端实例
-func Init() {
+// 返回 AsyncCacheService 接口，供 Service 层依赖注入使用
+func Init() AsyncCacheService {
 	conf := config.GetConfig()
 	host := conf.RedisConfig.Host         // Redis 服务器地址
 	port := conf.RedisConfig.Port         // Redis 端口
@@ -30,7 +25,7 @@ func Init() {
 	addr := host + ":" + strconv.Itoa(port)
 
 	// 创建 Redis 客户端
-	redisClient = redis.NewClient(&redis.Options{
+	client := redis.NewClient(&redis.Options{
 		Addr:     addr,
 		Password: password,
 		DB:       db,
@@ -39,16 +34,7 @@ func Init() {
 		MinIdleConns: 15, // 最小空闲连接，与 Worker 数量匹配
 	})
 
-	// 初始化缓存更新 Worker Pool
+	// 创建并返回缓存服务实例
 	// 启动 15 个 Worker，缓冲区大小 3000，适用于多 Service 共享
-
-
-	// 创建缓存服务实例（遵循依赖倒置原则）
-	cacheService = NewRedisCache(redisClient, 15, 3000)
-}
-
-// GetCacheService 获取缓存服务实例
-// 返回 AsyncCacheService 接口，供 Service 层依赖注入使用
-func GetCacheService() AsyncCacheService {
-	return cacheService
+	return NewRedisCache(client, 15, 3000)
 }
