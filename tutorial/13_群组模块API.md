@@ -61,7 +61,7 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 		Status:    group_status_enum.NORMAL,
 	}
 
-	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 创建群组
 		if err := txRepos.Group.CreateGroup(&group); err != nil {
 			return errorx.ErrServerBusy
@@ -271,7 +271,7 @@ func (h *GroupHandler) EnterGroupDirectly(c *gin.Context) {
 
 ```go
 func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
-	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 创建群成员
 		member := model.GroupMember{
 			GroupUuid: groupId, UserUuid: userId, Role: 1,
@@ -334,7 +334,7 @@ func (h *GroupHandler) LeaveGroup(c *gin.Context) {
 
 ```go
 func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
-	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 删除群成员
 		if err := txRepos.GroupMember.DeleteByUserUuids(groupId, []string{userId}); err != nil {
 			return errorx.ErrServerBusy
@@ -403,7 +403,7 @@ func (h *GroupHandler) DismissGroup(c *gin.Context) {
 func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 	var memberIds []string
 
-	err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 收集成员ID (用于缓存清理)
 		contacts, err := txRepos.Contact.FindUsersByContactId(groupId)
 		if err != nil {
@@ -687,7 +687,7 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 		return errorx.ErrServerBusy
 	}
 
-	if err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+	if err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		if err := txRepos.GroupMember.DeleteByGroupUuids(uuidList); err != nil {
 			return errorx.ErrServerBusy
 		}
@@ -875,7 +875,7 @@ func (g *groupInfoService) RemoveGroupMembers(req request.RemoveGroupMembersRequ
 		}
 	}
 
-	if err := g.repos.Transaction(func(txRepos *repository.Repositories) error {
+	if err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		if err := txRepos.GroupMember.DeleteByUserUuids(req.GroupId, req.UuidList); err != nil {
 			return errorx.ErrServerBusy
 		}

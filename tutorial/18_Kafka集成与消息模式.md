@@ -63,7 +63,7 @@ package chat
 
 import (
 	"context"
-	"kama_chat_server/internal/dao/mysql/repository"
+	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 )
 
@@ -320,7 +320,7 @@ package chat
 
 import (
 	"context"
-	"kama_chat_server/internal/dao/mysql/repository"
+	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/pkg/constants"
 	"sync"
@@ -387,7 +387,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
-	"kama_chat_server/internal/dao/mysql/repository"
+	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/pkg/enum/message/message_type_enum"

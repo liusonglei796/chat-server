@@ -416,7 +416,7 @@ func DeleteContactHandler(c *gin.Context) {
 
 ```go
 func (u *contactService) DeleteContact(userId, contactId string) error {
-	err := u.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 仅从“我的”联系人列表中移除对方（单向）
 		if err := txRepos.Contact.SoftDelete(userId, contactId); err != nil {
 			return errorx.ErrServerBusy
@@ -677,7 +677,7 @@ func (u *contactService) PassFriendApply(userId string, applicantId string) erro
 		return errorx.ErrServerBusy
 	}
 
-	err = u.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 校验申请人状态
 		user, err := txRepos.User.FindByUuid(applicantId)
 		if err != nil {
@@ -749,7 +749,7 @@ func BlackContactHandler(c *gin.Context) {
 
 ```go
 func (u *contactService) BlackContact(userId, contactId string) error {
-	err := u.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 更新拉黑者状态为 BLACK
 		if err := txRepos.Contact.UpdateStatus(userId, contactId, contact_status_enum.BLACK); err != nil {
 			return errorx.ErrServerBusy
@@ -840,7 +840,7 @@ func (u *contactService) CancelBlackContact(userId, contactId string) error {
 	}
 
 	// 2. 事务恢复双方状态
-	err := u.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		txRepos.Contact.UpdateStatus(userId, contactId, contact_status_enum.NORMAL)
 		txRepos.Contact.UpdateStatus(contactId, userId, contact_status_enum.NORMAL)
 		return nil

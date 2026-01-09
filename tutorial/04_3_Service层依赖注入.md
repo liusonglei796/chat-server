@@ -42,11 +42,11 @@ func (u *userInfoService) GetUserInfo(uuid string) (*User, error) {
 ```go
 // ✅ 新模式 - 显式注入 repos + cache
 type userInfoService struct {
-    repos *repository.Repositories
+    repos *mysql.Repositories
     cache myredis.AsyncCacheService
 }
 
-func NewUserService(repos *repository.Repositories, cache myredis.AsyncCacheService) *userInfoService {
+func NewUserService(repos *mysql.Repositories, cache myredis.AsyncCacheService) *userInfoService {
     return &userInfoService{repos: repos, cache: cache}
 }
 ```
@@ -126,7 +126,7 @@ package service
 import (
     "github.com/gin-gonic/gin"
 
-    "kama_chat_server/internal/dao/mysql/repository"
+    "kama_chat_server/internal/dao/mysql"
     myredis "kama_chat_server/internal/dao/redis"
     "kama_chat_server/internal/dto/request"
     "kama_chat_server/internal/dto/respond"
@@ -228,7 +228,7 @@ type Services struct {
 }
 
 // NewServices 创建并注入所有 Service 实例
-func NewServices(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *Services {
+func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *Services {
     // ...
 }
 
@@ -252,19 +252,19 @@ func NewServices(repos *repository.Repositories, cacheService myredis.AsyncCache
 package user
 
 import (
-    "kama_chat_server/internal/dao/mysql/repository"
+    "kama_chat_server/internal/dao/mysql"
     "kama_chat_server/internal/dto/request"
     "kama_chat_server/internal/dto/respond"
 )
 
 // userInfoService 用户服务实现
 type userInfoService struct {
-    repos *repository.Repositories
+    repos *mysql.Repositories
     cache myredis.AsyncCacheService
 }
 
 // NewUserService 构造函数 - 注入 repos + cache
-func NewUserService(repos *repository.Repositories, cache myredis.AsyncCacheService) *userInfoService {
+func NewUserService(repos *mysql.Repositories, cache myredis.AsyncCacheService) *userInfoService {
     return &userInfoService{repos: repos, cache: cache}
 }
 ```
@@ -290,7 +290,7 @@ func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond,
 // DeleteUsers 批量删除用户 (带事务)
 func (u *userInfoService) DeleteUsers(uuidList []string) error {
     // 使用事务确保原子性
-    return u.repos.Transaction(func(txRepos *repository.Repositories) error {
+    return u.repos.Transaction(func(txRepos *mysql.Repositories) error {
         // 1. 批量软删除用户
         if err := txRepos.User.SoftDeleteUserByUuids(uuidList); err != nil {
             return errorx.ErrServerBusy
@@ -325,7 +325,7 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 package service
 
 import (
-    "kama_chat_server/internal/dao/mysql/repository"
+    "kama_chat_server/internal/dao/mysql"
     myredis "kama_chat_server/internal/dao/redis"
     "kama_chat_server/internal/service/auth"
     "kama_chat_server/internal/service/contact"
@@ -346,7 +346,7 @@ type Services struct {
 }
 
 // NewServices 创建并注入所有 Service 实例
-func NewServices(repos *repository.Repositories, cacheService myredis.AsyncCacheService) *Services {
+func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *Services {
     sessionSvc := session.NewSessionService(repos, cacheService)
     userSvc := user.NewUserService(repos, cacheService)
     groupSvc := group.NewGroupService(repos, cacheService)
@@ -388,7 +388,7 @@ func main() {
 ```
 
 **关键点**：
-- `dao.Init()` 返回 `*repository.Repositories`，由 main 显式持有并注入
+- `dao.Init()` 返回 `*mysql.Repositories`，由 main 显式持有并注入
 - `service.NewServices(repos, cacheService)` 创建 Service 聚合
 - `handler.NewHandlers(services, broker)` 将 Service 接口注入到各 Handler
 
@@ -455,12 +455,12 @@ package user_test
 import (
     "testing"
     "kama_chat_server/internal/model"
-    "kama_chat_server/internal/dao/mysql/repository"
+    "kama_chat_server/internal/dao/mysql"
 )
 
 // MockRepositories 模拟 Repository 聚合
 type MockRepositories struct {
-    repository.Repositories
+    mysql.Repositories
     MockUser *MockUserRepository
 }
 
@@ -477,7 +477,7 @@ func (m *MockUserRepository) FindByUuid(uuid string) (*model.UserInfo, error) {
 
 func TestGetUserInfo(t *testing.T) {
     // 准备 Mock
-    mockRepos := &repository.Repositories{
+    mockRepos := &mysql.Repositories{
         User: &MockUserRepository{
             FindByUuidFunc: func(uuid string) (*model.UserInfo, error) {
                 return &model.UserInfo{

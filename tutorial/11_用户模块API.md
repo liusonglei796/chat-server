@@ -695,7 +695,7 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 		return nil
 	}
 
-	err := u.repos.Transaction(func(txRepos *repository.Repositories) error {
+	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 批量软删除用户
 		if err := txRepos.User.SoftDeleteUserByUuids(uuidList); err != nil {
 			return errorx.ErrServerBusy

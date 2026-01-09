@@ -25,18 +25,25 @@
 
 ## 2. 定义 Repository 接口
 
-所有的 Repository 接口都定义在 `internal/dao/mysql/repository/interfaces.go` 中。
+所有的 Repository 接口都定义在 `internal/dao/mysql/interfaces.go` 中。
 
-> **路径变更**：从 `internal/dao/repository/` 改为 `internal/dao/mysql/repository/`
+> **路径变更**：从 `internal/dao/repository/` 改为 `internal/dao/mysql/`
 
 ### 2.1 接口聚合结构体
 
 我们定义一个全局的 `Repositories` 结构体，包含所有的 Repository 接口：
 
 ```go
-package repository
+package mysql
 
-import "gorm.io/gorm"
+import (
+    "gorm.io/gorm"
+
+    "kama_chat_server/internal/dao/mysql/contact"
+    "kama_chat_server/internal/dao/mysql/group"
+    "kama_chat_server/internal/dao/mysql/user"
+    // ... 其他包导入
+)
 
 // Repositories 聚合所有 Repository
 // Service 层通过注入 *Repositories 访问数据层。
@@ -54,13 +61,10 @@ type Repositories struct {
 func NewRepositories(db *gorm.DB) *Repositories {
 	return &Repositories{
 		db:          db,
-		User:        NewUserRepository(db),
-		Group:       NewGroupRepository(db),
-		Contact:     NewContactRepository(db),
-		Session:     NewSessionRepository(db),
-		Message:     NewMessageRepository(db),
-		Apply:       NewApplyRepository(db),
-		GroupMember: NewGroupMemberRepository(db),
+		User:        user.NewUserRepository(db),
+		Group:       group.NewGroupRepository(db),
+		Contact:     contact.NewContactRepository(db),
+		// ... 其他初始化
 	}
 }
 
@@ -163,11 +167,13 @@ type SessionRepository interface {
 
 ## 3. 错误处理辅助函数
 
-Repository 层使用 `wrapDBError` 辅助函数包装错误，为 Service 层提供统一的错误码：
+Repository 层使用 `internal/dao/mysql/internal/helper.go` 中的辅助函数包装错误，为 Service 层提供统一的错误码：
 
 ```go
-// helper.go 中定义辅助函数
-func wrapDBError(err error, msg string) error {
+package internal
+
+// WrapDBError 包装数据库错误
+func WrapDBError(err error, msg string) error {
 	if err == nil {
 		return nil
 	}
@@ -177,7 +183,8 @@ func wrapDBError(err error, msg string) error {
 	return errorx.Wrap(err, errorx.CodeDBError, msg)
 }
 
-func wrapDBErrorf(err error, format string, args ...any) error {
+// WrapDBErrorf 支持格式化消息
+func WrapDBErrorf(err error, format string, args ...any) error {
 	if err == nil {
 		return nil
 	}
@@ -206,18 +213,19 @@ if err != nil {
 
 ---
 
-## 4. 实现 Repository
+## 4: 实现 Repository
 
-以 `internal/dao/mysql/repository/user_repository.go` 为例。
+以 `internal/dao/mysql/user/user_repository.go` 为例。
 
 ### 4.1 结构体定义
 
-私有结构体实现接口，通过构造函数返回接口类型：
+私有结构体实现接口，通过构造函数返回接口类型（或具体类型，并在 Provider 中赋值给接口）：
 
 ```go
-package repository
+package user
 
 import (
+	"kama_chat_server/internal/dao/mysql/internal"
 	"kama_chat_server/internal/model"
 	"gorm.io/gorm"
 )
@@ -227,7 +235,7 @@ type userRepository struct {
 }
 
 // NewUserRepository 构造函数
-func NewUserRepository(db *gorm.DB) UserRepository {
+func NewUserRepository(db *gorm.DB) *userRepository {
 	return &userRepository{db: db}
 }
 ```
@@ -321,7 +329,7 @@ func (r *userRepository) SoftDeleteUserByUuids(uuids []string) error {
 
 ### 5.1 在 main.go 中初始化并向下游注入
 
-当前项目采用“构造函数注入”为主：DAO 层初始化返回 `*repository.Repositories`，由 `main.go` 拿到返回值后传给 Service/ChatServer/Handler。
+当前项目采用“构造函数注入”为主：DAO 层初始化返回 `*mysql.Repositories`，由 `main.go` 拿到返回值后传给 Service/ChatServer/Handler。
 
 ```go
 repos := dao.Init()
@@ -359,7 +367,7 @@ func (s *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond,
 
 ```go
 func (s *userInfoService) DeleteUsers(uuidList []string) error {
-	return s.repos.Transaction(func(txRepos *repository.Repositories) error {
+	return s.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 批量软删除用户
 		if err := txRepos.User.SoftDeleteUserByUuids(uuidList); err != nil {
 			return err // 自动回滚
