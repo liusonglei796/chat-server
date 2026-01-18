@@ -100,8 +100,19 @@ func (m *messageService) GetMessageList(userOneId, userTwoId string) ([]respond.
 	return rspList, nil
 }
 
-// GetGroupMessageList 获取群聊消息记录
-func (m *messageService) GetGroupMessageList(groupId string) ([]respond.GetGroupMessageListRespond, error) {
+// GetGroupMessageList 获取群聊消息记录 (userId 必须是群成员)
+func (m *messageService) GetGroupMessageList(userId, groupId string) ([]respond.GetGroupMessageListRespond, error) {
+	// 权限校验: 只要有 Session 记录(未删除)即可查看历史消息，不仅仅是当前成员
+	// 这样可以支持"退群后查看历史消息"的需求
+	_, err := m.repos.Session.FindBySendIdAndReceiveId(userId, groupId)
+	if err != nil {
+		if errorx.IsNotFound(err) {
+			return nil, errorx.New(errorx.CodeForbidden, "您没有该群的会话记录")
+		}
+		zap.L().Error("Find session error", zap.Error(err))
+		return nil, errorx.ErrServerBusy
+	}
+
 	cacheKey := "group_messagelist_" + groupId
 	// 通过注入的 cache 接口获取缓存
 	rspString, err := m.cache.GetOrError(context.Background(), cacheKey)

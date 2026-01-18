@@ -2,10 +2,10 @@ package request
 
 // UpdateGroupInfoRequest 更新群聊信息请求
 // 使用位置:
-//   - api/v1/group_info_controller.go: UpdateGroupInfoHandler
-//   - internal/service/logic/group_info_service.go: UpdateGroupInfo
+//   - handler/group_handler.go: UpdateGroupInfoHandler
+//
+// 注意: 操作者ID 通过 JWT 获取，Service层校验权限
 type UpdateGroupInfoRequest struct {
-	OwnerId string `json:"owner_id" binding:"required"`
 	Uuid    string `json:"uuid" binding:"required"`
 	Name    string `json:"name"`
 	Avatar  string `json:"avatar"`

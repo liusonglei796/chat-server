@@ -14,11 +14,9 @@ func (rt *Router) RegisterAdminRoutes(rg *gin.RouterGroup) {
 		// ===== 用户管理 =====
 		userAdminGroup := adminGroup.Group("/user")
 		{
-			userAdminGroup.GET("/list", rt.handlers.User.GetUserInfoList)  // 获取所有用户列表
-			userAdminGroup.POST("/setAdmin", rt.handlers.User.SetAdmin)    // 设置管理员
-			userAdminGroup.POST("/able", rt.handlers.User.AbleUsers)       // 批量启用用户
-			userAdminGroup.POST("/disable", rt.handlers.User.DisableUsers) // 批量禁用用户
-			userAdminGroup.POST("/delete", rt.handlers.User.DeleteUsers)   // 批量删除用户
+			userAdminGroup.GET("/list", rt.handlers.User.GetUserListPaged)              // 分页获取用户列表
+			userAdminGroup.POST("/setAdmin", rt.handlers.User.SetAdmin)                 // 设置管理员
+			userAdminGroup.POST("/batchStatus", rt.handlers.User.BatchUpdateUserStatus) // 批量操作用户状态（启用/禁用/删除）
 		}
 
 		// ===== 群组管理 =====

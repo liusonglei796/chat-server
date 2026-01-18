@@ -47,6 +47,16 @@ func (r *groupMemberRepository) FindMembersWithUserInfo(groupUuid string) ([]mod
 	return members, nil
 }
 
+// FindByGroupAndUser 根据群组UUID和用户UUID查找成员
+// 用于权限校验：检查用户是否是群成员及其角色
+func (r *groupMemberRepository) FindByGroupAndUser(groupUuid, userUuid string) (*model.GroupMember, error) {
+	var member model.GroupMember
+	if err := r.db.Where("group_uuid = ? AND user_uuid = ?", groupUuid, userUuid).First(&member).Error; err != nil {
+		return nil, errorx.WrapDBErrorf(err, "查询群成员 group_uuid=%s user_uuid=%s", groupUuid, userUuid)
+	}
+	return &member, nil
+}
+
 // CreateGroupMember 添加群成员
 func (r *groupMemberRepository) CreateGroupMember(member *model.GroupMember) error {
 	if err := r.db.Create(member).Error; err != nil {

@@ -260,9 +260,13 @@ func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respon
 }
 
 // UpdateUserInfo 修改用户信息
-func (u *userInfoService) UpdateUserInfo(updateReq request.UpdateUserInfoRequest) error {
-	user, err := u.repos.User.FindByUuid(updateReq.Uuid)
+// UpdateUserInfo 修改用户信息 (userId 从 JWT 获取，只能改自己)
+func (u *userInfoService) UpdateUserInfo(userId string, updateReq request.UpdateUserInfoRequest) error {
+	user, err := u.repos.User.FindByUuid(userId)
 	if err != nil {
+		if errorx.IsNotFound(err) {
+			return errorx.New(errorx.CodeUserNotExist, "用户不存在")
+		}
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
@@ -288,7 +292,7 @@ func (u *userInfoService) UpdateUserInfo(updateReq request.UpdateUserInfoRequest
 
 	// 异步清理缓存
 	u.cache.SubmitTask(func() {
-		if err := u.cache.Delete(context.Background(), "user_info_"+updateReq.Uuid); err != nil {
+		if err := u.cache.Delete(context.Background(), "user_info_"+userId); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 		}
 	})
@@ -296,137 +300,130 @@ func (u *userInfoService) UpdateUserInfo(updateReq request.UpdateUserInfoRequest
 	return nil
 }
 
-// GetUserInfoList 获取用户列表除了ownerId之外 - 管理员
-func (u *userInfoService) GetUserInfoList(ownerId string) ([]respond.GetUserListRespond, error) {
-	users, err := u.repos.User.FindAllExcept(ownerId)
+// GetUserListPaged 分页获取用户列表 - 管理员
+func (u *userInfoService) GetUserListPaged(req request.GetUserListPagedRequest) (*respond.PagedUserListRespond, error) {
+	users, total, err := u.repos.User.FindAllPaged(req.Page, req.PageSize, req.Keyword, req.Status)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
-	rsp := make([]respond.GetUserListRespond, 0, len(users))
+
+	list := make([]respond.GetUserListRespond, 0, len(users))
 	for _, user := range users {
-		rp := respond.GetUserListRespond{
+		list = append(list, respond.GetUserListRespond{
 			Uuid:      user.Uuid,
 			Telephone: user.Telephone,
 			Nickname:  user.Nickname,
 			Status:    user.Status,
 			IsAdmin:   user.IsAdmin,
 			IsDeleted: user.DeletedAt.Valid,
-		}
-		rsp = append(rsp, rp)
+		})
 	}
-	return rsp, nil
+
+	return &respond.PagedUserListRespond{
+		Total: total,
+		List:  list,
+	}, nil
 }
 
-// AbleUsers 启用用户 (批量优化版本)
-func (u *userInfoService) AbleUsers(uuidList []string) error {
-	if len(uuidList) == 0 {
-		return nil
-	}
-	if err := u.repos.User.UpdateUserStatusByUuids(uuidList, user_status_enum.NORMAL); err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
-	}
-	return nil
-}
-
-// DisableUsers 禁用用户 (批量优化版本)
-func (u *userInfoService) DisableUsers(uuidList []string) error {
-	if len(uuidList) == 0 {
+// BatchUpdateUserStatus 批量更新用户状态 - 管理员
+// Action: enable(启用), disable(禁用), delete(删除)
+func (u *userInfoService) BatchUpdateUserStatus(req request.BatchUpdateUserStatusRequest) error {
+	if len(req.UuidList) == 0 {
 		return nil
 	}
 
-	// 1. 批量更新用户状态
-	if err := u.repos.User.UpdateUserStatusByUuids(uuidList, user_status_enum.DISABLE); err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
-	}
-
-	// 2. 批量删除会话
-	if err := u.repos.Session.SoftDeleteByUsers(uuidList); err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
-	}
-
-	// 3. 异步清除缓存
-	u.cache.SubmitTask(func() {
-		var patterns []string
-		for _, uuid := range uuidList {
-			patterns = append(patterns,
-				"user_info_"+uuid,
-				"direct_session_list_"+uuid+"*",
-				"group_session_list_"+uuid+"*",
-			)
-		}
-		if err := u.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
-			zap.L().Error("批量清除用户相关缓存失败", zap.Error(err))
-		}
-	})
-
-	return nil
-}
-
-// DeleteUsers 删除用户 - 批量优化版本 (增加事务支持)
-func (u *userInfoService) DeleteUsers(uuidList []string) error {
-	if len(uuidList) == 0 {
-		return nil
-	}
-
-	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
-		// 1. 批量软删除用户
-		if err := txRepos.User.SoftDeleteUserByUuids(uuidList); err != nil {
-			zap.L().Error("Batch delete users error", zap.Error(err))
+	switch req.Action {
+	case "enable":
+		// 启用用户
+		if err := u.repos.User.UpdateUserStatusByUuids(req.UuidList, user_status_enum.NORMAL); err != nil {
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		// 2. 批量软删除会话
-		if err := txRepos.Session.SoftDeleteByUsers(uuidList); err != nil {
-			zap.L().Error("Batch delete sessions error", zap.Error(err))
+	case "disable":
+		// 禁用用户
+		if err := u.repos.User.UpdateUserStatusByUuids(req.UuidList, user_status_enum.DISABLE); err != nil {
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
-
-		// 3. 批量软删除联系人关系
-		if err := txRepos.Contact.SoftDeleteByUsers(uuidList); err != nil {
-			zap.L().Error("Batch delete contacts error", zap.Error(err))
+		// 批量删除会话
+		if err := u.repos.Session.SoftDeleteByUsers(req.UuidList); err != nil {
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
+		// 异步清除缓存
+		u.cache.SubmitTask(func() {
+			var patterns []string
+			for _, uuid := range req.UuidList {
+				patterns = append(patterns,
+					"user_info_"+uuid,
+					"direct_session_list_"+uuid+"*",
+					"group_session_list_"+uuid+"*",
+				)
+			}
+			if err := u.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
+				zap.L().Error("批量清除用户相关缓存失败", zap.Error(err))
+			}
+		})
 
-		// 4. 批量软删除联系人申请
-		if err := txRepos.Apply.SoftDeleteByUsers(uuidList); err != nil {
-			zap.L().Error("Batch delete contact applies error", zap.Error(err))
+	case "delete":
+		// 删除用户（事务）
+		err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
+			if err := txRepos.User.SoftDeleteUserByUuids(req.UuidList); err != nil {
+				zap.L().Error("Batch delete users error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+			if err := txRepos.Session.SoftDeleteByUsers(req.UuidList); err != nil {
+				zap.L().Error("Batch delete sessions error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+			if err := txRepos.Contact.SoftDeleteByUsers(req.UuidList); err != nil {
+				zap.L().Error("Batch delete contacts error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+			if err := txRepos.Apply.SoftDeleteByUsers(req.UuidList); err != nil {
+				zap.L().Error("Batch delete contact applies error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+			return nil
+		})
+		if err != nil {
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
-		return nil
-	})
+		// 异步清除缓存
+		u.cache.SubmitTask(func() {
+			var patterns []string
+			for _, uuid := range req.UuidList {
+				patterns = append(patterns,
+					"user_info_"+uuid,
+					"direct_session_list_"+uuid+"*",
+					"group_session_list_"+uuid+"*",
+					"contact_relation:user:"+uuid+"*",
+				)
+			}
+			if err := u.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
+				zap.L().Error("批量清除用户相关缓存失败", zap.Error(err))
+			}
+		})
 
-	if err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
+	default:
+		return errorx.New(errorx.CodeInvalidParam, "不支持的操作类型")
 	}
-
-	// 5. 异步清除缓存 (不阻塞主流程)
-	u.cache.SubmitTask(func() {
-		// 收集所有需要删除的缓存模式
-		var patterns []string
-		for _, uuid := range uuidList {
-			patterns = append(patterns,
-				"user_info_"+uuid,
-				"direct_session_list_"+uuid+"*",
-				"group_session_list_"+uuid+"*",
-				"contact_relation:user:"+uuid+"*",
-			)
-		}
-		if err := u.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
-			zap.L().Error("批量清除用户相关缓存失败", zap.Error(err))
-		}
-	})
 
 	return nil
 }
 
 // GetUserInfo 获取用户信息
-func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond, error) {
-	key := "user_info_" + uuid
+// GetUserInfo 获取用户完整信息（仅限自己调用）
+func (u *userInfoService) GetUserInfo(requesterId, targetId string) (*respond.GetUserInfoRespond, error) {
+	// 权限校验: 只能查看自己的完整信息
+	if requesterId != targetId {
+		return nil, errorx.New(errorx.CodeForbidden, "无权查看他人详细信息")
+	}
+
+	key := "user_info_" + targetId
 
 	// 1. 尝试从缓存获取
 	rspString, err := u.cache.Get(context.Background(), key)
@@ -440,7 +437,7 @@ func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond,
 	}
 
 	// 2. 缓存未命中或异常，查询数据库
-	user, err := u.repos.User.FindByUuid(uuid)
+	user, err := u.repos.User.FindByUuid(targetId)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -477,6 +474,27 @@ func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond,
 	})
 
 	return rsp, nil
+}
+
+// GetPublicUserInfo 获取用户公开信息（查看他人）
+func (u *userInfoService) GetPublicUserInfo(targetId string) (*respond.PublicUserInfoRespond, error) {
+	user, err := u.repos.User.FindByUuid(targetId)
+	if err != nil {
+		if errorx.GetCode(err) == errorx.CodeNotFound {
+			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
+		}
+		zap.L().Error("service error", zap.Error(err))
+		return nil, errorx.ErrServerBusy
+	}
+
+	return &respond.PublicUserInfoRespond{
+		Uuid:      user.Uuid,
+		Nickname:  user.Nickname,
+		Avatar:    user.Avatar,
+		Gender:    user.Gender,
+		Birthday:  user.Birthday,
+		Signature: user.Signature,
+	}, nil
 }
 
 // SetAdmin 设置管理员 (批量优化)

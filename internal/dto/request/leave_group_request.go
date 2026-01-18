@@ -2,8 +2,9 @@ package request
 
 // LeaveGroupRequest 退出群聊请求
 // 使用位置:
-//   - api/v1/group_info_controller.go: LeaveGroupHandler
+//   - handler/group_handler.go: LeaveGroupHandler
+//
+// 注意: UserId 从 JWT 上下文获取，不从请求体读取
 type LeaveGroupRequest struct {
-	UserId  string `json:"user_id" binding:"required"`
 	GroupId string `json:"group_id" binding:"required"`
 }

@@ -30,6 +30,8 @@ type UserRepository interface {
 	UpdateUserIsAdminByUuids(uuids []string, isAdmin int8) error
 	// SoftDeleteUserByUuids 批量软删除用户
 	SoftDeleteUserByUuids(uuids []string) error
+	// FindAllPaged 分页查询用户列表（支持关键词搜索和状态筛选）
+	FindAllPaged(page, pageSize int, keyword string, status *int8) ([]model.UserInfo, int64, error)
 }
 
 // GroupRepository 群组数据访问接口
@@ -71,6 +73,8 @@ type ContactRepository interface {
 	FindUsersByContactId(contactId string) ([]model.Contact, error)
 	// CreateContact 创建联系人关系
 	CreateContact(contact *model.Contact) error
+	// IsFriend 判断两个用户是否互为好友
+	IsFriend(userId1, userId2 string) (bool, error)
 	// UpdateStatus 更新联系人状态（正常/拉黑等）
 	UpdateStatus(userId, contactId string, status int8) error
 	// SoftDelete 软删除联系人关系
@@ -107,6 +111,10 @@ type MessageRepository interface {
 	UpdateStatus(uuid int64, status int8) error
 	// Create 创建新消息
 	Create(message *model.Message) error
+	// FindLastMessageByUserIds 获取两人之间最后一条消息
+	FindLastMessageByUserIds(userOneId, userTwoId string) (*model.Message, error)
+	// FindLastMessageByGroupId 获取群组最后一条消息
+	FindLastMessageByGroupId(groupId string) (*model.Message, error)
 }
 
 // ApplyRepository 联系人申请数据访问接口
@@ -134,6 +142,8 @@ type GroupMemberRepository interface {
 	FindByGroupUuid(groupUuid string) ([]model.GroupMember, error)
 	// FindMembersWithUserInfo 查找群成员（含用户详细信息）
 	FindMembersWithUserInfo(groupUuid string) ([]model.GroupMemberWithUserInfo, error)
+	// FindByGroupAndUser 根据群组UUID和用户UUID查找成员
+	FindByGroupAndUser(groupUuid, userUuid string) (*model.GroupMember, error)
 	// CreateGroupMember 添加群成员
 	CreateGroupMember(member *model.GroupMember) error
 

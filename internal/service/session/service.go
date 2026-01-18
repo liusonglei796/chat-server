@@ -112,6 +112,16 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 			)
 			return "", errorx.New(errorx.CodeInvalidParam, "该用户被禁用了")
 		}
+		// 验证好友关系 (必须是好友才能发起会话)
+		isFriend, err := s.repos.Contact.IsFriend(req.SendId, req.ReceiveId)
+		if err != nil {
+			zap.L().Error("Check friend relationship error", zap.Error(err))
+			return "", errorx.ErrServerBusy
+		}
+		if !isFriend {
+			return "", errorx.New(errorx.CodeForbidden, "你们还不是好友")
+		}
+
 		session.ReceiveName = receiveUser.Nickname
 		session.Avatar = receiveUser.Avatar
 	} else {
@@ -140,12 +150,21 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 			)
 			return "", errorx.New(errorx.CodeInvalidParam, "该群聊被禁用了")
 		}
+		// 验证群成员身份 (用户必须是群成员才能发起会话)
+		_, errMember := s.repos.GroupMember.FindByGroupAndUser(req.ReceiveId, req.SendId)
+		if errMember != nil {
+			if errorx.IsNotFound(errMember) {
+				return "", errorx.New(errorx.CodeForbidden, "你不是该群成员")
+			}
+			zap.L().Error("Check group membership error", zap.Error(err))
+			return "", errorx.ErrServerBusy
+		}
 		session.ReceiveName = receiveGroup.Name
 		session.Avatar = receiveGroup.Avatar
 	}
 
 	// 5. 创建会话
-	if err := s.repos.Session.CreateSession(&session); err != nil {
+	if err = s.repos.Session.CreateSession(&session); err != nil {
 		zap.L().Error("创建会话失败",
 			zap.String("send_id", req.SendId),
 			zap.String("receive_id", req.ReceiveId),
@@ -348,11 +367,25 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 	for i := 0; i < len(sessionList); i++ {
 		// 增加长度判断防止 panic
 		if len(sessionList[i].ReceiveId) > 0 && sessionList[i].ReceiveId[0] == 'U' {
+			// 获取最后一条消息
+			lastMsg, _ := s.repos.Message.FindLastMessageByUserIds(ownerId, sessionList[i].ReceiveId)
+			var lastMessageContent string
+			var lastMessageTime string
+			var lastMessageType int8
+			if lastMsg != nil {
+				lastMessageContent = lastMsg.Content
+				lastMessageTime = lastMsg.CreatedAt.Format("2006-01-02 15:04:05")
+				lastMessageType = lastMsg.Type
+			}
+
 			sessionListRsp = append(sessionListRsp, respond.UserSessionListRespond{
-				SessionId: sessionList[i].Uuid,
-				Avatar:    sessionList[i].Avatar,
-				UserId:    sessionList[i].ReceiveId,
-				Username:  sessionList[i].ReceiveName,
+				SessionId:       sessionList[i].Uuid,
+				Avatar:          sessionList[i].Avatar,
+				UserId:          sessionList[i].ReceiveId,
+				Username:        sessionList[i].ReceiveName,
+				LastMessage:     lastMessageContent,
+				LastMessageTime: lastMessageTime,
+				LastMessageType: lastMessageType,
 			})
 		}
 	}
@@ -399,11 +432,25 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 	for i := 0; i < len(sessionList); i++ {
 		// 增加长度判断防止 panic
 		if len(sessionList[i].ReceiveId) > 0 && sessionList[i].ReceiveId[0] == 'G' {
+			// 获取最后一条消息
+			lastMsg, _ := s.repos.Message.FindLastMessageByGroupId(sessionList[i].ReceiveId)
+			var lastMessageContent string
+			var lastMessageTime string
+			var lastMessageType int8
+			if lastMsg != nil {
+				lastMessageContent = lastMsg.Content
+				lastMessageTime = lastMsg.CreatedAt.Format("2006-01-02 15:04:05")
+				lastMessageType = lastMsg.Type
+			}
+
 			sessionListRsp = append(sessionListRsp, respond.GroupSessionListRespond{
-				SessionId: sessionList[i].Uuid,
-				Avatar:    sessionList[i].Avatar,
-				GroupId:   sessionList[i].ReceiveId,
-				GroupName: sessionList[i].ReceiveName,
+				SessionId:       sessionList[i].Uuid,
+				Avatar:          sessionList[i].Avatar,
+				GroupId:         sessionList[i].ReceiveId,
+				GroupName:       sessionList[i].ReceiveName,
+				LastMessage:     lastMessageContent,
+				LastMessageTime: lastMessageTime,
+				LastMessageType: lastMessageType,
 			})
 		}
 	}
@@ -423,7 +470,63 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 
 // DeleteSession 删除会话
 func (s *sessionService) DeleteSession(ownerId, sessionId string) error {
-	// 建议：生产环境最好校验一下该 sessionId 是否真的属于 ownerId，防止越权删除
+	// 校验 session 是否属于 ownerId (防止越权删除)
+	// FindByUuid 只能查到 session 记录，但我们需要校验 send_id == ownerId
+	// 这里我们假设 session 表的主键 uuid 是全局唯一的，
+	// 我们可以查出来校验 SendId，或者直接用 Where(uuid, send_id).Delete
+
+	// 为了确保安全，先查一下
+	// 注意：SessionRepository.FindBySendIdAndReceiveId 不是查ById
+	// 我们需要一个 FindBySessionId 或者直接执行带条件的删除
+
+	// 既然 SoftDeleteByUuids 只接受 uuid list，我们可以在 repo 层加一个带 ownerId 的删除，或者先查后删。
+	// 鉴于 SoftDeleteByUuids 比较通用，我们先查。
+	// 但 SessionRepository 似乎没有 FindByUuid。
+	// 回头看 CreateSession，Session ID 是 create时生成的。
+	// 现有的 SoftDeleteByUuids 只是 Delete(Session{}, uuids)
+
+	// 让我们尝试尽量利用现有 repo 接口。
+	// 我们可以遍历 owner的所有session来看看有没有这个 sessionId? 不 太慢。
+	// 我们应该给 SessionRepository 加一个 FindByUuid 或者 DeleteByUuidAndOwner
+	// 但现在只能用 SoftDeleteByUuids。
+
+	// 既然是 Service 层修复，最简单的改法是先查 Owner 的 Session 列表里有没有这个？
+	// 或者... 等等，Session 表结构里 SendId 就是 Owner。
+	// 所以只要确保这个 Session 的 SendId == ownerId。
+
+	// 由于 repo 接口有限，这里先不做严格校验（需要改 Repo 接口），
+	// 或者我们可以用 SessionRepository.FindBySendId(ownerId) 拿到所有，然后在内存里匹配。
+	// 但如果 Session 很多会有性能问题。
+
+	// 鉴于时间，我们先遵循"最小改动"，如果 SessionRepository 没有 FindByUuid，
+	// 我们暂时不做校验，或者必须加 FindByUuid。
+	// 但 SessionRepository 没有 FindByUuid。
+
+	// 让我们看看 DeleteSession 在 Handler 里的调用。
+	// 它是 Delete /session/delete?sessionId=xxx
+
+	// 如果无法校验，那就是 IDOR。必须修复。
+	// 方案：让 RemoveGroupMembers 那种方式，DeleteByUuids 是通用的。
+	// 我们需要一个 CheckSessionOwner(sessionId, ownerId) 或者 DeleteOwnedSession(sessionId, ownerId)。
+
+	// 临时方案：遍历 FindBySendId 的结果 (通常用户 Session 不会太多，几百个顶天了)
+	// 虽然不优雅，但无需改 Repo。
+	sessions, err := s.repos.Session.FindBySendId(ownerId)
+	if err != nil {
+		zap.L().Error("Find user sessions error", zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+	isOwner := false
+	for _, sess := range sessions {
+		if sess.Uuid == sessionId {
+			isOwner = true
+			break
+		}
+	}
+	if !isOwner {
+		return errorx.New(errorx.CodeForbidden, "无权删除该会话或会话不存在")
+	}
+
 	if err := s.repos.Session.SoftDeleteByUuids([]string{sessionId}); err != nil {
 		zap.L().Error("删除会话失败",
 			zap.String("owner_id", ownerId),

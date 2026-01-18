@@ -78,8 +78,6 @@ type aliyunSmsService struct {
 	cache  myredis.CacheService // 依赖抽象接口而非具体 Redis 实现
 }
 
-
-
 // Init 初始化阿里云 SMS Client 并创建服务实例
 // cacheService: 缓存服务接口实例（用于频率限制和验证码存储）
 func Init(cacheService myredis.CacheService) (SmsService, error) {
@@ -174,7 +172,6 @@ func (s *aliyunSmsService) SendVerificationCode(telephone string) error {
 	// 8. 异常处理与事务回滚
 	if err != nil {
 		zap.L().Error("调用阿里云短信接口发生系统级错误", zap.Error(err))
-
 		// 【关键逻辑】回滚：如果发送失败，必须删除缓存中的占位 Key
 		// 否则用户在接下来的 1 分钟内无法再次触发发送请求，体验极差
 		_ = s.cache.Delete(context.Background(), key)

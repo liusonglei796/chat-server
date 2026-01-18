@@ -231,7 +231,6 @@ func isBrokenPipeError(err error) bool {
 	if err == nil {
 		return false
 	}
-
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
 		var syscallErr *os.SyscallError

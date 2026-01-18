@@ -45,6 +45,9 @@ type ChatServer struct {
 	// groupMemberRepo 群成员 Repository
 	groupMemberRepo mysql.GroupMemberRepository
 
+	// contactRepo 联系人 Repository
+	contactRepo mysql.ContactRepository
+
 	// cacheService 缓存服务
 	cacheService myredis.AsyncCacheService
 
@@ -57,6 +60,7 @@ type ChatServerConfig struct {
 	Mode            string // "channel" 或 "kafka"
 	MessageRepo     mysql.MessageRepository
 	GroupMemberRepo mysql.GroupMemberRepository
+	ContactRepo     mysql.ContactRepository
 	CacheService    myredis.AsyncCacheService
 	KafkaHostPort   string
 	KafkaTopic      string
@@ -68,6 +72,7 @@ func NewChatServer(cfg ChatServerConfig) *ChatServer {
 	cs := &ChatServer{
 		messageRepo:     cfg.MessageRepo,
 		groupMemberRepo: cfg.GroupMemberRepo,
+		contactRepo:     cfg.ContactRepo,
 		cacheService:    cfg.CacheService,
 		mode:            cfg.Mode,
 	}
@@ -79,7 +84,7 @@ func NewChatServer(cfg ChatServerConfig) *ChatServer {
 		cs.Broker = kafkaBroker
 	} else {
 		// Channel 模式（默认）
-		channelBroker := NewStandaloneServer(cs.messageRepo, cs.groupMemberRepo, cs.cacheService)
+		channelBroker := NewStandaloneServer(cs.messageRepo, cs.groupMemberRepo, cs.contactRepo, cs.cacheService)
 		cs.Broker = channelBroker
 	}
 

@@ -67,3 +67,30 @@ func (r *messageRepository) Create(message *model.Message) error {
 	}
 	return nil
 }
+
+// FindLastMessageByUserIds 获取两人之间最后一条消息
+func (r *messageRepository) FindLastMessageByUserIds(userOneId, userTwoId string) (*model.Message, error) {
+	var message model.Message
+	if err := r.db.Where("(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)",
+		userOneId, userTwoId, userTwoId, userOneId).
+		Order("created_at DESC").First(&message).Error; err != nil {
+		if errorx.IsNotFound(err) {
+			return nil, nil // 没有消息，返回 nil 而不是错误
+		}
+		return nil, errorx.WrapDBErrorf(err, "查询私聊最后消息 failed")
+	}
+	return &message, nil
+}
+
+// FindLastMessageByGroupId 获取群组最后一条消息
+func (r *messageRepository) FindLastMessageByGroupId(groupId string) (*model.Message, error) {
+	var message model.Message
+	if err := r.db.Where("receive_id = ?", groupId).
+		Order("created_at DESC").First(&message).Error; err != nil {
+		if errorx.IsNotFound(err) {
+			return nil, nil // 没有消息
+		}
+		return nil, errorx.WrapDBErrorf(err, "查询群聊最后消息 failed")
+	}
+	return &message, nil
+}

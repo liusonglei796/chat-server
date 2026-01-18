@@ -141,3 +141,38 @@ func (r *userRepository) SoftDeleteUserByUuids(uuids []string) error {
 	}
 	return nil
 }
+
+// FindAllPaged 分页查询用户列表
+// page: 页码（从1开始）
+// pageSize: 每页数量
+// keyword: 搜索关键词（匹配昵称或手机号）
+// status: 用户状态筛选（nil表示不筛选）
+// 返回: 用户列表、总数、错误
+func (r *userRepository) FindAllPaged(page, pageSize int, keyword string, status *int8) ([]model.UserInfo, int64, error) {
+	var users []model.UserInfo
+	var total int64
+
+	query := r.db.Model(&model.UserInfo{}).Unscoped()
+
+	// 关键词搜索
+	if keyword != "" {
+		query = query.Where("nickname LIKE ? OR telephone LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
+	// 状态筛选
+	if status != nil {
+		query = query.Where("status = ?", *status)
+	}
+
+	// 统计总数
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, errorx.WrapDBError(err, "统计用户数量")
+	}
+
+	// 分页查询
+	offset := (page - 1) * pageSize
+	if err := query.Offset(offset).Limit(pageSize).Order("created_at DESC").Find(&users).Error; err != nil {
+		return nil, 0, errorx.WrapDBError(err, "分页查询用户")
+	}
+
+	return users, total, nil
+}

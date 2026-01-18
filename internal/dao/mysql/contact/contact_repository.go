@@ -29,6 +29,16 @@ func (r *contactRepository) FindByUserIdAndContactId(userId, contactId string) (
 	return &contact, nil
 }
 
+// IsFriend 判断两个用户是否互为好友
+func (r *contactRepository) IsFriend(userId1, userId2 string) (bool, error) {
+	var count int64
+	// 检查正向关系 where user_id=A and contact_id=B and status=1
+	if err := r.db.Model(&model.Contact{}).Where("user_id = ? AND contact_id = ? AND status = ?", userId1, userId2, 1).Count(&count).Error; err != nil {
+		return false, errorx.WrapDBError(err, "check friend relationship failed")
+	}
+	return count > 0, nil
+}
+
 // FindByUserIdAndType 根据用户ID和联系人类型查找
 // contactType: 0=好友, 1=群组
 func (r *contactRepository) FindByUserIdAndType(userId string, contactType int8) ([]model.Contact, error) {

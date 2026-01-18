@@ -3,7 +3,9 @@
 package handler
 
 import (
+	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/service"
+	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,15 +26,27 @@ func NewMessageHandler(messageSvc service.MessageService) *MessageHandler {
 // GET /message/getMessageList?userOneId=xxx&userTwoId=xxx
 // 查询参数: request.GetMessageListRequest
 // 响应: []respond.GetMessageListRespond
+// 安全: 从JWT上下文获取当前用户ID，校验调用者是聊天双方之一
 func (h *MessageHandler) GetMessageList(c *gin.Context) {
-	var req struct {
-		UserOneId string `form:"userOneId" binding:"required"`
-		UserTwoId string `form:"userTwoId" binding:"required"`
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
 	}
+
+	var req request.GetMessageListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
+
+	// 权限校验: 调用者必须是聊天双方之一
+	currentUserId := userId.(string)
+	if currentUserId != req.UserOneId && currentUserId != req.UserTwoId {
+		HandleError(c, errorx.New(errorx.CodeForbidden, "无权查看此聊天记录"))
+		return
+	}
+
 	data, err := h.messageSvc.GetMessageList(req.UserOneId, req.UserTwoId)
 	if err != nil {
 		HandleError(c, err)
@@ -45,15 +59,20 @@ func (h *MessageHandler) GetMessageList(c *gin.Context) {
 // GET /message/getGroupMessageList?groupId=xxx
 // 查询参数: request.GetGroupMessageListRequest
 // 响应: []respond.GetGroupMessageListRespond
+// 安全: 从JWT上下文获取当前用户ID，Service层校验群成员身份
 func (h *MessageHandler) GetGroupMessageList(c *gin.Context) {
-	var req struct {
-		GroupId string `form:"groupId" binding:"required"`
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
 	}
+
+	var req request.GetGroupMessageListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.messageSvc.GetGroupMessageList(req.GroupId)
+	data, err := h.messageSvc.GetGroupMessageList(userId.(string), req.GroupId)
 	if err != nil {
 		HandleError(c, err)
 		return

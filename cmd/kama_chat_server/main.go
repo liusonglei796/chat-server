@@ -8,7 +8,7 @@ import (
 	"syscall"
 
 	"kama_chat_server/internal/config"
-    mysqldb "kama_chat_server/internal/dao/mysql"
+	mysqldb "kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/https_server"
@@ -43,22 +43,23 @@ func main() {
 	jwt.Init(conf.JWTConfig.Secret, conf.JWTConfig.AccessTokenExpiry, conf.JWTConfig.RefreshTokenExpiry)
 	zap.L().Info("JWT 初始化成功")
 
-        // 6. 初始化 SMS Service (依赖注入缓存服务)
-        smsService, err := sms.Init(cacheService)
-        if err != nil {
-                zap.L().Fatal("SMS Service 初始化失败", zap.Error(err))
-        }
-        zap.L().Info("SMS Service 初始化成功")
+	// 6. 初始化 SMS Service (依赖注入缓存服务)
+	smsService, err := sms.Init(cacheService)
+	if err != nil {
+		zap.L().Fatal("SMS Service 初始化失败", zap.Error(err))
+	}
+	zap.L().Info("SMS Service 初始化成功")
 
-        // 7. 初始化 Service 层 (依赖注入)
-        services := service.NewServices(repos, cacheService, smsService)
-        zap.L().Info("Service 层初始化成功")
+	// 7. 初始化 Service 层 (依赖注入)
+	services := service.NewServices(repos, cacheService, smsService)
+	zap.L().Info("Service 层初始化成功")
 
 	// 7. 初始化 ChatServer（依赖注入）
 	chatServer := chat.NewChatServer(chat.ChatServerConfig{
 		Mode:            conf.KafkaConfig.MessageMode,
 		MessageRepo:     repos.Message,
 		GroupMemberRepo: repos.GroupMember,
+		ContactRepo:     repos.Contact,
 		CacheService:    cacheService,
 	})
 	if conf.KafkaConfig.MessageMode == "kafka" {

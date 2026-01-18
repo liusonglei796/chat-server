@@ -14,6 +14,7 @@ type Handlers struct {
 	User    *UserHandler
 	Auth    *AuthHandler
 	Contact *ContactHandler
+	Apply   *ApplyHandler
 	Group   *GroupHandler
 	Session *SessionHandler
 	Message *MessageHandler
@@ -21,19 +22,12 @@ type Handlers struct {
 }
 
 // NewHandlers 创建并注入所有 Handler 实例
-// 依赖注入流程：
-//  1. 接收 Services 聚合实例
-//  2. 创建各个 Handler 实例，注入对应的 Service
-//  3. 返回 Handlers 聚合
-//
-// svc: Service 层聚合实例
-// broker: 消息代理实例，用于 WebSocket 处理
-// 返回: Handlers 聚合指针
 func NewHandlers(svc *service.Services, broker chat.MessageBroker) *Handlers {
 	return &Handlers{
 		User:    NewUserHandler(svc.User),
 		Auth:    NewAuthHandler(svc.Auth),
 		Contact: NewContactHandler(svc.Contact),
+		Apply:   NewApplyHandler(svc.Apply),
 		Group:   NewGroupHandler(svc.Group),
 		Session: NewSessionHandler(svc.Session),
 		Message: NewMessageHandler(svc.Message),

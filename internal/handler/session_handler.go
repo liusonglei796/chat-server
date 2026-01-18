@@ -5,6 +5,7 @@ package handler
 import (
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/service"
+	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
 )
@@ -40,16 +41,18 @@ func (h *SessionHandler) OpenSession(c *gin.Context) {
 }
 
 // GetUserSessionList 获取单聊会话列表
-// GET /session/getUserSessionList?userId=xxx
-// 查询参数: request.OwnlistRequest
+// GET /session/getUserSessionList
+// 从JWT上下文获取当前用户ID
 // 响应: []respond.UserSessionListRespond
 func (h *SessionHandler) GetUserSessionList(c *gin.Context) {
-	var req request.OwnlistRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		HandleParamError(c, err)
+	// 从JWT中间件获取当前用户ID
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
-	data, err := h.sessionSvc.GetUserSessionList(req.UserId)
+
+	data, err := h.sessionSvc.GetUserSessionList(userId.(string))
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -58,16 +61,18 @@ func (h *SessionHandler) GetUserSessionList(c *gin.Context) {
 }
 
 // GetGroupSessionList 获取群聊会话列表
-// GET /session/getGroupSessionList?userId=xxx
-// 查询参数: request.OwnlistRequest
+// GET /session/getGroupSessionList
+// 从JWT上下文获取当前用户ID
 // 响应: []respond.GroupSessionListRespond
 func (h *SessionHandler) GetGroupSessionList(c *gin.Context) {
-	var req request.OwnlistRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		HandleParamError(c, err)
+	// 从JWT中间件获取当前用户ID
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
-	data, err := h.sessionSvc.GetGroupSessionList(req.UserId)
+
+	data, err := h.sessionSvc.GetGroupSessionList(userId.(string))
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -79,13 +84,20 @@ func (h *SessionHandler) GetGroupSessionList(c *gin.Context) {
 // POST /session/deleteSession
 // 请求体: request.DeleteSessionRequest
 // 响应: nil
+// 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
 func (h *SessionHandler) DeleteSession(c *gin.Context) {
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
 	var req request.DeleteSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.sessionSvc.DeleteSession(req.UserId, req.SessionId); err != nil {
+	if err := h.sessionSvc.DeleteSession(userId.(string), req.SessionId); err != nil {
 		HandleError(c, err)
 		return
 	}

@@ -20,9 +20,10 @@ func (rt *Router) RegisterPublicUserRoutes(rg *gin.RouterGroup) {
 func (rt *Router) RegisterUserRoutes(rg *gin.RouterGroup) {
 	userGroup := rg.Group("/user")
 	{
-		userGroup.POST("/wsLogout", rt.handlers.Ws.WsLogoutHandler)        // WebSocket 登出
-		userGroup.POST("/updateUserInfo", rt.handlers.User.UpdateUserInfo) // 更新用户信息
-		userGroup.GET("/getUserInfo", rt.handlers.User.GetUserInfo)        // 获取用户详情
+		userGroup.POST("/wsLogout", rt.handlers.Ws.WsLogoutHandler)             // WebSocket 登出
+		userGroup.POST("/updateUserInfo", rt.handlers.User.UpdateUserInfo)      // 更新用户信息
+		userGroup.GET("/getUserInfo", rt.handlers.User.GetUserInfo)             // 获取当前用户详情
+		userGroup.GET("/getPublicUserInfo", rt.handlers.User.GetPublicUserInfo) // 获取他人公开信息
 
 	}
 }

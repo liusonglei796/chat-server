@@ -7,6 +7,7 @@ import (
 
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/service"
+	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
 )
@@ -87,31 +88,37 @@ func (h *UserHandler) SmsLogin(c *gin.Context) {
 // POST /user/updateUserInfo
 // 请求体: request.UpdateUserInfoRequest
 // 响应: nil (无返回数据)
+// 安全: 从JWT上下文获取当前用户ID，只能修改自己的信息
 func (h *UserHandler) UpdateUserInfo(c *gin.Context) {
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
 	var req request.UpdateUserInfoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.userSvc.UpdateUserInfo(req); err != nil {
+	if err := h.userSvc.UpdateUserInfo(userId.(string), req); err != nil {
 		HandleError(c, err)
 		return
 	}
 	HandleSuccess(c, nil)
 }
 
-// GetUserInfoList 获取用户列表
-// GET /user/getUserInfoList?ownerId=xxx
-// 查询参数: request.GetUserInfoListRequest
-// 响应: []respond.GetUserInfoListRespond
-func (h *UserHandler) GetUserInfoList(c *gin.Context) {
-	var req request.GetUserInfoListRequest
-	// 使用 ShouldBindQuery 绑定 URL 查询参数
+// GetUserListPaged 分页获取用户列表（管理员功能）
+// GET /admin/user/list?page=1&pageSize=10&keyword=xxx&status=0
+// 查询参数: request.GetUserListPagedRequest
+// 响应: respond.PagedUserListRespond
+func (h *UserHandler) GetUserListPaged(c *gin.Context) {
+	var req request.GetUserListPagedRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.userSvc.GetUserInfoList(req.OwnerId)
+	data, err := h.userSvc.GetUserListPaged(req)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -119,73 +126,59 @@ func (h *UserHandler) GetUserInfoList(c *gin.Context) {
 	HandleSuccess(c, data)
 }
 
-// AbleUsers 启用用户（管理员功能）
-// POST /user/ableUsers
-// 请求体: request.AbleUsersRequest
+// BatchUpdateUserStatus 批量更新用户状态（管理员功能）
+// POST /admin/user/batchStatus
+// 请求体: request.BatchUpdateUserStatusRequest
+// Action: enable(启用), disable(禁用), delete(删除)
 // 响应: nil
-func (h *UserHandler) AbleUsers(c *gin.Context) {
-	var req request.AbleUsersRequest
+func (h *UserHandler) BatchUpdateUserStatus(c *gin.Context) {
+	var req request.BatchUpdateUserStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.userSvc.AbleUsers(req.UuidList); err != nil {
+	if err := h.userSvc.BatchUpdateUserStatus(req); err != nil {
 		HandleError(c, err)
 		return
 	}
 	HandleSuccess(c, nil)
 }
 
-// DisableUsers 禁用用户（管理员功能）
-// POST /user/disableUsers
-// 请求体: request.AbleUsersRequest
-// 响应: nil
-func (h *UserHandler) DisableUsers(c *gin.Context) {
-	var req request.AbleUsersRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	if err := h.userSvc.DisableUsers(req.UuidList); err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, nil)
-}
-
-// GetUserInfo 获取单个用户信息
-// GET /user/getUserInfo?uuid=xxx
-// 查询参数: request.GetUserInfoRequest
+// GetUserInfo 获取当前用户完整信息（仅限查自己）
+// GET /user/getUserInfo
+// 安全: 从JWT上下文获取当前用户ID
 // 响应: respond.GetUserInfoRespond
 func (h *UserHandler) GetUserInfo(c *gin.Context) {
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
+	data, err := h.userSvc.GetUserInfo(userId.(string), userId.(string))
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetPublicUserInfo 获取他人公开信息
+// GET /user/getPublicUserInfo?uuid=xxx
+// 查询参数: request.GetUserInfoRequest
+// 响应: respond.PublicUserInfoRespond
+func (h *UserHandler) GetPublicUserInfo(c *gin.Context) {
 	var req request.GetUserInfoRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.userSvc.GetUserInfo(req.Uuid)
+	data, err := h.userSvc.GetPublicUserInfo(req.Uuid)
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
 	HandleSuccess(c, data)
-}
-
-// DeleteUsers 删除用户（管理员功能）
-// POST /user/deleteUsers
-// 请求体: request.AbleUsersRequest
-// 响应: nil
-func (h *UserHandler) DeleteUsers(c *gin.Context) {
-	var req request.AbleUsersRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	if err := h.userSvc.DeleteUsers(req.UuidList); err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, nil)
 }
 
 // SetAdmin 设置管理员权限（管理员功能）

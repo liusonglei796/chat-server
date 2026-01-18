@@ -21,10 +21,10 @@ func (rt *Router) RegisterFriendRoutes(rg *gin.RouterGroup) {
 		friendGroup.POST("/cancelBlack", rt.handlers.Contact.CancelBlackContact) // 取消拉黑
 
 		// ===== 好友申请 =====
-		friendGroup.POST("/apply", rt.handlers.Contact.ApplyFriend)             // 申请添加好友
-		friendGroup.GET("/applyList", rt.handlers.Contact.GetFriendApplyList)   // 获取待处理的好友申请
-		friendGroup.POST("/passApply", rt.handlers.Contact.PassFriendApply)     // 通过好友申请
-		friendGroup.POST("/refuseApply", rt.handlers.Contact.RefuseFriendApply) // 拒绝好友申请
-		friendGroup.POST("/blackApply", rt.handlers.Contact.BlackFriendApply)   // 拉黑好友申请
+		friendGroup.POST("/apply", rt.handlers.Apply.ApplyFriend)             // 申请添加好友
+		friendGroup.GET("/applyList", rt.handlers.Apply.GetFriendApplyList)   // 获取待处理的好友申请
+		friendGroup.POST("/passApply", rt.handlers.Apply.PassFriendApply)     // 通过好友申请
+		friendGroup.POST("/refuseApply", rt.handlers.Apply.RefuseFriendApply) // 拒绝好友申请
+		friendGroup.POST("/blackApply", rt.handlers.Apply.BlackFriendApply)   // 拉黑好友申请
 	}
 }

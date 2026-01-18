@@ -20,6 +20,7 @@ import (
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/message/message_status_enum"
 	"kama_chat_server/pkg/enum/message/message_type_enum"
+	"kama_chat_server/pkg/errorx"
 	"log"
 	"strings"
 	"sync"
@@ -44,6 +45,7 @@ type StandaloneServer struct {
 	// 依赖注入字段（遵循依赖倒置原则）
 	messageRepo     mysql.MessageRepository
 	groupMemberRepo mysql.GroupMemberRepository
+	contactRepo     mysql.ContactRepository
 	cacheService    myredis.AsyncCacheService
 }
 
@@ -51,6 +53,7 @@ type StandaloneServer struct {
 func NewStandaloneServer(
 	messageRepo mysql.MessageRepository,
 	groupMemberRepo mysql.GroupMemberRepository,
+	contactRepo mysql.ContactRepository,
 	cacheService myredis.AsyncCacheService,
 ) *StandaloneServer {
 	return &StandaloneServer{
@@ -63,6 +66,7 @@ func NewStandaloneServer(
 		Logout:          make(chan *UserConn, constants.CHANNEL_SIZE),
 		messageRepo:     messageRepo,
 		groupMemberRepo: groupMemberRepo,
+		contactRepo:     contactRepo,
 		cacheService:    cacheService,
 	}
 }
@@ -164,6 +168,13 @@ func (s *StandaloneServer) Start() {
 // 3. 根据接收者类型 (User/Group) 路由消息
 // 4. 更新 Redis 缓存
 func (s *StandaloneServer) handleTextMessage(req request.ChatMessageRequest) {
+	// 权限校验: 防止非好友/已退群用户发送消息 (Read-Only Enforcement)
+	if s.isBlocked(req.SendId, req.ReceiveId) {
+		zap.L().Warn("Message blocked due to permission check", zap.String("sender", req.SendId), zap.String("receiver", req.ReceiveId))
+		// 可选: 通知发送者发送失败
+		return
+	}
+
 	// 构建数据库模型对象
 	message := model.Message{
 		Uuid:       snowflake.GenerateID(),     // 生成唯一消息ID
@@ -204,6 +215,12 @@ func (s *StandaloneServer) handleTextMessage(req request.ChatMessageRequest) {
 // handleFileMessage 处理文件消息
 // 逻辑与文本消息类似，区别在于 Content 为空，Url 字段存储文件链接
 func (s *StandaloneServer) handleFileMessage(req request.ChatMessageRequest) {
+	// 权限校验
+	if s.isBlocked(req.SendId, req.ReceiveId) {
+		zap.L().Warn("File blocked due to permission check", zap.String("sender", req.SendId), zap.String("receiver", req.ReceiveId))
+		return
+	}
+
 	// 构建数据库模型对象
 	message := model.Message{
 		Uuid:       snowflake.GenerateID(),
@@ -503,7 +520,39 @@ func (s *StandaloneServer) UnregisterClient(client *UserConn) {
 	s.Logout <- client
 }
 
-// GetMessageRepo 实现 MessageBroker 接口：获取消息 Repository
+// GetMessageRepo 实现 MessageBroker 接口：获取消息仓储
 func (s *StandaloneServer) GetMessageRepo() mysql.MessageRepository {
 	return s.messageRepo
+}
+
+// isBlocked 检查发送者是否有权限发送消息给接收者
+func (s *StandaloneServer) isBlocked(senderId, receiverId string) bool {
+	if len(receiverId) == 0 {
+		return true
+	}
+	// 单聊: 检查好友关系
+	if receiverId[0] == 'U' {
+		if s.contactRepo != nil {
+			isFriend, err := s.contactRepo.IsFriend(senderId, receiverId)
+			if err != nil {
+				zap.L().Error("Check friend error", zap.Error(err))
+				return true // 默认为阻断，安全优先
+			}
+			return !isFriend
+		}
+	} else if receiverId[0] == 'G' {
+		// 群聊: 检查是否是成员
+		if s.groupMemberRepo != nil {
+			_, err := s.groupMemberRepo.FindByGroupAndUser(receiverId, senderId)
+			if err != nil {
+				if errorx.IsNotFound(err) {
+					return true // 不是成员
+				}
+				zap.L().Error("Check group member error", zap.Error(err))
+				return true // 错误则阻断
+			}
+			return false
+		}
+	}
+	return false
 }

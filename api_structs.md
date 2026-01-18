@@ -24,14 +24,14 @@
 ## Contact Module
 | Method | Path | Request Struct | Response Struct |
 | :--- | :--- | :--- | :--- |
-| **GET** | `/contact/getUserList` | `OwnlistRequest` | `[]MyUserListRespond` |
-| **GET** | `/contact/loadMyJoinedGroup` | `OwnlistRequest` | `[]LoadMyJoinedGroupRespond` |
+| **GET** | `/contact/getUserList` | 无参数（从JWT获取用户ID） | `[]MyUserListRespond` |
+| **GET** | `/contact/loadMyJoinedGroup` | 无参数（从JWT获取用户ID） | `[]LoadMyJoinedGroupRespond` |
 | **GET** | `/contact/getContactInfo` | `GetContactInfoRequest` | `GetContactInfoRespond` |
 | **POST** | `/contact/deleteContact` | `DeleteContactRequest` | - |
 | **POST** | `/contact/blackContact` | `BlackContactRequest` | - |
 | **POST** | `/contact/cancelBlackContact` | `BlackContactRequest` | - |
 | **POST** | `/contact/applyContact` | `ApplyContactRequest` | - |
-| **GET** | `/contact/getNewContactList` | `OwnlistRequest` | `[]NewContactListRespond` |
+| **GET** | `/contact/getNewContactList` | 无参数（从JWT获取用户ID） | `[]NewContactListRespond` |
 | **POST** | `/contact/passContactApply` | `PassContactApplyRequest` | - |
 | **POST** | `/contact/refuseContactApply` | `PassContactApplyRequest` | - |
 | **POST** | `/contact/blackApply` | `BlackApplyRequest` | - |
@@ -41,7 +41,7 @@
 | Method | Path | Request Struct | Response Struct |
 | :--- | :--- | :--- | :--- |
 | **POST** | `/group/createGroup` | `CreateGroupRequest` | - |
-| **GET** | `/group/loadMyGroup` | `OwnlistRequest` | `[]LoadMyGroupRespond` |
+| **GET** | `/group/loadMyGroup` | 无参数（从JWT获取用户ID） | `[]LoadMyGroupRespond` |
 | **GET** | `/group/getGroupInfo` | `GetGroupInfoRequest` | `GetGroupInfoRespond` |
 | **POST** | `/group/updateGroupInfo` | `UpdateGroupInfoRequest` | - |
 | **POST** | `/group/dismissGroup` | `DismissGroupRequest` | - |
@@ -66,8 +66,8 @@
 | Method | Path | Request Struct | Response Struct |
 | :--- | :--- | :--- | :--- |
 | **POST** | `/session/openSession` | `OpenSessionRequest` | `string` |
-| **GET** | `/session/getUserSessionList` | `OwnlistRequest` | `[]UserSessionListRespond` |
-| **GET** | `/session/getGroupSessionList` | `OwnlistRequest` | `[]GroupSessionListRespond` |
+| **GET** | `/session/getUserSessionList` | 无参数（从JWT获取用户ID） | `[]UserSessionListRespond` |
+| **GET** | `/session/getGroupSessionList` | 无参数（从JWT获取用户ID） | `[]GroupSessionListRespond` |
 | **POST** | `/session/deleteSession` | `DeleteSessionRequest` | - |
 | **GET** | `/session/checkOpenSessionAllowed` | `CreateSessionRequest` | `bool` |
 

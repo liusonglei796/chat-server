@@ -11,3 +11,11 @@ type GetUserListRespond struct {
 	IsAdmin   int8   `json:"is_admin"`
 	IsDeleted bool   `json:"is_deleted"`
 }
+
+// PagedUserListRespond 分页用户列表响应（管理员）
+// 使用位置:
+//   - internal/service/user/service.go: GetUserListPaged
+type PagedUserListRespond struct {
+	Total int64                `json:"total"`
+	List  []GetUserListRespond `json:"list"`
+}

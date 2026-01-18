@@ -126,6 +126,7 @@ const (
 	CodeInvalidPassword = 1004 // 密码错误
 	CodeServerBusy      = 1005 // 服务繁忙
 	CodeUnauthorized    = 1006 // 未授权/认证失败
+	CodeForbidden       = 1007 // 无权限/禁止访问
 	CodeNotFound        = 1008 // 资源不存在
 	CodeDBError         = 1010 // 数据库错误
 	CodeCacheError      = 1011 // 缓存错误

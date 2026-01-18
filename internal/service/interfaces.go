@@ -21,18 +21,16 @@ type UserService interface {
 	SendSmsCode(telephone string) error
 	// Register 用户注册
 	Register(req request.RegisterRequest) (*respond.RegisterRespond, error)
-	// UpdateUserInfo 更新用户信息
-	UpdateUserInfo(req request.UpdateUserInfoRequest) error
-	// GetUserInfoList 获取用户列表（排除指定用户）
-	GetUserInfoList(ownerId string) ([]respond.GetUserListRespond, error)
-	// AbleUsers 批量启用用户
-	AbleUsers(uuidList []string) error
-	// DisableUsers 批量禁用用户
-	DisableUsers(uuidList []string) error
-	// DeleteUsers 批量删除用户（软删除）
-	DeleteUsers(uuidList []string) error
-	// GetUserInfo 获取单个用户信息
-	GetUserInfo(uuid string) (*respond.GetUserInfoRespond, error)
+	// UpdateUserInfo 更新用户信息 (userId 从 JWT 获取，只能改自己)
+	UpdateUserInfo(userId string, req request.UpdateUserInfoRequest) error
+	// GetUserListPaged 分页获取用户列表（管理员）
+	GetUserListPaged(req request.GetUserListPagedRequest) (*respond.PagedUserListRespond, error)
+	// BatchUpdateUserStatus 批量更新用户状态（启用/禁用/删除）
+	BatchUpdateUserStatus(req request.BatchUpdateUserStatusRequest) error
+	// GetUserInfo 获取用户完整信息（仅限自己或管理员调用）
+	GetUserInfo(requesterId, targetId string) (*respond.GetUserInfoRespond, error)
+	// GetPublicUserInfo 获取用户公开信息（查看他人）
+	GetPublicUserInfo(targetId string) (*respond.PublicUserInfoRespond, error)
 	// SetAdmin 批量设置管理员权限
 	SetAdmin(uuidList []string, isAdmin int8) error
 }
@@ -57,8 +55,8 @@ type SessionService interface {
 // GroupService 群组业务接口
 // 处理群组的创建、管理、成员管理等功能
 type GroupService interface {
-	// CreateGroup 创建群组
-	CreateGroup(req request.CreateGroupRequest) error
+	// CreateGroup 创建群组 (ownerId 从 JWT 获取)
+	CreateGroup(ownerId string, req request.CreateGroupRequest) error
 	// LoadMyGroup 加载我创建的群组
 	LoadMyGroup(ownerId string) ([]respond.LoadMyGroupRespond, error)
 	// CheckGroupAddMode 检查群组加入方式
@@ -67,8 +65,8 @@ type GroupService interface {
 	EnterGroupDirectly(groupId, userId string) error
 	// LeaveGroup 退出群组
 	LeaveGroup(userId, groupId string) error
-	// DismissGroup 解散群组
-	DismissGroup(ownerId, groupId string) error
+	// DismissGroup 解散群组 (operatorId 必须是群主)
+	DismissGroup(operatorId, groupId string) error
 	// GetGroupInfo 获取群组信息
 	GetGroupInfo(groupId string) (*respond.GetGroupInfoRespond, error)
 	// GetGroupInfoList 分页获取群组列表（管理员）
@@ -77,31 +75,39 @@ type GroupService interface {
 	DeleteGroups(uuidList []string) error
 	// SetGroupsStatus 批量设置群组状态
 	SetGroupsStatus(uuidList []string, status int8) error
-	// UpdateGroupInfo 更新群组信息
-	UpdateGroupInfo(req request.UpdateGroupInfoRequest) error
-	// GetGroupMemberList 获取群成员列表
-	GetGroupMemberList(groupId string) ([]respond.GetGroupMemberListRespond, error)
-	// RemoveGroupMembers 移除群成员
-	RemoveGroupMembers(req request.RemoveGroupMembersRequest) error
+	// UpdateGroupInfo 更新群组信息 (operatorId 必须是群主或管理员)
+	UpdateGroupInfo(operatorId string, req request.UpdateGroupInfoRequest) error
+	// GetGroupMemberList 获取群成员列表 (userId 必须是群成员)
+	GetGroupMemberList(userId, groupId string) ([]respond.GetGroupMemberListRespond, error)
+	// RemoveGroupMembers 移除群成员 (operatorId 必须是群主或管理员)
+	RemoveGroupMembers(operatorId string, req request.RemoveGroupMembersRequest) error
 }
 
 // ContactService 联系人业务接口
-// 处理好友关系、联系人申请等功能
+// 处理好友关系、联系人管理等功能
 type ContactService interface {
 	// GetUserList 获取用户的好友列表
 	GetUserList(userId string) ([]respond.MyUserListRespond, error)
 	// GetJoinedGroupsExcludedOwn 获取已加入的群组（排除自己创建的）
 	GetJoinedGroupsExcludedOwn(userId string) ([]respond.LoadMyJoinedGroupRespond, error)
-	// GetFriendInfo 获取好友详情
-	GetFriendInfo(friendId string) (respond.GetFriendInfoRespond, error)
-	// GetGroupDetail 获取群聊详情
-	GetGroupDetail(groupId string) (respond.GetGroupDetailRespond, error)
+	// GetFriendInfo 获取好友详情 (userId 必须与 friendId 是好友关系)
+	GetFriendInfo(userId, friendId string) (respond.GetFriendInfoRespond, error)
+	// GetGroupDetail 获取群聊详情 (userId 必须是群成员)
+	GetGroupDetail(userId, groupId string) (respond.GetGroupDetailRespond, error)
 	// DeleteContact 删除联系人
 	DeleteContact(userId, contactId string) error
+	// BlackContact 拉黑联系人
+	BlackContact(userId, contactId string) error
+	// CancelBlackContact 取消拉黑
+	CancelBlackContact(userId, contactId string) error
+}
 
+// ApplyService 申请业务接口
+// 处理好友申请、入群申请等功能
+type ApplyService interface {
 	// ===== 好友申请相关 =====
 	// ApplyFriend 申请添加好友
-	ApplyFriend(req request.ApplyFriendRequest) error
+	ApplyFriend(userId string, req request.ApplyFriendRequest) error
 	// GetFriendApplyList 获取待处理的好友申请列表
 	GetFriendApplyList(userId string) ([]respond.NewContactListRespond, error)
 	// PassFriendApply 通过好友申请
@@ -113,21 +119,15 @@ type ContactService interface {
 
 	// ===== 入群申请相关 =====
 	// ApplyGroup 申请加入群组
-	ApplyGroup(req request.ApplyGroupRequest) error
+	ApplyGroup(userId string, req request.ApplyGroupRequest) error
 	// GetGroupApplyList 获取入群申请列表
-	GetGroupApplyList(groupId string) ([]respond.AddGroupListRespond, error)
-	// PassGroupApply 通过入群申请
-	PassGroupApply(groupId, applicantId string) error
-	// RefuseGroupApply 拒绝入群申请
-	RefuseGroupApply(groupId, applicantId string) error
-	// BlackGroupApply 拉黑入群申请
-	BlackGroupApply(groupId, applicantId string) error
-
-	// ===== 联系人状态管理 =====
-	// BlackContact 拉黑联系人
-	BlackContact(userId, contactId string) error
-	// CancelBlackContact 取消拉黑
-	CancelBlackContact(userId, contactId string) error
+	GetGroupApplyList(userId, groupId string) ([]respond.AddGroupListRespond, error)
+	// PassGroupApply 通过入群申请 (operatorId 需要是群主或管理员)
+	PassGroupApply(operatorId, groupId, applicantId string) error
+	// RefuseGroupApply 拒绝入群申请 (operatorId 需要是群主或管理员)
+	RefuseGroupApply(operatorId, groupId, applicantId string) error
+	// BlackGroupApply 拉黑入群申请 (operatorId 需要是群主或管理员)
+	BlackGroupApply(operatorId, groupId, applicantId string) error
 }
 
 // MessageService 消息业务接口
@@ -135,8 +135,8 @@ type ContactService interface {
 type MessageService interface {
 	// GetMessageList 获取两个用户之间的聊天记录
 	GetMessageList(userOneId, userTwoId string) ([]respond.GetMessageListRespond, error)
-	// GetGroupMessageList 获取群聊消息记录
-	GetGroupMessageList(groupId string) ([]respond.GetGroupMessageListRespond, error)
+	// GetGroupMessageList 获取群聊消息记录 (userId 必须是群成员)
+	GetGroupMessageList(userId, groupId string) ([]respond.GetGroupMessageListRespond, error)
 	// UploadAvatar 上传头像，返回新文件名
 	UploadAvatar(c *gin.Context) (string, error)
 	// UploadFile 上传文件，返回文件名列表

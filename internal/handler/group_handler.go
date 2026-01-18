@@ -5,6 +5,7 @@ package handler
 import (
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/service"
+	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,13 +26,20 @@ func NewGroupHandler(groupSvc service.GroupService) *GroupHandler {
 // POST /group/createGroup
 // 请求体: request.CreateGroupRequest
 // 响应: nil
+// 安全: 从JWT上下文获取当前用户ID作为群主
 func (h *GroupHandler) CreateGroup(c *gin.Context) {
+	ownerId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
 	var req request.CreateGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.groupSvc.CreateGroup(req); err != nil {
+	if err := h.groupSvc.CreateGroup(ownerId.(string), req); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -39,16 +47,18 @@ func (h *GroupHandler) CreateGroup(c *gin.Context) {
 }
 
 // LoadMyGroup 获取我创建的群聊
-// GET /group/loadMyGroup?userId=xxx
-// 查询参数: request.OwnlistRequest
+// GET /group/loadMyGroup
+// 从JWT上下文获取当前用户ID
 // 响应: []respond.LoadMyGroupRespond
 func (h *GroupHandler) LoadMyGroup(c *gin.Context) {
-	var req request.OwnlistRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		HandleParamError(c, err)
+	// 从JWT中间件获取当前用户ID
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
-	data, err := h.groupSvc.LoadMyGroup(req.UserId)
+
+	data, err := h.groupSvc.LoadMyGroup(userId.(string))
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -78,13 +88,20 @@ func (h *GroupHandler) CheckGroupAddMode(c *gin.Context) {
 // POST /group/enterGroupDirectly
 // 请求体: request.EnterGroupDirectlyRequest
 // 响应: nil
+// 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
 func (h *GroupHandler) EnterGroupDirectly(c *gin.Context) {
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
 	var req request.EnterGroupDirectlyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.groupSvc.EnterGroupDirectly(req.GroupId, req.UserId); err != nil {
+	if err := h.groupSvc.EnterGroupDirectly(req.GroupId, userId.(string)); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -95,13 +112,20 @@ func (h *GroupHandler) EnterGroupDirectly(c *gin.Context) {
 // POST /group/leaveGroup
 // 请求体: request.LeaveGroupRequest
 // 响应: nil
+// 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
 func (h *GroupHandler) LeaveGroup(c *gin.Context) {
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
 	var req request.LeaveGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.groupSvc.LeaveGroup(req.UserId, req.GroupId); err != nil {
+	if err := h.groupSvc.LeaveGroup(userId.(string), req.GroupId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -112,13 +136,20 @@ func (h *GroupHandler) LeaveGroup(c *gin.Context) {
 // POST /group/dismissGroup
 // 请求体: request.DismissGroupRequest
 // 响应: nil
+// 安全: 从JWT上下文获取当前用户ID，Service层校验群主权限
 func (h *GroupHandler) DismissGroup(c *gin.Context) {
+	operatorId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
 	var req request.DismissGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.groupSvc.DismissGroup(req.OwnerId, req.GroupId); err != nil {
+	if err := h.groupSvc.DismissGroup(operatorId.(string), req.GroupId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -143,7 +174,7 @@ func (h *GroupHandler) GetGroupInfo(c *gin.Context) {
 	HandleSuccess(c, data)
 }
 
-// GetGroupInfoList 获取群聊列表（管理员功能）
+// GetGroupInfoList 获取群聊列表（后台管理功能）
 // GET /group/getGroupInfoList?page=1&pageSize=10
 // 查询参数: request.GetGroupListRequest
 // 响应: respond.GetGroupListWrapper
@@ -161,7 +192,7 @@ func (h *GroupHandler) GetGroupInfoList(c *gin.Context) {
 	HandleSuccess(c, data)
 }
 
-// DeleteGroups 批量删除群聊（管理员功能）
+// DeleteGroups 批量删除群聊（后台管理功能）
 // POST /group/deleteGroups
 // 请求体: request.DeleteGroupsRequest
 // 响应: nil
@@ -178,7 +209,7 @@ func (h *GroupHandler) DeleteGroups(c *gin.Context) {
 	HandleSuccess(c, nil)
 }
 
-// SetGroupsStatus 批量设置群聊状态（管理员功能）
+// SetGroupsStatus 批量设置群聊状态（后台管理功能）
 // POST /group/setGroupsStatus
 // 请求体: request.SetGroupsStatusRequest
 // 响应: nil
@@ -199,13 +230,20 @@ func (h *GroupHandler) SetGroupsStatus(c *gin.Context) {
 // POST /group/updateGroupInfo
 // 请求体: request.UpdateGroupInfoRequest
 // 响应: nil
+// 安全: 从JWT上下文获取当前用户ID，Service层校验管理员权限
 func (h *GroupHandler) UpdateGroupInfo(c *gin.Context) {
+	operatorId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
 	var req request.UpdateGroupInfoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.groupSvc.UpdateGroupInfo(req); err != nil {
+	if err := h.groupSvc.UpdateGroupInfo(operatorId.(string), req); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -216,13 +254,20 @@ func (h *GroupHandler) UpdateGroupInfo(c *gin.Context) {
 // GET /group/getGroupMemberList?groupId=xxx
 // 查询参数: request.GetGroupMemberListRequest
 // 响应: []respond.GetGroupMemberListRespond
+// 安全: 从JWT上下文获取当前用户ID，Service层校验成员身份
 func (h *GroupHandler) GetGroupMemberList(c *gin.Context) {
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
 	var req request.GetGroupMemberListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.groupSvc.GetGroupMemberList(req.GroupId)
+	data, err := h.groupSvc.GetGroupMemberList(userId.(string), req.GroupId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -234,13 +279,20 @@ func (h *GroupHandler) GetGroupMemberList(c *gin.Context) {
 // POST /group/removeGroupMembers
 // 请求体: request.RemoveGroupMembersRequest
 // 响应: nil
+// 安全: 从JWT上下文获取当前用户ID，Service层校验管理员权限
 func (h *GroupHandler) RemoveGroupMembers(c *gin.Context) {
+	operatorId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
 	var req request.RemoveGroupMembersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.groupSvc.RemoveGroupMembers(req); err != nil {
+	if err := h.groupSvc.RemoveGroupMembers(operatorId.(string), req); err != nil {
 		HandleError(c, err)
 		return
 	}

@@ -30,10 +30,10 @@ func (rt *Router) RegisterGroupRoutes(rg *gin.RouterGroup) {
 		// 加群
 		groupGroup.GET("/checkGroupAddMode", rt.handlers.Group.CheckGroupAddMode)    // 检查加群方式
 		groupGroup.POST("/enterGroupDirectly", rt.handlers.Group.EnterGroupDirectly) // 直接加入群组
-		groupGroup.POST("/apply", rt.handlers.Contact.ApplyGroup)                    // 需要申请加入群组
-		groupGroup.GET("/applyList", rt.handlers.Contact.GetGroupApplyList)          // 获取待处理的入群申请
-		groupGroup.POST("/passApply", rt.handlers.Contact.PassGroupApply)            // 通过入群申请
-		groupGroup.POST("/refuseApply", rt.handlers.Contact.RefuseGroupApply)        // 拒绝入群申请
-		groupGroup.POST("/blackApply", rt.handlers.Contact.BlackGroupApply)          // 拉黑入群申请
+		groupGroup.POST("/apply", rt.handlers.Apply.ApplyGroup)                      // 需要申请加入群组
+		groupGroup.GET("/applyList", rt.handlers.Apply.GetGroupApplyList)            // 获取待处理的入群申请
+		groupGroup.POST("/passApply", rt.handlers.Apply.PassGroupApply)              // 通过入群申请
+		groupGroup.POST("/refuseApply", rt.handlers.Apply.RefuseGroupApply)          // 拒绝入群申请
+		groupGroup.POST("/blackApply", rt.handlers.Apply.BlackGroupApply)            // 拉黑入群申请
 	}
 }

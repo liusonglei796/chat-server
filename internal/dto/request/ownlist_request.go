@@ -1,6 +1,6 @@
 package request
 
-// OwnlistRequest 通用列表请求（当前用户ID）
+// OwnlistRequest 通用列表请求（无需用户ID，从JWT上下文获取）
 type OwnlistRequest struct {
-	UserId string `json:"user_id" form:"user_id" binding:"required"`
+	// UserId 从JWT中间件上下文获取，不再需要客户端传递
 }
