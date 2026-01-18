@@ -14,11 +14,11 @@ import (
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
+	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/message/message_status_enum"
 	"kama_chat_server/pkg/enum/message/message_type_enum"
-	"kama_chat_server/pkg/util/snowflake"
 	"log"
 	"os"
 	"sync"
@@ -105,7 +105,7 @@ func (k *MsgConsumer) Start() {
 			// 从 Kafka 读取一条消息
 			kafkaMessage, err := k.kafkaClient.Consumer.ReadMessage(ctx)
 			if err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 				continue // 读取失败，重试
 			}
 			// 记录详细的 Kafka 消息元数据（调试用）
@@ -117,7 +117,7 @@ func (k *MsgConsumer) Start() {
 			var chatMessageReq request.ChatMessageRequest
 			// 反序列化为请求对象
 			if err := json.Unmarshal(data, &chatMessageReq); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 				continue // 反序列化失败，直接跳过
 			}
 			log.Println("原消息为：", data, "反序列化后为：", chatMessageReq)
@@ -148,7 +148,7 @@ func (k *MsgConsumer) Start() {
 			zap.L().Debug(fmt.Sprintf("欢迎来到kama聊天服务器，亲爱的用户%s\n", client.Uuid))
 			// 发送欢迎语
 			if err := client.Conn.WriteMessage(websocket.TextMessage, []byte("欢迎来到kama聊天服务器")); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 
 		// 处理退出
@@ -158,7 +158,7 @@ func (k *MsgConsumer) Start() {
 			zap.L().Info(fmt.Sprintf("用户%s退出登录\n", client.Uuid))
 			// 发送退出提示
 			if err := client.Conn.WriteMessage(websocket.TextMessage, []byte("已退出登录")); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 		// 处理系统退出信号（如果启用）
 		case <-kafkaQuit:
@@ -294,7 +294,7 @@ func (k *MsgConsumer) handleFileMessage(req request.ChatMessageRequest) {
 func (k *MsgConsumer) handleAVMessage(req request.ChatMessageRequest) {
 	var avData request.AVData
 	if err := json.Unmarshal([]byte(req.AVdata), &avData); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return
 	}
 
@@ -345,7 +345,7 @@ func (k *MsgConsumer) handleAVMessage(req request.ChatMessageRequest) {
 		}
 		jsonMessage, err := json.Marshal(messageRsp)
 		if err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 		log.Println("返回的消息为：", messageRsp)
 
@@ -385,7 +385,7 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 
 	jsonMessage, err := json.Marshal(messageRsp)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 	}
 
 	log.Println("返回的消息为：", messageRsp, "序列化后为：", jsonMessage)
@@ -449,7 +449,7 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 
 	jsonMessage, err := json.Marshal(messageRsp)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 	}
 
 	log.Println("返回的消息为：", messageRsp, "序列化后为：", jsonMessage)

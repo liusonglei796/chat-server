@@ -305,7 +305,7 @@ func (s *sessionService) OpenSession(req request.OpenSessionRequest) (string, er
 			}
 			return s.CreateSession(createReq)
 		}
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return "", errorx.ErrServerBusy
 	}
 
@@ -334,13 +334,13 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 		zap.L().Error("Unmarshal user session list cache failed", zap.Error(err))
 	} else if err != nil {
 		// Redis 报错（非key不存在），记录日志
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 	}
 
 	// 2. 查库（缓存Miss或反序列化失败）
 	sessionList, err := s.repos.Session.FindBySendId(ownerId)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
@@ -385,13 +385,13 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 		zap.L().Error("Unmarshal group session list cache failed", zap.Error(err))
 	} else if err != nil {
 		// Redis 系统错误
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 	}
 
 	// 2. 查库（缓存Miss或反序列化失败）
 	sessionList, err := s.repos.Session.FindBySendId(ownerId)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 

@@ -48,6 +48,20 @@ func HandleError(c *gin.Context, err error) {
 	// 1. 尝试断言为业务错误类型 *errorx.CodeError
 	var codeErr *errorx.CodeError
 	if errors.As(err, &codeErr) {
+		// 系统错误：统一返回服务繁忙，避免暴露内部细节
+		if codeErr.Code == errorx.CodeServerBusy || codeErr.Code == errorx.CodeDBError || codeErr.Code == errorx.CodeCacheError {
+			zap.L().Error("system error",
+				zap.String("path", c.Request.URL.Path),
+				zap.String("method", c.Request.Method),
+				zap.Error(err),
+			)
+			c.JSON(http.StatusOK, gin.H{
+				"code": errorx.ErrServerBusy.Code,
+				"msg":  errorx.ErrServerBusy.Msg,
+				"data": nil,
+			})
+			return
+		}
 		// 业务错误：直接返回错误码和消息
 		c.JSON(http.StatusOK, gin.H{
 			"code": codeErr.Code,
@@ -57,7 +71,7 @@ func HandleError(c *gin.Context, err error) {
 		return
 	}
 
-	// 2. 系统错误或未知错误：记录详细日志，返回通用错误信息
+	// 2.未知错误：记录详细日志，返回通用错误信息
 	// 避免将内部错误信息暴露给客户端
 	zap.L().Error("system error",
 		zap.String("path", c.Request.URL.Path), // 请求路径
@@ -96,7 +110,6 @@ func HandleParamError(c *gin.Context, err error) {
 		})
 		return
 	}
-
 	// 非 validator 错误（如 JSON 格式错误、类型不匹配等）
 	zap.L().Error("param bind error", zap.Error(err))
 	c.JSON(http.StatusOK, gin.H{

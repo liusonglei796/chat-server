@@ -83,10 +83,7 @@ func (r *RedisCache) Get(ctx context.Context, key string) (string, error) {
 func (r *RedisCache) GetOrError(ctx context.Context, key string) (string, error) {
 	value, err := r.client.Get(ctx, key).Result()
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return "", errorx.Wrapf(err, errorx.CodeNotFound, "redis key %s not found", key)
-		}
-		return "", errorx.Wrapf(err, errorx.CodeCacheError, "redis get key %s", key)
+		return "", errorx.WrapRedisError(err, "redis get key %s", key)
 	}
 	return value, nil
 }

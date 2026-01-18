@@ -18,6 +18,7 @@ import (
 	"kama_chat_server/pkg/enum/contact/contact_status_enum"
 	"kama_chat_server/pkg/enum/contact/contact_type_enum"
 	"kama_chat_server/pkg/enum/contact_apply/contact_apply_status_enum"
+	"kama_chat_server/pkg/enum/group_info/add_mode_enum"
 	"kama_chat_server/pkg/enum/group_info/group_status_enum"
 	"kama_chat_server/pkg/enum/user_info/user_status_enum"
 	"kama_chat_server/pkg/errorx"
@@ -332,7 +333,8 @@ func (u *contactService) DeleteContact(userId, contactId string) error {
 	})
 
 	if err != nil {
-		return err
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	// 4. 异步清理"我的"缓存
@@ -434,6 +436,55 @@ func (u *contactService) ApplyGroup(req request.ApplyGroupRequest) error {
 	relation, err := u.repos.Contact.FindByUserIdAndContactId(req.UserId, req.GroupId)
 	if err == nil && relation != nil && relation.Status == contact_status_enum.NORMAL {
 		return errorx.New(errorx.CodeInvalidParam, "你已在该群中")
+	}
+
+	// 3.1 免审核群：直接入群
+	if group.AddMode == add_mode_enum.DIRECT {
+		err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
+			member := model.GroupMember{
+				GroupUuid: req.GroupId,
+				UserUuid:  req.UserId,
+				Role:      1,
+			}
+			if err := txRepos.GroupMember.CreateGroupMember(&member); err != nil {
+				zap.L().Error("service error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+
+			if err := txRepos.Group.IncrementMemberCount(req.GroupId); err != nil {
+				zap.L().Error("service error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+
+			newContact := model.Contact{
+				UserId:      req.UserId,
+				ContactId:   req.GroupId,
+				ContactType: contact_type_enum.GROUP,
+				Status:      contact_status_enum.NORMAL,
+			}
+			if err := txRepos.Contact.CreateContact(&newContact); err != nil {
+				zap.L().Error("service error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+
+			// 清理历史申请记录（如果存在）
+			_ = txRepos.Apply.SoftDelete(req.UserId, req.GroupId)
+			return nil
+		})
+
+		if err != nil {
+			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
+		}
+
+		// 清理相关缓存
+		u.cache.SubmitTask(func() {
+			_ = u.cache.DeleteByPattern(context.Background(), "group_session_list_"+req.GroupId+"*")
+			_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+req.UserId+"*")
+			_ = u.cache.Delete(context.Background(), "group_info_"+req.GroupId)
+		})
+
+		return nil
 	}
 
 	// 4. 获取或创建申请记录
@@ -610,7 +661,8 @@ func (u *contactService) PassFriendApply(userId string, applicantId string) erro
 		// 更新申请状态
 		apply.Status = contact_apply_status_enum.AGREE
 		if err := txRepos.Apply.Update(apply); err != nil {
-			return err
+			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
 		}
 
 		// 双向建立联系人关系
@@ -621,7 +673,8 @@ func (u *contactService) PassFriendApply(userId string, applicantId string) erro
 			Status:      contact_status_enum.NORMAL,
 		}
 		if err := txRepos.Contact.CreateContact(&newContact); err != nil {
-			return err
+			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
 		}
 
 		anotherContact := model.Contact{
@@ -631,13 +684,15 @@ func (u *contactService) PassFriendApply(userId string, applicantId string) erro
 			Status:      contact_status_enum.NORMAL,
 		}
 		if err := txRepos.Contact.CreateContact(&anotherContact); err != nil {
-			return err
+			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
 		}
 		return nil
 	})
 
 	if err != nil {
-		return err
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	// 3. 异步清理缓存
@@ -673,7 +728,8 @@ func (u *contactService) PassGroupApply(groupId string, applicantId string) erro
 		// 更新申请状态
 		apply.Status = contact_apply_status_enum.AGREE
 		if err := txRepos.Apply.Update(apply); err != nil {
-			return err
+			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
 		}
 
 		// 建立个人与群的联系
@@ -684,7 +740,8 @@ func (u *contactService) PassGroupApply(groupId string, applicantId string) erro
 			Status:      contact_status_enum.NORMAL,
 		}
 		if err := txRepos.Contact.CreateContact(&newContact); err != nil {
-			return err
+			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
 		}
 
 		// 添加群成员记录
@@ -694,18 +751,21 @@ func (u *contactService) PassGroupApply(groupId string, applicantId string) erro
 			Role:      1,
 		}
 		if err := txRepos.GroupMember.CreateGroupMember(&member); err != nil {
-			return err
+			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
 		}
 
 		// 增加群成员计数
 		if err := txRepos.Group.IncrementMemberCount(groupId); err != nil {
-			return err
+			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
 		}
 		return nil
 	})
 
 	if err != nil {
-		return err
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	// 3. 异步清理缓存
@@ -770,7 +830,8 @@ func (u *contactService) BlackContact(userId string, contactId string) error {
 	})
 
 	if err != nil {
-		return err
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	// 4. 清理缓存
@@ -819,7 +880,8 @@ func (u *contactService) CancelBlackContact(userId string, contactId string) err
 	})
 
 	if err != nil {
-		return err
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	// 3. 异步清理缓存

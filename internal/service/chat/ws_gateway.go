@@ -10,6 +10,7 @@ import (
 	"context"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/message/message_status_enum"
+	"kama_chat_server/pkg/errorx"
 	"log"
 	"net/http"
 
@@ -54,13 +55,13 @@ func (c *UserConn) Read() {
 	for {
 		_, jsonMessage, err := c.Conn.ReadMessage()
 		if err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 			return
 		}
 		log.Println("接受到消息为: ", string(jsonMessage))
 		// 通过接口发布消息，不关心具体实现
 		if err := c.broker.Publish(ctx, jsonMessage); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 	}
 }
@@ -72,7 +73,7 @@ func (c *UserConn) Write() {
 	for messageBack := range c.SendBack {
 		err := c.Conn.WriteMessage(websocket.TextMessage, messageBack.Message)
 		if err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 			return
 		}
 		// 通过 Repository 接口更新消息状态（遵循依赖倒置原则）
@@ -89,7 +90,7 @@ func (c *UserConn) Write() {
 func NewClientInit(c *gin.Context, clientId string, broker MessageBroker) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return
 	}
 	client := &UserConn{
@@ -113,8 +114,8 @@ func ClientLogout(clientId string, broker MessageBroker) error {
 	if client != nil {
 		broker.UnregisterClient(client)
 		if err := client.Conn.Close(); err != nil {
-			zap.L().Error(err.Error())
-			return err
+			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
 		}
 		close(client.SendTo)
 		close(client.SendBack)

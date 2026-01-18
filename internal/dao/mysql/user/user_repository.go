@@ -3,8 +3,8 @@
 package user
 
 import (
-	"kama_chat_server/internal/dao/mysql/internal"
 	"kama_chat_server/internal/model"
+	"kama_chat_server/pkg/errorx"
 
 	"gorm.io/gorm"
 )
@@ -30,7 +30,7 @@ func (r *userRepository) FindByUuid(uuid string) (*model.UserInfo, error) {
 	// GORM First 方法：查找第一条匹配记录
 	// 如果未找到会返回 ErrRecordNotFound
 	if err := r.db.First(&user, "uuid = ?", uuid).Error; err != nil {
-		return nil, internal.WrapDBErrorf(err, "查询用户 uuid=%s", uuid)
+		return nil, errorx.WrapDBErrorf(err, "查询用户 uuid=%s", uuid)
 	}
 	return &user, nil
 }
@@ -42,7 +42,7 @@ func (r *userRepository) FindByUuid(uuid string) (*model.UserInfo, error) {
 func (r *userRepository) FindByTelephone(telephone string) (*model.UserInfo, error) {
 	var user model.UserInfo
 	if err := r.db.First(&user, "telephone = ?", telephone).Error; err != nil {
-		return nil, internal.WrapDBErrorf(err, "查询用户 telephone=%s", telephone)
+		return nil, errorx.WrapDBErrorf(err, "查询用户 telephone=%s", telephone)
 	}
 	return &user, nil
 }
@@ -55,7 +55,7 @@ func (r *userRepository) FindAllExcept(excludeUuid string) ([]model.UserInfo, er
 	var users []model.UserInfo
 	// Unscoped: 包含软删除的记录（如果需要排除软删除，去掉 Unscoped）
 	if err := r.db.Unscoped().Where("uuid != ?", excludeUuid).Find(&users).Error; err != nil {
-		return nil, internal.WrapDBError(err, "查询用户列表")
+		return nil, errorx.WrapDBError(err, "查询用户列表")
 	}
 	return users, nil
 }
@@ -68,7 +68,7 @@ func (r *userRepository) FindByUuids(uuids []string) ([]model.UserInfo, error) {
 	var users []model.UserInfo
 	// IN 查询：UUID IN ('uuid1', 'uuid2', ...)
 	if err := r.db.Where("uuid IN ?", uuids).Find(&users).Error; err != nil {
-		return nil, internal.WrapDBError(err, "批量查询用户")
+		return nil, errorx.WrapDBError(err, "批量查询用户")
 	}
 	return users, nil
 }
@@ -79,7 +79,7 @@ func (r *userRepository) FindByUuids(uuids []string) ([]model.UserInfo, error) {
 // 返回: 操作错误
 func (r *userRepository) CreateUser(user *model.UserInfo) error {
 	if err := r.db.Create(user).Error; err != nil {
-		return internal.WrapDBError(err, "创建用户")
+		return errorx.WrapDBError(err, "创建用户")
 	}
 	return nil
 }
@@ -91,7 +91,7 @@ func (r *userRepository) CreateUser(user *model.UserInfo) error {
 func (r *userRepository) UpdateUserInfo(user *model.UserInfo) error {
 	// Save: 保存所有字段，如果主键不存在则创建
 	if err := r.db.Save(user).Error; err != nil {
-		return internal.WrapDBError(err, "更新用户信息")
+		return errorx.WrapDBError(err, "更新用户信息")
 	}
 	return nil
 }
@@ -108,7 +108,7 @@ func (r *userRepository) UpdateUserStatusByUuids(uuids []string, status int8) er
 	// Model: 指定操作的表/模型
 	// Update: 只更新指定字段
 	if err := r.db.Model(&model.UserInfo{}).Where("uuid IN ?", uuids).Update("status", status).Error; err != nil {
-		return internal.WrapDBError(err, "批量更新用户状态")
+		return errorx.WrapDBError(err, "批量更新用户状态")
 	}
 	return nil
 }
@@ -122,7 +122,7 @@ func (r *userRepository) UpdateUserIsAdminByUuids(uuids []string, isAdmin int8) 
 		return nil
 	}
 	if err := r.db.Model(&model.UserInfo{}).Where("uuid IN ?", uuids).Update("is_admin", isAdmin).Error; err != nil {
-		return internal.WrapDBError(err, "批量更新用户管理员状态")
+		return errorx.WrapDBError(err, "批量更新用户管理员状态")
 	}
 	return nil
 }
@@ -137,7 +137,7 @@ func (r *userRepository) SoftDeleteUserByUuids(uuids []string) error {
 	}
 	// Delete: GORM 模型有 gorm.Model 时自动进行软删除
 	if err := r.db.Where("uuid IN ?", uuids).Delete(&model.UserInfo{}).Error; err != nil {
-		return internal.WrapDBError(err, "批量删除用户")
+		return errorx.WrapDBError(err, "批量删除用户")
 	}
 	return nil
 }

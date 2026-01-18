@@ -2,10 +2,9 @@
 // 本文件实现 ContactRepository 接口，处理联系人关系相关的数据库操作
 package contact
 
-
 import (
-	"kama_chat_server/internal/dao/mysql/internal"
 	"kama_chat_server/internal/model"
+	"kama_chat_server/pkg/errorx"
 
 	"gorm.io/gorm"
 )
@@ -25,7 +24,7 @@ func NewContactRepository(db *gorm.DB) *contactRepository {
 func (r *contactRepository) FindByUserIdAndContactId(userId, contactId string) (*model.Contact, error) {
 	var contact model.Contact
 	if err := r.db.Where("user_id = ? AND contact_id = ?", userId, contactId).First(&contact).Error; err != nil {
-		return nil, internal.WrapDBErrorf(err, "查询联系人 user_id=%s contact_id=%s", userId, contactId)
+		return nil, errorx.WrapDBErrorf(err, "查询联系人 user_id=%s contact_id=%s", userId, contactId)
 	}
 	return &contact, nil
 }
@@ -35,7 +34,7 @@ func (r *contactRepository) FindByUserIdAndContactId(userId, contactId string) (
 func (r *contactRepository) FindByUserIdAndType(userId string, contactType int8) ([]model.Contact, error) {
 	var contacts []model.Contact
 	if err := r.db.Where("user_id = ? AND contact_type = ?", userId, contactType).Find(&contacts).Error; err != nil {
-		return nil, internal.WrapDBErrorf(err, "查询联系人列表 user_id=%s type=%d", userId, contactType)
+		return nil, errorx.WrapDBErrorf(err, "查询联系人列表 user_id=%s type=%d", userId, contactType)
 	}
 	return contacts, nil
 }
@@ -45,7 +44,7 @@ func (r *contactRepository) FindByUserIdAndType(userId string, contactType int8)
 func (r *contactRepository) FindUsersByContactId(contactId string) ([]model.Contact, error) {
 	var contacts []model.Contact
 	if err := r.db.Where("contact_id = ?", contactId).Find(&contacts).Error; err != nil {
-		return nil, internal.WrapDBErrorf(err, "查询联系人 contact_id=%s", contactId)
+		return nil, errorx.WrapDBErrorf(err, "查询联系人 contact_id=%s", contactId)
 	}
 	return contacts, nil
 }
@@ -53,7 +52,7 @@ func (r *contactRepository) FindUsersByContactId(contactId string) ([]model.Cont
 // CreateContact 创建联系人关系
 func (r *contactRepository) CreateContact(contact *model.Contact) error {
 	if err := r.db.Create(contact).Error; err != nil {
-		return internal.WrapDBError(err, "创建联系人关系")
+		return errorx.WrapDBError(err, "创建联系人关系")
 	}
 	return nil
 }
@@ -62,7 +61,7 @@ func (r *contactRepository) CreateContact(contact *model.Contact) error {
 // status: 见 model.Contact 中的状态定义
 func (r *contactRepository) UpdateStatus(userId, contactId string, status int8) error {
 	if err := r.db.Model(&model.Contact{}).Where("user_id = ? AND contact_id = ?", userId, contactId).Update("status", status).Error; err != nil {
-		return internal.WrapDBErrorf(err, "更新联系人状态 user_id=%s contact_id=%s", userId, contactId)
+		return errorx.WrapDBErrorf(err, "更新联系人状态 user_id=%s contact_id=%s", userId, contactId)
 	}
 	return nil
 }
@@ -70,7 +69,7 @@ func (r *contactRepository) UpdateStatus(userId, contactId string, status int8) 
 // SoftDelete 软删除联系人关系
 func (r *contactRepository) SoftDelete(userId, contactId string) error {
 	if err := r.db.Where("user_id = ? AND contact_id = ?", userId, contactId).Delete(&model.Contact{}).Error; err != nil {
-		return internal.WrapDBErrorf(err, "删除联系人关系 user_id=%s contact_id=%s", userId, contactId)
+		return errorx.WrapDBErrorf(err, "删除联系人关系 user_id=%s contact_id=%s", userId, contactId)
 	}
 	return nil
 }
@@ -83,7 +82,7 @@ func (r *contactRepository) SoftDeleteByUsers(userUuids []string) error {
 	}
 	// 使用 OR 条件删除双向关系
 	if err := r.db.Where("user_id IN ? OR contact_id IN ?", userUuids, userUuids).Delete(&model.Contact{}).Error; err != nil {
-		return internal.WrapDBError(err, "批量删除联系人关系")
+		return errorx.WrapDBError(err, "批量删除联系人关系")
 	}
 	return nil
 }

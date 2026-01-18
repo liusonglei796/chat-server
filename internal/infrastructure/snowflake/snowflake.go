@@ -3,10 +3,10 @@ package snowflake
 import (
 	"sync"
 
+	"kama_chat_server/internal/config"
+
 	"github.com/bwmarrin/snowflake"
 	"go.uber.org/zap"
-
-	"kama_chat_server/internal/config"
 )
 
 var (

@@ -3,9 +3,9 @@
 package apply
 
 import (
-	"kama_chat_server/internal/dao/mysql/internal"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/enum/contact_apply/contact_apply_status_enum"
+	"kama_chat_server/pkg/errorx"
 
 	"gorm.io/gorm"
 )
@@ -27,7 +27,7 @@ func NewApplyRepository(db *gorm.DB) *applyRepository {
 func (r *applyRepository) FindByApplicantIdAndTargetId(applicantId, targetId string) (*model.Apply, error) {
 	var apply model.Apply
 	if err := r.db.Where("applicant_id = ? AND target_id = ?", applicantId, targetId).First(&apply).Error; err != nil {
-		return nil, internal.WrapDBErrorf(err, "查询申请 applicant_id=%s target_id=%s", applicantId, targetId)
+		return nil, errorx.WrapDBErrorf(err, "查询申请 applicant_id=%s target_id=%s", applicantId, targetId)
 	}
 	return &apply, nil
 }
@@ -39,7 +39,7 @@ func (r *applyRepository) FindByTargetIdPending(targetId string) ([]model.Apply,
 	var applies []model.Apply
 	// 只查询状态为 PENDING 的申请
 	if err := r.db.Where("target_id = ? AND status = ?", targetId, contact_apply_status_enum.PENDING).Find(&applies).Error; err != nil {
-		return nil, internal.WrapDBErrorf(err, "查询待处理申请 target_id=%s", targetId)
+		return nil, errorx.WrapDBErrorf(err, "查询待处理申请 target_id=%s", targetId)
 	}
 	return applies, nil
 }
@@ -47,7 +47,7 @@ func (r *applyRepository) FindByTargetIdPending(targetId string) ([]model.Apply,
 // CreateApply 创建新的申请记录
 func (r *applyRepository) CreateApply(apply *model.Apply) error {
 	if err := r.db.Create(apply).Error; err != nil {
-		return internal.WrapDBError(err, "创建联系人申请")
+		return errorx.WrapDBError(err, "创建联系人申请")
 	}
 	return nil
 }
@@ -55,7 +55,7 @@ func (r *applyRepository) CreateApply(apply *model.Apply) error {
 // Update 更新申请记录（全字段更新）
 func (r *applyRepository) Update(apply *model.Apply) error {
 	if err := r.db.Save(apply).Error; err != nil {
-		return internal.WrapDBError(err, "更新联系人申请")
+		return errorx.WrapDBError(err, "更新联系人申请")
 	}
 	return nil
 }
@@ -63,7 +63,7 @@ func (r *applyRepository) Update(apply *model.Apply) error {
 // SoftDelete 软删除申请记录
 func (r *applyRepository) SoftDelete(applicantId, targetId string) error {
 	if err := r.db.Where("applicant_id = ? AND target_id = ?", applicantId, targetId).Delete(&model.Apply{}).Error; err != nil {
-		return internal.WrapDBErrorf(err, "删除申请 applicant_id=%s target_id=%s", applicantId, targetId)
+		return errorx.WrapDBErrorf(err, "删除申请 applicant_id=%s target_id=%s", applicantId, targetId)
 	}
 	return nil
 }
@@ -76,7 +76,7 @@ func (r *applyRepository) SoftDeleteByUsers(userUuids []string) error {
 	}
 	// 使用 OR 条件删除用户发出和收到的所有申请
 	if err := r.db.Where("applicant_id IN ? OR target_id IN ?", userUuids, userUuids).Delete(&model.Apply{}).Error; err != nil {
-		return internal.WrapDBError(err, "批量删除联系人申请")
+		return errorx.WrapDBError(err, "批量删除联系人申请")
 	}
 	return nil
 }

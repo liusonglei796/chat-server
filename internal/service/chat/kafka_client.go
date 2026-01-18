@@ -51,10 +51,10 @@ func (k *KafkaClient) KafkaInit() {
 
 func (k *KafkaClient) KafkaClose() {
 	if err := k.Producer.Close(); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 	}
 	if err := k.Consumer.Close(); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 	}
 }
 

@@ -15,11 +15,11 @@ import (
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
+	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/message/message_status_enum"
 	"kama_chat_server/pkg/enum/message/message_type_enum"
-	"kama_chat_server/pkg/util/snowflake"
 	"log"
 	"strings"
 	"sync"
@@ -109,7 +109,7 @@ func (s *StandaloneServer) Start() {
 			zap.L().Debug(fmt.Sprintf("欢迎来到kama聊天服务器，亲爱的用户%s\n", client.Uuid))
 			// 向当事人发送欢迎消息
 			if err := client.Conn.WriteMessage(websocket.TextMessage, []byte("欢迎来到kama聊天服务器")); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 
 		// 处理客户端登出事件
@@ -126,7 +126,7 @@ func (s *StandaloneServer) Start() {
 			zap.L().Info(fmt.Sprintf("用户%s退出登录\n", client.Uuid))
 			// 尝试发送退出消息（如果连接还未完全关闭）
 			if err := client.Conn.WriteMessage(websocket.TextMessage, []byte("已退出登录")); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 
 		// 处理消息转发事件（这是核心的消息处理循环）
@@ -138,7 +138,7 @@ func (s *StandaloneServer) Start() {
 			var chatMessageReq request.ChatMessageRequest
 			// 将 JSON 数据反序列化为请求对象
 			if err := json.Unmarshal(data, &chatMessageReq); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 				continue // 反序列化失败则跳过该消息
 			}
 
@@ -246,7 +246,7 @@ func (s *StandaloneServer) handleAVMessage(req request.ChatMessageRequest) {
 	// 反序列化 AVData
 	var avData request.AVData
 	if err := json.Unmarshal([]byte(req.AVdata), &avData); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return
 	}
 
@@ -299,7 +299,7 @@ func (s *StandaloneServer) handleAVMessage(req request.ChatMessageRequest) {
 		// 序列化为 JSON
 		jsonMessage, err := json.Marshal(messageRsp)
 		if err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 		log.Println("返回的消息为：", messageRsp)
 
@@ -343,7 +343,7 @@ func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar stri
 	// 序列化
 	jsonMessage, err := json.Marshal(messageRsp)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 	}
 
 	// 打印日志辅助调试
@@ -416,7 +416,7 @@ func (s *StandaloneServer) sendToGroup(message model.Message, originalAvatar str
 	// 序列化
 	jsonMessage, err := json.Marshal(messageRsp)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 	}
 
 	log.Println("返回的消息为：", messageRsp, "序列化后为：", jsonMessage)

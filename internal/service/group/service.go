@@ -15,6 +15,7 @@ import (
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/enum/contact/contact_status_enum"
 	"kama_chat_server/pkg/enum/contact/contact_type_enum"
+	"kama_chat_server/pkg/enum/group_info/add_mode_enum"
 	"kama_chat_server/pkg/enum/group_info/group_status_enum"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/util/random"
@@ -50,7 +51,7 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 
 	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		if err := txRepos.Group.CreateGroup(&group); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		// 创建群成员
@@ -60,7 +61,7 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 			Role:      3,
 		}
 		if err := txRepos.GroupMember.CreateGroupMember(&member); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		// 添加联系人
@@ -71,19 +72,20 @@ func (g *groupInfoService) CreateGroup(groupReq request.CreateGroupRequest) erro
 			Status:      contact_status_enum.NORMAL,
 		}
 		if err := txRepos.Contact.CreateContact(&contact); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		return nil
 	})
 
 	if err != nil {
-		return err
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	g.cache.SubmitTask(func() {
 		if err := g.cache.DeleteByPattern(context.Background(), "contact_mygroup_list_"+groupReq.OwnerId+"*"); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 	})
 
@@ -195,19 +197,28 @@ func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
 
 // EnterGroupDirectly 直接进群
 func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
-	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
+	group, err := g.repos.Group.FindByUuid(groupId)
+	if err != nil {
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+	if group.AddMode == add_mode_enum.AUDIT {
+		return errorx.New(errorx.CodeInvalidParam, "该群需要审核，无法直接加入")
+	}
+
+	err = g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		member := model.GroupMember{
 			GroupUuid: groupId,
 			UserUuid:  userId,
 			Role:      1,
 		}
 		if err := txRepos.GroupMember.CreateGroupMember(&member); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		if err := txRepos.Group.IncrementMemberCount(groupId); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
@@ -218,25 +229,26 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 			Status:      contact_status_enum.NORMAL,
 		}
 		if err := txRepos.Contact.CreateContact(&newContact); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		return nil
 	})
 
 	if err != nil {
-		return err
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	g.cache.SubmitTask(func() {
 		if err := g.cache.DeleteByPattern(context.Background(), "group_session_list_"+groupId+"*"); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 		if err := g.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+userId+"*"); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 		if err := g.cache.Delete(context.Background(), "group_info_"+groupId); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 	})
 	return nil
@@ -246,49 +258,50 @@ func (g *groupInfoService) EnterGroupDirectly(groupId, userId string) error {
 func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		if err := txRepos.GroupMember.DeleteByUserUuids(groupId, []string{userId}); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		if err := txRepos.Group.DecrementMemberCountBy(groupId, 1); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		session, _ := txRepos.Session.FindBySendIdAndReceiveId(userId, groupId)
 		if session != nil {
 			if err := txRepos.Session.SoftDeleteByUuids([]string{session.Uuid}); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 		}
 
 		if err := txRepos.Contact.SoftDelete(userId, groupId); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		if err := txRepos.Apply.SoftDelete(userId, groupId); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		return nil
 	})
 
 	if err != nil {
-		return err
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	g.cache.SubmitTask(func() {
 		if err := g.cache.DeleteByPattern(context.Background(), "group_session_list_"+userId+"*"); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 		if err := g.cache.RemoveFromSet(context.Background(), "contact_relation:group:"+userId, groupId); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 		if err := g.cache.Delete(context.Background(), "group_info_"+groupId); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 		if err := g.cache.Delete(context.Background(), "group_memberlist_"+groupId); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 	})
 	return nil
@@ -342,35 +355,36 @@ func (g *groupInfoService) DismissGroup(ownerId, groupId string) error {
 	})
 
 	if err != nil {
-		return err
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	// 7. 精确清理 Redis 缓存 (事务外)
 	g.cache.SubmitTask(func() {
 		// 清理群主的缓存
 		if err := g.cache.DeleteByPattern(context.Background(), "contact_mygroup_list_"+ownerId+"*"); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 		if err := g.cache.DeleteByPattern(context.Background(), "group_session_list_"+ownerId+"*"); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 
 		// 清理所有群成员的缓存
 		for _, memberId := range memberIds {
 			if err := g.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+memberId+"*"); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 			if err := g.cache.DeleteByPattern(context.Background(), "group_session_list_"+memberId+"*"); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 		}
 
 		// 清理群公共信息
 		if err := g.cache.Delete(context.Background(), "group_info_"+groupId); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 		if err := g.cache.Delete(context.Background(), "group_memberlist_"+groupId); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 	})
 
@@ -398,7 +412,7 @@ func (g *groupInfoService) GetGroupInfo(groupId string) (*respond.GetGroupInfoRe
 	// 2. 查询数据库
 	group, err := g.repos.Group.FindByUuid(groupId)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
@@ -438,7 +452,7 @@ func (g *groupInfoService) GetGroupInfo(groupId string) (*respond.GetGroupInfoRe
 func (g *groupInfoService) GetGroupInfoList(req request.GetGroupListRequest) (*respond.GetGroupListWrapper, error) {
 	groupList, total, err := g.repos.Group.GetGroupList(req.Page, req.PageSize)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 	rsp := make([]respond.GetGroupListRespond, 0, len(groupList))
@@ -519,7 +533,8 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 	})
 
 	if err != nil {
-		return err
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	// 3. 异步清理缓存
@@ -527,30 +542,30 @@ func (g *groupInfoService) DeleteGroups(uuidList []string) error {
 		// 清理群主相关缓存
 		for _, ownerId := range ownerIds {
 			if err := g.cache.DeleteByPattern(context.Background(), "contact_mygroup_list_"+ownerId+"*"); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 			if err := g.cache.DeleteByPattern(context.Background(), "group_session_list_"+ownerId+"*"); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 		}
 
 		// 清理所有相关成员的缓存
 		for _, memId := range memberIds {
 			if err := g.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+memId+"*"); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 			if err := g.cache.DeleteByPattern(context.Background(), "group_session_list_"+memId+"*"); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 		}
 
 		// 清理群本身的缓存
 		for _, grpId := range uuidList {
 			if err := g.cache.Delete(context.Background(), "group_info_"+grpId); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 			if err := g.cache.Delete(context.Background(), "group_memberlist_"+grpId); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 		}
 	})
@@ -565,13 +580,13 @@ func (g *groupInfoService) SetGroupsStatus(uuidList []string, status int8) error
 	}
 
 	if err := g.repos.Group.UpdateStatusByUuids(uuidList, status); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
 	if status == group_status_enum.DISABLE {
 		if err := g.repos.Session.SoftDeleteByUsers(uuidList); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 	}
 
@@ -581,7 +596,7 @@ func (g *groupInfoService) SetGroupsStatus(uuidList []string, status int8) error
 			patterns = append(patterns, "group_info_"+uuid)
 		}
 		if err := g.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 	})
 
@@ -592,7 +607,7 @@ func (g *groupInfoService) SetGroupsStatus(uuidList []string, status int8) error
 func (g *groupInfoService) UpdateGroupInfo(req request.UpdateGroupInfoRequest) error {
 	group, err := g.repos.Group.FindByUuid(req.Uuid)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
@@ -611,7 +626,7 @@ func (g *groupInfoService) UpdateGroupInfo(req request.UpdateGroupInfoRequest) e
 	}
 
 	if err := g.repos.Group.Update(group); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
@@ -621,13 +636,13 @@ func (g *groupInfoService) UpdateGroupInfo(req request.UpdateGroupInfoRequest) e
 		"avatar":       group.Avatar,
 	}
 	if err := g.repos.Session.UpdateByReceiveId(req.Uuid, sessionUpdates); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 	}
 
 	// 异步清理缓存
 	g.cache.SubmitTask(func() {
 		if err := g.cache.Delete(context.Background(), "group_info_"+req.Uuid); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 	})
 
@@ -655,7 +670,7 @@ func (g *groupInfoService) GetGroupMemberList(groupId string) ([]respond.GetGrou
 	// 2. 查询数据库
 	members, err := g.repos.GroupMember.FindMembersWithUserInfo(groupId)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
@@ -730,7 +745,8 @@ func (g *groupInfoService) RemoveGroupMembers(req request.RemoveGroupMembersRequ
 	})
 
 	if err != nil {
-		return err
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	// 3. 异步精确清理缓存
@@ -738,18 +754,18 @@ func (g *groupInfoService) RemoveGroupMembers(req request.RemoveGroupMembersRequ
 		// 清理被移除成员的缓存
 		for _, memId := range req.UuidList {
 			if err := g.cache.DeleteByPattern(context.Background(), "group_session_list_"+memId+"*"); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 			if err := g.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+memId+"*"); err != nil {
-				zap.L().Error(err.Error())
+				zap.L().Error("service error", zap.Error(err))
 			}
 		}
 		// 清理群本身的缓存
 		if err := g.cache.Delete(context.Background(), "group_info_"+req.GroupId); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 		if err := g.cache.Delete(context.Background(), "group_memberlist_"+req.GroupId); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 	})
 

@@ -3,8 +3,8 @@
 package member
 
 import (
-	"kama_chat_server/internal/dao/mysql/internal"
 	"kama_chat_server/internal/model"
+	"kama_chat_server/pkg/errorx"
 
 	"gorm.io/gorm"
 )
@@ -25,7 +25,7 @@ func NewGroupMemberRepository(db *gorm.DB) *groupMemberRepository {
 func (r *groupMemberRepository) FindByGroupUuid(groupUuid string) ([]model.GroupMember, error) {
 	var members []model.GroupMember
 	if err := r.db.Where("group_uuid = ?", groupUuid).Find(&members).Error; err != nil {
-		return nil, internal.WrapDBErrorf(err, "查询群成员 group_uuid=%s", groupUuid)
+		return nil, errorx.WrapDBErrorf(err, "查询群成员 group_uuid=%s", groupUuid)
 	}
 	return members, nil
 }
@@ -42,7 +42,7 @@ func (r *groupMemberRepository) FindMembersWithUserInfo(groupUuid string) ([]mod
 		Joins("LEFT JOIN user_info ON group_member.user_uuid = user_info.uuid").
 		Where("group_member.group_uuid = ? AND group_member.deleted_at IS NULL", groupUuid).
 		Scan(&members).Error; err != nil {
-		return nil, internal.WrapDBErrorf(err, "查询群成员详情  group_uuid=%s", groupUuid)
+		return nil, errorx.WrapDBErrorf(err, "查询群成员详情  group_uuid=%s", groupUuid)
 	}
 	return members, nil
 }
@@ -50,7 +50,7 @@ func (r *groupMemberRepository) FindMembersWithUserInfo(groupUuid string) ([]mod
 // CreateGroupMember 添加群成员
 func (r *groupMemberRepository) CreateGroupMember(member *model.GroupMember) error {
 	if err := r.db.Create(member).Error; err != nil {
-		return internal.WrapDBError(err, "创建群成员")
+		return errorx.WrapDBError(err, "创建群成员")
 	}
 	return nil
 }
@@ -59,7 +59,7 @@ func (r *groupMemberRepository) CreateGroupMember(member *model.GroupMember) err
 // 用于解散群组时清理成员数据
 func (r *groupMemberRepository) DeleteByGroupUuid(groupUuid string) error {
 	if err := r.db.Where("group_uuid = ?", groupUuid).Delete(&model.GroupMember{}).Error; err != nil {
-		return internal.WrapDBErrorf(err, "删除群所有成员 group_uuid=%s", groupUuid)
+		return errorx.WrapDBErrorf(err, "删除群所有成员 group_uuid=%s", groupUuid)
 	}
 	return nil
 }
@@ -67,7 +67,7 @@ func (r *groupMemberRepository) DeleteByGroupUuid(groupUuid string) error {
 // DeleteByUserUuids 批量删除指定用户（踢人）
 func (r *groupMemberRepository) DeleteByUserUuids(groupUuid string, userUuids []string) error {
 	if err := r.db.Where("group_uuid = ? AND user_uuid IN ?", groupUuid, userUuids).Delete(&model.GroupMember{}).Error; err != nil {
-		return internal.WrapDBErrorf(err, "批量删除群成员 group_uuid=%s", groupUuid)
+		return errorx.WrapDBErrorf(err, "批量删除群成员 group_uuid=%s", groupUuid)
 	}
 	return nil
 }
@@ -79,7 +79,7 @@ func (r *groupMemberRepository) DeleteByGroupUuids(groupUuids []string) error {
 		return nil
 	}
 	if err := r.db.Where("group_uuid IN ?", groupUuids).Delete(&model.GroupMember{}).Error; err != nil {
-		return internal.WrapDBError(err, "批量删除群所有成员")
+		return errorx.WrapDBError(err, "批量删除群所有成员")
 	}
 	return nil
 }
@@ -94,7 +94,7 @@ func (r *groupMemberRepository) GetMemberIdsByGroupUuids(groupUuids []string) ([
 	// Distinct: 去重，避免用户在多个群中时重复
 	// Pluck: 只获取指定字段的值
 	if err := r.db.Model(&model.GroupMember{}).Distinct("user_uuid").Where("group_uuid IN ?", groupUuids).Pluck("user_uuid", &members).Error; err != nil {
-		return nil, internal.WrapDBError(err, "批量查询群成员ID")
+		return nil, errorx.WrapDBError(err, "批量查询群成员ID")
 	}
 	return members, nil
 }

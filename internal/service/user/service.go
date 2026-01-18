@@ -44,7 +44,7 @@ func (u *userInfoService) checkTelephoneValid(telephone string) bool {
 	pattern := `^1([38][0-9]|14[579]|5[^4]|16[6]|7[1-35-8]|9[189])\d{8}$`
 	match, err := regexp.MatchString(pattern, telephone)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 	}
 	return match
 }
@@ -54,7 +54,7 @@ func (u *userInfoService) checkEmailValid(email string) bool {
 	pattern := `^[^\s@]+@[^\s@]+\.[^\s@]+$`
 	match, err := regexp.MatchString(pattern, email)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 	}
 	return match
 }
@@ -73,7 +73,7 @@ func (u *userInfoService) Login(loginReq request.LoginRequest) (*respond.LoginRe
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在，请注册")
 		}
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 	if !user.CheckPassword(password) {
@@ -127,21 +127,21 @@ func (u *userInfoService) SmsLogin(req request.SmsLoginRequest) (*respond.LoginR
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在，请注册")
 		}
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
 	key := "auth_code_" + req.Telephone
 	code, err := u.cache.Get(context.Background(), key)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 	if code != req.SmsCode {
 		return nil, errorx.New(errorx.CodeInvalidParam, "验证码不正确，请重试")
 	}
 	if err := u.cache.Delete(context.Background(), key); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
@@ -197,7 +197,7 @@ func (u *userInfoService) checkTelephoneExist(telephone string) error {
 			zap.L().Info("该电话不存在，可以注册")
 			return nil
 		}
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	zap.L().Info("该电话已经存在，注册失败")
@@ -209,14 +209,14 @@ func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respon
 	key := "auth_code_" + registerReq.Telephone
 	code, err := u.cache.Get(context.Background(), key)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 	if code != registerReq.SmsCode {
 		return nil, errorx.New(errorx.CodeInvalidParam, "验证码不正确，请重试")
 	}
 	if err := u.cache.Delete(context.Background(), key); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
@@ -237,7 +237,7 @@ func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respon
 
 	err = u.repos.User.CreateUser(&newUser)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
@@ -263,7 +263,7 @@ func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respon
 func (u *userInfoService) UpdateUserInfo(updateReq request.UpdateUserInfoRequest) error {
 	user, err := u.repos.User.FindByUuid(updateReq.Uuid)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	if updateReq.Email != "" {
@@ -282,14 +282,14 @@ func (u *userInfoService) UpdateUserInfo(updateReq request.UpdateUserInfoRequest
 		user.Avatar = updateReq.Avatar
 	}
 	if err := u.repos.User.UpdateUserInfo(user); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
 	// 异步清理缓存
 	u.cache.SubmitTask(func() {
 		if err := u.cache.Delete(context.Background(), "user_info_"+updateReq.Uuid); err != nil {
-			zap.L().Error(err.Error())
+			zap.L().Error("service error", zap.Error(err))
 		}
 	})
 
@@ -300,7 +300,7 @@ func (u *userInfoService) UpdateUserInfo(updateReq request.UpdateUserInfoRequest
 func (u *userInfoService) GetUserInfoList(ownerId string) ([]respond.GetUserListRespond, error) {
 	users, err := u.repos.User.FindAllExcept(ownerId)
 	if err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 	rsp := make([]respond.GetUserListRespond, 0, len(users))
@@ -324,7 +324,7 @@ func (u *userInfoService) AbleUsers(uuidList []string) error {
 		return nil
 	}
 	if err := u.repos.User.UpdateUserStatusByUuids(uuidList, user_status_enum.NORMAL); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	return nil
@@ -338,13 +338,13 @@ func (u *userInfoService) DisableUsers(uuidList []string) error {
 
 	// 1. 批量更新用户状态
 	if err := u.repos.User.UpdateUserStatusByUuids(uuidList, user_status_enum.DISABLE); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
 	// 2. 批量删除会话
 	if err := u.repos.Session.SoftDeleteByUsers(uuidList); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
@@ -400,7 +400,8 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 	})
 
 	if err != nil {
-		return err
+		zap.L().Error("service error", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	// 5. 异步清除缓存 (不阻塞主流程)
@@ -444,7 +445,7 @@ func (u *userInfoService) GetUserInfo(uuid string) (*respond.GetUserInfoRespond,
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
 		}
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
@@ -486,7 +487,7 @@ func (u *userInfoService) SetAdmin(uuidList []string, isAdmin int8) error {
 
 	// 1. 批量更新管理员状态
 	if err := u.repos.User.UpdateUserIsAdminByUuids(uuidList, isAdmin); err != nil {
-		zap.L().Error(err.Error())
+		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
