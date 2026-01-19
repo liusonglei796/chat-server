@@ -32,8 +32,8 @@ type MessageBroker interface {
 // ChatServer 聊天服务器聚合结构
 // 封装所有聊天相关组件，通过依赖注入管理生命周期
 type ChatServer struct {
-	// Broker 消息代理，实现 MessageBroker 接口
-	// 根据配置可能是 ChannelBroker 或 KafkaBroker
+	// Broker 消息代理接口（抽象层）
+	// 运行时根据配置注入具体实现：ChannelBroker (单机) 或 KafkaBroker (集群)
 	Broker MessageBroker
 
 	// KafkaClient Kafka 客户端（仅 Kafka 模式使用）
@@ -41,6 +41,9 @@ type ChatServer struct {
 
 	// messageRepo 消息 Repository
 	messageRepo mysql.MessageRepository
+
+	// sessionRepo 会话 Repository
+	sessionRepo mysql.SessionRepository
 
 	// groupMemberRepo 群成员 Repository
 	groupMemberRepo mysql.GroupMemberRepository
@@ -59,6 +62,7 @@ type ChatServer struct {
 type ChatServerConfig struct {
 	Mode            string // "channel" 或 "kafka"
 	MessageRepo     mysql.MessageRepository
+	SessionRepo     mysql.SessionRepository
 	GroupMemberRepo mysql.GroupMemberRepository
 	ContactRepo     mysql.ContactRepository
 	CacheService    myredis.AsyncCacheService
@@ -71,6 +75,7 @@ type ChatServerConfig struct {
 func NewChatServer(cfg ChatServerConfig) *ChatServer {
 	cs := &ChatServer{
 		messageRepo:     cfg.MessageRepo,
+		sessionRepo:     cfg.SessionRepo,
 		groupMemberRepo: cfg.GroupMemberRepo,
 		contactRepo:     cfg.ContactRepo,
 		cacheService:    cfg.CacheService,
@@ -84,7 +89,7 @@ func NewChatServer(cfg ChatServerConfig) *ChatServer {
 		cs.Broker = kafkaBroker
 	} else {
 		// Channel 模式（默认）
-		channelBroker := NewStandaloneServer(cs.messageRepo, cs.groupMemberRepo, cs.contactRepo, cs.cacheService)
+		channelBroker := NewStandaloneServer(cs.messageRepo, cs.sessionRepo, cs.groupMemberRepo, cs.contactRepo, cs.cacheService)
 		cs.Broker = channelBroker
 	}
 

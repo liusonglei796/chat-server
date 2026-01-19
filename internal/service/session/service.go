@@ -367,15 +367,10 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 	for i := 0; i < len(sessionList); i++ {
 		// 增加长度判断防止 panic
 		if len(sessionList[i].ReceiveId) > 0 && sessionList[i].ReceiveId[0] == 'U' {
-			// 获取最后一条消息
-			lastMsg, _ := s.repos.Message.FindLastMessageByUserIds(ownerId, sessionList[i].ReceiveId)
-			var lastMessageContent string
+			// 直接从 Session 表读取最后消息信息（已在发消息时同步更新）
 			var lastMessageTime string
-			var lastMessageType int8
-			if lastMsg != nil {
-				lastMessageContent = lastMsg.Content
-				lastMessageTime = lastMsg.CreatedAt.Format("2006-01-02 15:04:05")
-				lastMessageType = lastMsg.Type
+			if sessionList[i].LastMessageAt.Valid {
+				lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
 			}
 
 			sessionListRsp = append(sessionListRsp, respond.UserSessionListRespond{
@@ -383,9 +378,9 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 				Avatar:          sessionList[i].Avatar,
 				UserId:          sessionList[i].ReceiveId,
 				Username:        sessionList[i].ReceiveName,
-				LastMessage:     lastMessageContent,
+				LastMessage:     sessionList[i].LastMessage,
 				LastMessageTime: lastMessageTime,
-				LastMessageType: lastMessageType,
+				LastMessageType: sessionList[i].LastMessageType,
 			})
 		}
 	}
@@ -432,15 +427,10 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 	for i := 0; i < len(sessionList); i++ {
 		// 增加长度判断防止 panic
 		if len(sessionList[i].ReceiveId) > 0 && sessionList[i].ReceiveId[0] == 'G' {
-			// 获取最后一条消息
-			lastMsg, _ := s.repos.Message.FindLastMessageByGroupId(sessionList[i].ReceiveId)
-			var lastMessageContent string
+			// 直接从 Session 表读取最后消息信息（已在发消息时同步更新）
 			var lastMessageTime string
-			var lastMessageType int8
-			if lastMsg != nil {
-				lastMessageContent = lastMsg.Content
-				lastMessageTime = lastMsg.CreatedAt.Format("2006-01-02 15:04:05")
-				lastMessageType = lastMsg.Type
+			if sessionList[i].LastMessageAt.Valid {
+				lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
 			}
 
 			sessionListRsp = append(sessionListRsp, respond.GroupSessionListRespond{
@@ -448,9 +438,9 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 				Avatar:          sessionList[i].Avatar,
 				GroupId:         sessionList[i].ReceiveId,
 				GroupName:       sessionList[i].ReceiveName,
-				LastMessage:     lastMessageContent,
+				LastMessage:     sessionList[i].LastMessage,
 				LastMessageTime: lastMessageTime,
-				LastMessageType: lastMessageType,
+				LastMessageType: sessionList[i].LastMessageType,
 			})
 		}
 	}

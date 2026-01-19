@@ -58,6 +58,7 @@ func main() {
 	chatServer := chat.NewChatServer(chat.ChatServerConfig{
 		Mode:            conf.KafkaConfig.MessageMode,
 		MessageRepo:     repos.Message,
+		SessionRepo:     repos.Session,
 		GroupMemberRepo: repos.GroupMember,
 		ContactRepo:     repos.Contact,
 		CacheService:    cacheService,

@@ -69,84 +69,168 @@ func (u *contactService) GetUserList(userId string) ([]respond.MyUserListRespond
 		return []respond.MyUserListRespond{}, nil
 	}
 
-	// 3. 批量获取用户信息（数据源或用户缓存）
-	// 理想情况下，我们应该首先从 Redis MGET "user_info:<id>"，然后回退到数据库。
-	// 为了简单和一致，我们使用 Repo 的 FindByUuids，它通常查询数据库。
-	// 如果性能至关重要，Repos 应该处理实体的缓存。
-	users, err := u.repos.User.FindByUuids(memberIds)
-	if err != nil {
-		zap.L().Error("Batch find users error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+	// 3. 批量获取好友信息（混合模式：优先 Redis，回退 DB）
+	userListRsp := make([]respond.MyUserListRespond, 0, len(memberIds))
+	missingIds := make([]string, 0)
+
+	for _, memberId := range memberIds {
+		cacheKey := "user_info_" + memberId
+		val, err := u.cache.Get(context.Background(), cacheKey)
+		if err == nil && val != "" {
+			var userInfo respond.GetUserInfoRespond
+			if err := json.Unmarshal([]byte(val), &userInfo); err == nil {
+				userListRsp = append(userListRsp, respond.MyUserListRespond{
+					UserId:   userInfo.Uuid,
+					UserName: userInfo.Nickname,
+					Avatar:   userInfo.Avatar,
+				})
+				continue
+			}
+		}
+		//只要以前从缓存里没拿到有效数据（不管是没找到、Redis挂了、还是网络抖动），我们都统统视为“确实没拿到”，然后去数据库里查。
+		//Cache Miss (正常未命中)：
+		/*Redis 里确实没有这个 Key，返回的 err 可能是 redis.Nil（取决于驱动实现）或者 val 为空。这时候必须去数据库查，否则用户列表就少了一个人。
+		  Cache Error (Redis 故障)：
+		  如果 Redis 突然挂了、连接超时、或者网络有问题，err 会不为空。
+		  在这种情况下，我们不能直接报错返回，因为数据在 MySQL 里是完好的。
+		  我们选择降级处理：忽略 Redis 的错误，把这个 ID 加入 missingIds，让它走数据库查询的路径。这样用户感受不到 Redis 挂了，只是接口稍微慢了一点点，但功能依然正常。
+		  Data Corruption (数据损坏)：
+		  即便是 json.Unmarshal 失败了（代码中虽然是在 if 块内但原理类似），这部分逻辑也会“跳过”成功处理的步骤，走到最后。
+		  这给了系统一个自我修复的机会：从 DB 查到正确数据后，后续的异步逻辑会把正确的数据再次写入 Redis，覆盖掉坏数据。*/
+		missingIds = append(missingIds, memberId)
 	}
 
-	// 4. 组装响应
-	userListRsp := make([]respond.MyUserListRespond, 0, len(users))
-	for _, user := range users {
-		userListRsp = append(userListRsp, respond.MyUserListRespond{
-			UserId:   user.Uuid,
-			UserName: user.Nickname,
-			Avatar:   user.Avatar,
-		})
+	// 4. 对未命中的数据查询数据库并回写缓存
+	if len(missingIds) > 0 {
+		users, err := u.repos.User.FindByUuids(missingIds)
+		if err != nil {
+			zap.L().Error("Batch find users error", zap.Error(err))
+			return nil, errorx.ErrServerBusy
+		}
+
+		for _, user := range users {
+			userListRsp = append(userListRsp, respond.MyUserListRespond{
+				UserId:   user.Uuid,
+				UserName: user.Nickname,
+				Avatar:   user.Avatar,
+			})
+
+			// 异步回写缓存
+			cacheUser := user // Copy for closure
+			u.cache.SubmitTask(func() {
+				info := respond.GetUserInfoRespond{
+					Uuid:      cacheUser.Uuid,
+					Telephone: cacheUser.Telephone,
+					Nickname:  cacheUser.Nickname,
+					Avatar:    cacheUser.Avatar,
+					Birthday:  cacheUser.Birthday,
+					Email:     cacheUser.Email,
+					Gender:    cacheUser.Gender,
+					Signature: cacheUser.Signature,
+					CreatedAt: cacheUser.CreatedAt.Format("2006-01-02 15:04:05"),
+					IsAdmin:   cacheUser.IsAdmin,
+					Status:    cacheUser.Status,
+				}
+				if data, err := json.Marshal(info); err == nil {
+					_ = u.cache.Set(context.Background(), "user_info_"+cacheUser.Uuid, string(data), time.Hour*24)
+				}
+			})
+		}
 	}
 
 	return userListRsp, nil
 }
 
-// GetJoinedGroupsExcludedOwn 获取我加入的群组列表（不包含自己创建的）
-// 从 LoadMyJoinedGroup 重命名以清晰表达逻辑。
-func (u *contactService) GetJoinedGroupsExcludedOwn(userId string) ([]respond.LoadMyJoinedGroupRespond, error) {
-	// 优化：为群组 ID 使用 Redis Set
+// GetGroupList 获取用户的群组列表（所有加入的群组）
+// 与 GetUserList 类似，采用 Cache-Aside 模式
+func (u *contactService) GetGroupList(userId string) ([]respond.MyGroupListRespond, error) {
 	cacheKey := "contact_relation:group:" + userId
 
 	// 1. 尝试从缓存获取群组 ID
-	groupUuids, err := u.cache.GetSetMembers(context.Background(), cacheKey)
-	if err != nil || len(groupUuids) == 0 {
+	groupIds, err := u.cache.GetSetMembers(context.Background(), cacheKey)
+	if err != nil || len(groupIds) == 0 {
 		// 2. 缓存未击中：从数据库获取
 		contactList, dbErr := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.GROUP)
 		if dbErr != nil {
-			zap.L().Error("Find joined groups error", zap.Error(dbErr))
+			zap.L().Error("Find group contact list error", zap.Error(dbErr))
 			return nil, errorx.ErrServerBusy
 		}
 
-		// 过滤 ID（以防万一，必须防止非 G 前缀）
-		groupUuids = make([]string, 0, len(contactList))
-		for _, contact := range contactList {
-			if len(contact.ContactId) > 0 && contact.ContactId[0] == 'G' {
-				groupUuids = append(groupUuids, contact.ContactId)
+		// 重新填充 groupIds
+		groupIds = make([]string, 0, len(contactList))
+		for _, c := range contactList {
+			if len(c.ContactId) > 0 && c.ContactId[0] == 'G' {
+				groupIds = append(groupIds, c.ContactId)
 			}
 		}
 
-		// 回写到缓存
-		if len(groupUuids) > 0 {
-			args := make([]interface{}, len(groupUuids))
-			for i, v := range groupUuids {
-				args[i] = v
+		// 回写到 Redis（如果不为空）
+		if len(groupIds) > 0 {
+			groupArgs := make([]interface{}, len(groupIds))
+			for i, v := range groupIds {
+				groupArgs[i] = v
 			}
-			_ = u.cache.AddToSet(context.Background(), cacheKey, args...)
+			_ = u.cache.AddToSet(context.Background(), cacheKey, groupArgs...)
 		}
 	}
 
-	if len(groupUuids) == 0 {
-		return []respond.LoadMyJoinedGroupRespond{}, nil
+	if len(groupIds) == 0 {
+		return []respond.MyGroupListRespond{}, nil
 	}
 
-	// 3. 批量获取群组信息
-	groups, err := u.repos.Group.FindByUuids(groupUuids)
-	if err != nil {
-		zap.L().Error("Batch find groups error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+	// 3. 批量获取群组信息（混合模式：优先 Redis，回退 DB）
+	groupListRsp := make([]respond.MyGroupListRespond, 0, len(groupIds))
+	missingIds := make([]string, 0)
+
+	for _, groupId := range groupIds {
+		infoCacheKey := "group_info_" + groupId
+		val, err := u.cache.Get(context.Background(), infoCacheKey)
+		if err == nil && val != "" {
+			var groupInfo respond.GetGroupInfoRespond
+			if err := json.Unmarshal([]byte(val), &groupInfo); err == nil {
+				groupListRsp = append(groupListRsp, respond.MyGroupListRespond{
+					GroupId:   groupInfo.Uuid,
+					GroupName: groupInfo.Name,
+					Avatar:    groupInfo.Avatar,
+				})
+				continue
+			}
+		}
+		missingIds = append(missingIds, groupId)
 	}
 
-	// 4. 组装响应（在此过滤 OwnerId，以确保安全并严格遵守“排除自己”的逻辑）
-	// 虽然理论上 Redis Set 应该只包含有效的加入群组，
-	// 但加强过滤逻辑可确保一致性。
-	groupListRsp := make([]respond.LoadMyJoinedGroupRespond, 0, len(groups))
-	for _, group := range groups {
-		if group.OwnerId != userId {
-			groupListRsp = append(groupListRsp, respond.LoadMyJoinedGroupRespond{
+	// 4. 对未命中的数据查询数据库并回写缓存
+	if len(missingIds) > 0 {
+		groups, err := u.repos.Group.FindByUuids(missingIds)
+		if err != nil {
+			zap.L().Error("Batch find groups error", zap.Error(err))
+			return nil, errorx.ErrServerBusy
+		}
+
+		for _, group := range groups {
+			groupListRsp = append(groupListRsp, respond.MyGroupListRespond{
 				GroupId:   group.Uuid,
 				GroupName: group.Name,
 				Avatar:    group.Avatar,
+			})
+
+			// 异步回写缓存
+			cacheGroup := group // Copy for closure
+			u.cache.SubmitTask(func() {
+				info := respond.GetGroupInfoRespond{
+					Uuid:      cacheGroup.Uuid,
+					Name:      cacheGroup.Name,
+					Notice:    cacheGroup.Notice,
+					MemberCnt: cacheGroup.MemberCnt,
+					OwnerId:   cacheGroup.OwnerId,
+					AddMode:   cacheGroup.AddMode,
+					Status:    cacheGroup.Status,
+					Avatar:    cacheGroup.Avatar,
+					IsDeleted: cacheGroup.DeletedAt.Valid,
+				}
+				if data, err := json.Marshal(info); err == nil {
+					_ = u.cache.Set(context.Background(), "group_info_"+cacheGroup.Uuid, string(data), time.Hour*24)
+				}
 			})
 		}
 	}
@@ -154,7 +238,6 @@ func (u *contactService) GetJoinedGroupsExcludedOwn(userId string) ([]respond.Lo
 	return groupListRsp, nil
 }
 
-// GetFriendInfo 获取好友详情
 // GetFriendInfo 获取好友详情 (userId 必须与 friendId 是好友关系)
 func (u *contactService) GetFriendInfo(userId, friendId string) (respond.GetFriendInfoRespond, error) {
 	// 1. 安全检查和权限校验
@@ -239,7 +322,6 @@ func (u *contactService) GetFriendInfo(userId, friendId string) (respond.GetFrie
 	return rsp, nil
 }
 
-// GetGroupDetail 获取群聊详情
 // GetGroupDetail 获取群聊详情 (userId 必须是群成员)
 func (u *contactService) GetGroupDetail(userId, groupId string) (respond.GetGroupDetailRespond, error) {
 	// 1. 安全检查和权限校验
@@ -364,77 +446,105 @@ func (u *contactService) DeleteContact(userId, contactId string) error {
 }
 
 // BlackContact 拉黑联系人
+// userId: 操作者（发起拉黑的用户）
+// contactId: 被拉黑的联系人
 func (u *contactService) BlackContact(userId string, contactId string) error {
-	// 校验是否存在关系(不限制必须是好友，但至少要有 contact 记录，或者业务只允许拉黑好友？)
-	// 根据用户描述"没有校验是不是在好友"，倾向于限制只能拉黑好友。
-	// 但通常IM也可以拉黑陌生人。这里严格照应用户需求：校验是否是好友。
-	isFriend, err := u.repos.Contact.IsFriend(userId, contactId)
-	if err != nil {
-		zap.L().Error("Check friend relationship error", zap.Error(err))
-		return errorx.ErrServerBusy
+	// 1. 参数校验：不能拉黑自己
+	if userId == contactId {
+		return errorx.New(errorx.CodeInvalidParam, "不能拉黑自己")
 	}
-	if !isFriend {
-		return errorx.New(errorx.CodeForbidden, "你们还不是好友，无法拉黑")
-	}
-	// 开启事务
-	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
-		// 1. 更新拉黑者的状态为 BLACK
+
+	// 2. 开启事务（将好友关系校验也放入事务内，防止并发情况下的竞态条件）
+	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
+		// 2.1 校验是否是好友（在事务内校验，保证一致性）
+		myContact, err := txRepos.Contact.FindByUserIdAndContactId(userId, contactId)
+		if err != nil {
+			if errorx.IsNotFound(err) {
+				return errorx.New(errorx.CodeForbidden, "你们还不是好友，无法拉黑")
+			}
+			zap.L().Error("Find contact error", zap.Error(err))
+			return errorx.ErrServerBusy
+		}
+		if myContact.Status != contact_status_enum.NORMAL {
+			return errorx.New(errorx.CodeInvalidParam, "当前状态不允许拉黑")
+		}
+
+		// 2.2 更新拉黑者的状态为 BLACK
 		if err := txRepos.Contact.UpdateStatus(userId, contactId, contact_status_enum.BLACK); err != nil {
 			zap.L().Error("Update status to BLACK error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
-		// 2. 更新被拉黑者的状态为 BE_BLACK
+
+		// 2.3 更新被拉黑者的状态为 BE_BLACK
 		if err := txRepos.Contact.UpdateStatus(contactId, userId, contact_status_enum.BE_BLACK); err != nil {
 			zap.L().Error("Update status to BE_BLACK error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
-		// 3. 双方的会话进行软删除 (已废弃：保留历史)
-		// if err := txRepos.Session.SoftDeleteByUsers([]string{userId, contactId}); err != nil {
-		// 	zap.L().Error("Soft delete sessions error", zap.Error(err))
-		// 	return errorx.ErrServerBusy
-		// }
+
 		return nil
 	})
 
 	if err != nil {
-		zap.L().Error("service error", zap.Error(err))
+		// 如果是业务错误（如 CodeForbidden），直接返回，不要包装
+		if e, ok := err.(*errorx.CodeError); ok {
+			return e
+		}
+		zap.L().Error("BlackContact transaction error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
-	// 4. 清理缓存
+	// 3. 异步清理缓存
+	// 使用 RemoveFromSet 精准删除，而非 DeleteByPattern 全量删除
 	u.cache.SubmitTask(func() {
-		_ = u.cache.DeleteByPattern(context.Background(), "direct_session_list_"+userId)
-		_ = u.cache.DeleteByPattern(context.Background(), "direct_session_list_"+contactId)
-		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+userId)
-		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+contactId)
+		// 从双方的好友列表缓存中移除对方
+		_ = u.cache.RemoveFromSet(context.Background(), "contact_relation:user:"+userId, contactId)
+		_ = u.cache.RemoveFromSet(context.Background(), "contact_relation:user:"+contactId, userId)
+		// 会话列表缓存暂时保留（历史可查看），如需删除可取消注释
+		// _ = u.cache.DeleteByPattern(context.Background(), "direct_session_list_"+userId)
+		// _ = u.cache.DeleteByPattern(context.Background(), "direct_session_list_"+contactId)
 	})
 
 	return nil
 }
 
 // CancelBlackContact 取消拉黑联系人
+// userId: 操作者（发起解除拉黑的用户，即之前拉黑对方的人）
+// contactId: 被解除拉黑的联系人
 func (u *contactService) CancelBlackContact(userId string, contactId string) error {
-	// 1. 事务外先校验状态
-	blackContact, err := u.repos.Contact.FindByUserIdAndContactId(userId, contactId)
-	if err != nil {
-		zap.L().Error("Find black contact error", zap.Error(err))
-		return errorx.ErrServerBusy
-	}
-	if blackContact.Status != contact_status_enum.BLACK {
-		return errorx.New(errorx.CodeInvalidParam, "未拉黑该联系人，无需解除拉黑")
+	// 1. 参数校验：不能解除拉黑自己
+	if userId == contactId {
+		return errorx.New(errorx.CodeInvalidParam, "参数错误")
 	}
 
-	beBlackContact, err := u.repos.Contact.FindByUserIdAndContactId(contactId, userId)
-	if err != nil {
-		zap.L().Error("Find be-black contact error", zap.Error(err))
-		return errorx.ErrServerBusy
-	}
-	if beBlackContact.Status != contact_status_enum.BE_BLACK {
-		return errorx.New(errorx.CodeInvalidParam, "该联系人未被拉黑，无需解除拉黑")
-	}
+	// 2. 开启事务（将状态校验也放入事务内，防止并发情况下的竞态条件）
+	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
+		// 2.1 校验拉黑者的状态
+		myContact, err := txRepos.Contact.FindByUserIdAndContactId(userId, contactId)
+		if err != nil {
+			if errorx.IsNotFound(err) {
+				return errorx.New(errorx.CodeNotFound, "联系人关系不存在")
+			}
+			zap.L().Error("Find black contact error", zap.Error(err))
+			return errorx.ErrServerBusy
+		}
+		if myContact.Status != contact_status_enum.BLACK {
+			return errorx.New(errorx.CodeInvalidParam, "未拉黑该联系人，无需解除拉黑")
+		}
 
-	// 2. 使用事务确保双方状态更新的原子性
-	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
+		// 2.2 校验被拉黑者的状态
+		theirContact, err := txRepos.Contact.FindByUserIdAndContactId(contactId, userId)
+		if err != nil {
+			if errorx.IsNotFound(err) {
+				return errorx.New(errorx.CodeNotFound, "对方联系人关系不存在")
+			}
+			zap.L().Error("Find be-black contact error", zap.Error(err))
+			return errorx.ErrServerBusy
+		}
+		if theirContact.Status != contact_status_enum.BE_BLACK {
+			return errorx.New(errorx.CodeInvalidParam, "数据状态异常，请联系管理员")
+		}
+
+		// 2.3 更新双方状态为 NORMAL
 		if err := txRepos.Contact.UpdateStatus(userId, contactId, contact_status_enum.NORMAL); err != nil {
 			zap.L().Error("Update black contact status error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -443,18 +553,24 @@ func (u *contactService) CancelBlackContact(userId string, contactId string) err
 			zap.L().Error("Update be-black contact status error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
+
 		return nil
 	})
 
 	if err != nil {
-		zap.L().Error("service error", zap.Error(err))
+		// 如果是业务错误，直接返回，不要包装
+		if e, ok := err.(*errorx.CodeError); ok {
+			return e
+		}
+		zap.L().Error("CancelBlackContact transaction error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
-	// 3. 异步清理缓存
+	// 3. 异步恢复缓存
+	// 使用 AddToSet 将双方重新加入对方的好友列表缓存
 	u.cache.SubmitTask(func() {
-		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+userId)
-		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+contactId)
+		_ = u.cache.AddToSet(context.Background(), "contact_relation:user:"+userId, contactId)
+		_ = u.cache.AddToSet(context.Background(), "contact_relation:user:"+contactId, userId)
 	})
 
 	return nil

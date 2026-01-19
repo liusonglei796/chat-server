@@ -5,6 +5,7 @@ package session
 import (
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/errorx"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -72,10 +73,25 @@ func (r *sessionRepository) SoftDeleteByUsers(userUuids []string) error {
 
 // UpdateByReceiveId 根据接收者ID批量更新会话字段
 // 用于群组信息变更时同步更新相关会话
-// updates: 要更新的字段 map，如 {"receive_name": "新群名", "avatar": "新头像"}
 func (r *sessionRepository) UpdateByReceiveId(receiveId string, updates map[string]interface{}) error {
 	if err := r.db.Model(&model.Session{}).Where("receive_id = ?", receiveId).Updates(updates).Error; err != nil {
 		return errorx.WrapDBErrorf(err, "批量更新会话 receive_id=%s", receiveId)
+	}
+	return nil
+}
+
+// UpdateLastMessage 更新会话的最后一条消息信息
+// 用于发送消息后同步更新会话列表显示的最新消息
+func (r *sessionRepository) UpdateLastMessage(sendId, receiveId, content string, msgType int8, msgTime time.Time) error {
+	updates := map[string]interface{}{
+		"last_message":      content,
+		"last_message_at":   msgTime,
+		"last_message_type": msgType,
+	}
+	if err := r.db.Model(&model.Session{}).
+		Where("send_id = ? AND receive_id = ?", sendId, receiveId).
+		Updates(updates).Error; err != nil {
+		return errorx.WrapDBErrorf(err, "更新会话最后消息 send_id=%s receive_id=%s", sendId, receiveId)
 	}
 	return nil
 }

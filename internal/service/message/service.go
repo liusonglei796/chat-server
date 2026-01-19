@@ -39,7 +39,12 @@ func NewMessageService(repos *mysql.Repositories, cacheService myredis.AsyncCach
 }
 
 // GetMessageList 获取聊天记录
-func (m *messageService) GetMessageList(userOneId, userTwoId string) ([]respond.GetMessageListRespond, error) {
+func (m *messageService) GetMessageList(requesterId, userOneId, userTwoId string) ([]respond.GetMessageListRespond, error) {
+	// 权限校验: 调用者必须是聊天双方之一
+	if requesterId != userOneId && requesterId != userTwoId {
+		return nil, errorx.New(errorx.CodeForbidden, "无权查看此聊天记录")
+	}
+
 	// 确保 ID 顺序一致，保证缓存 Key 唯一
 	if userOneId > userTwoId {
 		userOneId, userTwoId = userTwoId, userOneId

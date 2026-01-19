@@ -5,6 +5,8 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/infrastructure/sms"
+	admingroup "kama_chat_server/internal/service/admin/group"
+	adminuser "kama_chat_server/internal/service/admin/user"
 	"kama_chat_server/internal/service/apply"
 	"kama_chat_server/internal/service/auth"
 	"kama_chat_server/internal/service/contact"
@@ -24,6 +26,10 @@ type Services struct {
 	Apply   ApplyService   // 申请 Service
 	Message MessageService // 消息 Service
 	Auth    AuthService    // 认证 Service
+
+	// 后台管理 Services
+	UserAdmin  UserAdminService  // 用户管理后台 Service
+	GroupAdmin GroupAdminService // 群组管理后台 Service
 }
 
 // NewServices 创建并注入所有 Service 实例
@@ -36,13 +42,19 @@ func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheServi
 	messageSvc := message.NewMessageService(repos, cacheService)
 	authSvc := auth.NewAuthService(cacheService)
 
+	// 后台管理服务
+	userAdminSvc := adminuser.NewUserAdminService(repos, cacheService)
+	groupAdminSvc := admingroup.NewGroupAdminService(repos, cacheService)
+
 	return &Services{
-		User:    userSvc,
-		Session: sessionSvc,
-		Group:   groupSvc,
-		Contact: contactSvc,
-		Apply:   applySvc,
-		Message: messageSvc,
-		Auth:    authSvc,
+		User:       userSvc,
+		Session:    sessionSvc,
+		Group:      groupSvc,
+		Contact:    contactSvc,
+		Apply:      applySvc,
+		Message:    messageSvc,
+		Auth:       authSvc,
+		UserAdmin:  userAdminSvc,
+		GroupAdmin: groupAdminSvc,
 	}
 }

@@ -19,6 +19,7 @@ type Handlers struct {
 	Session *SessionHandler
 	Message *MessageHandler
 	Ws      *WsHandler
+	Admin   *AdminHandler // 后台管理
 }
 
 // NewHandlers 创建并注入所有 Handler 实例
@@ -26,11 +27,12 @@ func NewHandlers(svc *service.Services, broker chat.MessageBroker) *Handlers {
 	return &Handlers{
 		User:    NewUserHandler(svc.User),
 		Auth:    NewAuthHandler(svc.Auth),
-		Contact: NewContactHandler(svc.Contact),
+		Contact: NewContactHandler(svc.Contact, svc.Group),
 		Apply:   NewApplyHandler(svc.Apply),
 		Group:   NewGroupHandler(svc.Group),
 		Session: NewSessionHandler(svc.Session),
 		Message: NewMessageHandler(svc.Message),
 		Ws:      NewWsHandler(broker),
+		Admin:   NewAdminHandler(svc.UserAdmin, svc.GroupAdmin),
 	}
 }

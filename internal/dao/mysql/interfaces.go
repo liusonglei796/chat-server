@@ -5,6 +5,7 @@ package mysql
 
 import (
 	"kama_chat_server/internal/model"
+	"time"
 )
 
 // ==================== Repository 接口定义 ====================
@@ -98,6 +99,8 @@ type SessionRepository interface {
 	SoftDeleteByUsers(userUuids []string) error
 	// UpdateByReceiveId 根据接收者ID更新会话字段
 	UpdateByReceiveId(receiveId string, updates map[string]interface{}) error
+	// UpdateLastMessage 更新会话的最后一条消息信息
+	UpdateLastMessage(sendId, receiveId, content string, msgType int8, msgTime time.Time) error
 }
 
 // MessageRepository 消息数据访问接口

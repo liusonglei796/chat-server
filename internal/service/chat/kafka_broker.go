@@ -1,9 +1,19 @@
-// kafka_consumer.go
-// 核心职责：分布式模式下的聊天服务器实现
-// 1. 作为 Kafka 消费者，从消息队列读取全量消息
-// 2. 维护本机在线用户连接 (Kafka 模式)
-// 3. 消息路由：判断消息接收者是否在本机，若在则通过 WebSocket 推送
-// 4. 处理复杂的业务逻辑：消息持久化(MySQL)、状态更新、缓存同步(Redis)
+// kafka_broker.go
+// 核心职责：连接 WebSocket 和 Kafka 的桥梁 (Bridge)
+//
+// 架构角色：
+// 1. **上行 (Upstream)**: 实现 MessageBroker 接口的 Publish 方法，把 WebSocket 收到的消息**投递到 Kafka**。
+// 2. **下行 (Downstream)**: 作为一个 Kafka Consumer，不断从 Kafka 拉取消息。
+//
+// 工作流程：
+// [WebSocket] -> (Publish) -> [KafkaBroker] -> (Write) -> [Kafka Cluster]
+//
+//	^
+//	| (Consume)
+//
+// [WebSocket] <- (Push) <- [KafkaBroker] <- (Read) <- [Kafka Cluster]
+//
+// 为什么叫 Broker？因为它不生产消息，只是在 Go 服务器内部和 Kafka 集群之间做**消息搬运工**。
 package chat
 
 import (
@@ -103,6 +113,8 @@ func (k *MsgConsumer) Start() {
 		// Kafka 消费死循环
 		for {
 			// 从 Kafka 读取一条消息
+			//  // 3. 阻塞读取：这里会卡住，直到 Kafka 集群里有新消息
+        // k.kafkaClient.Consumer 就是 kafka_client.go 里初始化的那个 Reader 对象
 			kafkaMessage, err := k.kafkaClient.Consumer.ReadMessage(ctx)
 			if err != nil {
 				zap.L().Error("service error", zap.Error(err))

@@ -13,11 +13,15 @@ import (
 // ContactHandler 联系人请求处理器
 type ContactHandler struct {
 	contactSvc service.ContactService
+	groupSvc   service.GroupService
 }
 
 // NewContactHandler 创建联系人处理器实例
-func NewContactHandler(contactSvc service.ContactService) *ContactHandler {
-	return &ContactHandler{contactSvc: contactSvc}
+func NewContactHandler(contactSvc service.ContactService, groupSvc service.GroupService) *ContactHandler {
+	return &ContactHandler{
+		contactSvc: contactSvc,
+		groupSvc:   groupSvc,
+	}
 }
 
 // GetUserList 获取好友列表
@@ -42,7 +46,7 @@ func (h *ContactHandler) GetUserList(c *gin.Context) {
 // LoadMyJoinedGroup 获取已加入的群组（排除自己创建的）
 // GET /contact/loadMyJoinedGroup
 // 从JWT上下文获取当前用户ID
-// 响应: []respond.LoadMyJoinedGroupRespond
+// 响应: []respond.MyGroupListRespond
 func (h *ContactHandler) LoadMyJoinedGroup(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
@@ -50,7 +54,7 @@ func (h *ContactHandler) LoadMyJoinedGroup(c *gin.Context) {
 		return
 	}
 
-	data, err := h.contactSvc.GetJoinedGroupsExcludedOwn(userId.(string))
+	data, err := h.groupSvc.GetJoinedGroups(userId.(string))
 	if err != nil {
 		HandleError(c, err)
 		return

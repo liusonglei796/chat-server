@@ -42,6 +42,10 @@ type Session struct {
 	// LastMessageAt 最后消息时间
 	// 用于会话列表排序（最近聊天的排在前面）
 	LastMessageAt sql.NullTime `gorm:"column:last_message_at;type:datetime;comment:最近接收时间"`
+
+	// LastMessageType 最后消息类型
+	// 1=文本, 2=文件, 3=音视频
+	LastMessageType int8 `gorm:"column:last_message_type;default:0;comment:最新消息类型"`
 }
 
 // TableName 指定表名

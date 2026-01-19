@@ -81,7 +81,7 @@ func (h *ApplyHandler) ApplyGroup(c *gin.Context) {
 // GetFriendApplyList 获取待处理的好友申请列表
 // GET /apply/friendList
 // 从JWT上下文获取当前用户ID
-// 响应: []respond.NewContactListRespond
+// 响应: []respond.FriendApplyListRespond
 func (h *ApplyHandler) GetFriendApplyList(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
@@ -100,7 +100,7 @@ func (h *ApplyHandler) GetFriendApplyList(c *gin.Context) {
 // GetGroupApplyList 获取入群申请列表
 // GET /apply/groupList?groupId=xxx
 // 查询参数: request.AddGroupListRequest
-// 响应: []respond.AddGroupListRespond
+// 响应: []respond.GroupApplyListRespond
 func (h *ApplyHandler) GetGroupApplyList(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {

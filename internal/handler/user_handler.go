@@ -108,42 +108,6 @@ func (h *UserHandler) UpdateUserInfo(c *gin.Context) {
 	HandleSuccess(c, nil)
 }
 
-// GetUserListPaged 分页获取用户列表（管理员功能）
-// GET /admin/user/list?page=1&pageSize=10&keyword=xxx&status=0
-// 查询参数: request.GetUserListPagedRequest
-// 响应: respond.PagedUserListRespond
-func (h *UserHandler) GetUserListPaged(c *gin.Context) {
-	var req request.GetUserListPagedRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	data, err := h.userSvc.GetUserListPaged(req)
-	if err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, data)
-}
-
-// BatchUpdateUserStatus 批量更新用户状态（管理员功能）
-// POST /admin/user/batchStatus
-// 请求体: request.BatchUpdateUserStatusRequest
-// Action: enable(启用), disable(禁用), delete(删除)
-// 响应: nil
-func (h *UserHandler) BatchUpdateUserStatus(c *gin.Context) {
-	var req request.BatchUpdateUserStatusRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	if err := h.userSvc.BatchUpdateUserStatus(req); err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, nil)
-}
-
 // GetUserInfo 获取当前用户完整信息（仅限查自己）
 // GET /user/getUserInfo
 // 安全: 从JWT上下文获取当前用户ID
@@ -179,23 +143,6 @@ func (h *UserHandler) GetPublicUserInfo(c *gin.Context) {
 		return
 	}
 	HandleSuccess(c, data)
-}
-
-// SetAdmin 设置管理员权限（管理员功能）
-// POST /user/setAdmin
-// 请求体: request.AbleUsersRequest (含 IsAdmin 字段)
-// 响应: nil
-func (h *UserHandler) SetAdmin(c *gin.Context) {
-	var req request.AbleUsersRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	if err := h.userSvc.SetAdmin(req.UuidList, req.IsAdmin); err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, nil)
 }
 
 // SendSmsCode 发送短信验证码

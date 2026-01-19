@@ -44,6 +44,7 @@ type StandaloneServer struct {
 
 	// 依赖注入字段（遵循依赖倒置原则）
 	messageRepo     mysql.MessageRepository
+	sessionRepo     mysql.SessionRepository
 	groupMemberRepo mysql.GroupMemberRepository
 	contactRepo     mysql.ContactRepository
 	cacheService    myredis.AsyncCacheService
@@ -52,6 +53,7 @@ type StandaloneServer struct {
 // NewStandaloneServer 创建 ChannelBroker 实例（依赖注入）
 func NewStandaloneServer(
 	messageRepo mysql.MessageRepository,
+	sessionRepo mysql.SessionRepository,
 	groupMemberRepo mysql.GroupMemberRepository,
 	contactRepo mysql.ContactRepository,
 	cacheService myredis.AsyncCacheService,
@@ -65,6 +67,7 @@ func NewStandaloneServer(
 		// 初始化登出通道
 		Logout:          make(chan *UserConn, constants.CHANNEL_SIZE),
 		messageRepo:     messageRepo,
+		sessionRepo:     sessionRepo,
 		groupMemberRepo: groupMemberRepo,
 		contactRepo:     contactRepo,
 		cacheService:    cacheService,
@@ -202,6 +205,9 @@ func (s *StandaloneServer) handleTextMessage(req request.ChatMessageRequest) {
 		}
 	}
 
+	// 更新会话的最后一条消息信息
+	s.updateSessionLastMessage(message)
+
 	// 根据 ReceiveId 的前缀判断是单聊还是群聊
 	if message.ReceiveId[0] == 'U' {
 		// 单聊：发送给指定用户
@@ -247,6 +253,9 @@ func (s *StandaloneServer) handleFileMessage(req request.ChatMessageRequest) {
 			zap.L().Error("创建文件消息失败", zap.Error(err))
 		}
 	}
+
+	// 更新会话的最后一条消息信息
+	s.updateSessionLastMessage(message)
 
 	// 路由分发
 	if message.ReceiveId[0] == 'U' {
@@ -555,4 +564,47 @@ func (s *StandaloneServer) isBlocked(senderId, receiverId string) bool {
 		}
 	}
 	return false
+}
+
+// updateSessionLastMessage 更新会话的最后一条消息信息
+// 用于在发送消息后同步更新 Session 表，优化会话列表查询性能
+func (s *StandaloneServer) updateSessionLastMessage(message model.Message) {
+	if s.sessionRepo == nil {
+		return
+	}
+
+	// 获取消息内容用于显示（文件消息显示类型描述）
+	content := message.Content
+	if message.Type == message_type_enum.File {
+		content = "[文件] " + message.FileName
+	} else if message.Type == message_type_enum.AudioOrVideo {
+		content = "[音视频通话]"
+	}
+
+	msgTime := message.CreatedAt
+
+	if message.ReceiveId[0] == 'U' {
+		// 单聊: 更新发送者的会话
+		if err := s.sessionRepo.UpdateLastMessage(message.SendId, message.ReceiveId, content, message.Type, msgTime); err != nil {
+			zap.L().Error("更新发送者会话失败", zap.Error(err))
+		}
+		// 单聊: 更新接收者的会话（接收者视角下 send_id 是自己，receive_id 是发送者）
+		if err := s.sessionRepo.UpdateLastMessage(message.ReceiveId, message.SendId, content, message.Type, msgTime); err != nil {
+			zap.L().Error("更新接收者会话失败", zap.Error(err))
+		}
+	} else if message.ReceiveId[0] == 'G' {
+		// 群聊: 更新所有群成员的会话
+		if s.groupMemberRepo != nil {
+			members, err := s.groupMemberRepo.FindByGroupUuid(message.ReceiveId)
+			if err != nil {
+				zap.L().Error("查询群成员失败", zap.Error(err))
+				return
+			}
+			for _, member := range members {
+				if err := s.sessionRepo.UpdateLastMessage(member.UserUuid, message.ReceiveId, content, message.Type, msgTime); err != nil {
+					zap.L().Error("更新群成员会话失败", zap.Error(err), zap.String("member", member.UserUuid))
+				}
+			}
+		}
+	}
 }

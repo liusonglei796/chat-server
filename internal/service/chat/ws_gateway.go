@@ -1,9 +1,14 @@
-// Package chat 实现了聊天系统的核心服务层
 // ws_gateway.go
-// 核心职责：WebSocket 连接生命周期管理
-// 1. 建立 WebSocket 连接 (Upgrade)
-// 2. 封装 Client 对象，管理读写协程 (Read/Write Loop)
-// 3. 通过 MessageBroker 接口解耦消息投递逻辑
+// 核心职责：WebSocket 网关 (Gateway)
+//
+// 架构角色：
+// 1. **连接维持**: 它是所有用户设备 (手机/网页) 与后端服务器的**唯一**长连接入口。
+// 2. **协议升级**: 负责把 HTTP 协议升级为 WebSocket 协议 (Upgrade)。
+// 3. **读写分离**: 每个连接启动两个协程 (ReadLoop/WriteLoop) 处理收发数据。
+//
+// 关键协作：
+// - **收消息**: 收到用户消息后，调用 `broker.Publish` (不关心是发给 Kafka 还是直接转发)。
+// - **发消息**: `kafka_broker` 或 `channel_broker` 最终会调用这里的 `WriteMessage` 把消息推给用户。
 package chat
 
 import (
@@ -19,7 +24,11 @@ import (
 	"go.uber.org/zap"
 )
 
-// MessageBack 用于回传消息给前端
+// MessageBack 用于向 WebSocket 客户端推送消息
+// 包含实际的 JSON 消息体和用于状态更新的消息 ID
+// 场景：
+// 1. 推送给接收者（Let users see new messages）
+// 2. 回显给发送者（Let sender confirm message sent）
 type MessageBack struct {
 	Message []byte
 	Uuid    int64
@@ -27,6 +36,8 @@ type MessageBack struct {
 
 // UserConn 表示一个 WebSocket 客户端连接
 // 代表的是你的后端服务器和用户浏览器之间的一条那根网线。
+//
+//	有了 WebSocket： 用户 B 和服务器之间建立了一根“长管子”。服务器一旦收到 A 发给 B 的消息，不需要等 B 询问，直接顺着这根管子把消息“推”到 B 的屏幕上。
 type UserConn struct {
 	Conn     *websocket.Conn
 	Uuid     string
@@ -49,7 +60,7 @@ var upgrader = websocket.Upgrader{
 
 var ctx = context.Background()
 
-// Read 从 WebSocket 读取消息并通过 Broker 发布
+// Read 从 WebSocket 读取消息
 func (c *UserConn) Read() {
 	zap.L().Info("ws read goroutine start")
 	for {

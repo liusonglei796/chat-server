@@ -49,7 +49,7 @@ func (h *GroupHandler) CreateGroup(c *gin.Context) {
 // LoadMyGroup 获取我创建的群聊
 // GET /group/loadMyGroup
 // 从JWT上下文获取当前用户ID
-// 响应: []respond.LoadMyGroupRespond
+// 响应: []respond.MyGroupListRespond
 func (h *GroupHandler) LoadMyGroup(c *gin.Context) {
 	// 从JWT中间件获取当前用户ID
 	userId, exists := c.Get("user_id")
@@ -82,30 +82,6 @@ func (h *GroupHandler) CheckGroupAddMode(c *gin.Context) {
 		return
 	}
 	HandleSuccess(c, addMode)
-}
-
-// EnterGroupDirectly 直接加入群聊（无需审核）
-// POST /group/enterGroupDirectly
-// 请求体: request.EnterGroupDirectlyRequest
-// 响应: nil
-// 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
-func (h *GroupHandler) EnterGroupDirectly(c *gin.Context) {
-	userId, exists := c.Get("user_id")
-	if !exists {
-		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
-		return
-	}
-
-	var req request.EnterGroupDirectlyRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	if err := h.groupSvc.EnterGroupDirectly(req.GroupId, userId.(string)); err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, nil)
 }
 
 // LeaveGroup 退出群聊
@@ -150,76 +126,6 @@ func (h *GroupHandler) DismissGroup(c *gin.Context) {
 		return
 	}
 	if err := h.groupSvc.DismissGroup(operatorId.(string), req.GroupId); err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, nil)
-}
-
-// GetGroupInfo 获取群聊详细信息
-// GET /group/getGroupInfo?groupId=xxx
-// 查询参数: request.GetGroupInfoRequest
-// 响应: respond.GetGroupInfoRespond
-func (h *GroupHandler) GetGroupInfo(c *gin.Context) {
-	var req request.GetGroupInfoRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	data, err := h.groupSvc.GetGroupInfo(req.GroupId)
-	if err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, data)
-}
-
-// GetGroupInfoList 获取群聊列表（后台管理功能）
-// GET /group/getGroupInfoList?page=1&pageSize=10
-// 查询参数: request.GetGroupListRequest
-// 响应: respond.GetGroupListWrapper
-func (h *GroupHandler) GetGroupInfoList(c *gin.Context) {
-	var req request.GetGroupListRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	data, err := h.groupSvc.GetGroupInfoList(req)
-	if err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, data)
-}
-
-// DeleteGroups 批量删除群聊（后台管理功能）
-// POST /group/deleteGroups
-// 请求体: request.DeleteGroupsRequest
-// 响应: nil
-func (h *GroupHandler) DeleteGroups(c *gin.Context) {
-	var req request.DeleteGroupsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	if err := h.groupSvc.DeleteGroups(req.UuidList); err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, nil)
-}
-
-// SetGroupsStatus 批量设置群聊状态（后台管理功能）
-// POST /group/setGroupsStatus
-// 请求体: request.SetGroupsStatusRequest
-// 响应: nil
-func (h *GroupHandler) SetGroupsStatus(c *gin.Context) {
-	var req request.SetGroupsStatusRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	if err := h.groupSvc.SetGroupsStatus(req.UuidList, req.Status); err != nil {
 		HandleError(c, err)
 		return
 	}

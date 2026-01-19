@@ -1,10 +1,21 @@
 // Package chat 实现了聊天系统的核心服务层
 // kafka_client.go
 // 核心职责：Kafka 基础设施管理
-// 1. 封装 Kafka 底层连接 (Writer/Reader)
-// 2. 提供消息写入接口 (WriteMessage)
-// 3. 负责 Kafka 资源的初始化和关闭
-// 4. 纯技术组件，不包含聊天业务逻辑
+//
+// 架构说明（为什么这样设计？）：
+//
+// 1. 用户 (WebSocket Client) <-> Go 服务器:
+//   - 用户端（手机/网页）只通过 WebSocket 与 Go 服务器保持长连接。
+//   - 用户完全**不知道** Kafka 的存在，他们只是单纯地发送和接收消息。
+//
+// 2. Go 服务器 (Kafka Client) <-> Kafka 集群:
+//   - **生产者角色**: 当 Go 服务器收到用户的 WebSocket 消息时，把它包装后写入 Kafka Topic。
+//   - **消费者角色**: Go 服务器（集群中的任意节点）从 Kafka 订阅消息，解析出接收者是谁，然后通过该接收者的 WebSocket 连接把消息推送到他手机上。
+//
+// 3. 核心优势：
+//   - **解耦**: 发送者和接收者不需要连在同一个 Go 服务器节点上（支持分布式集群）。
+//   - **缓冲**: 应对流量削峰填谷。
+//   - **安全**: 只有后端服务器能连 Kafka，外网用户无法接触核心消息队列。
 package chat
 
 import (
@@ -59,7 +70,7 @@ func (k *KafkaClient) KafkaClose() {
 }
 
 // SendMessage 提供给 Producer (UserConn) 使用的写入接口
-// 用于向 Kafka 发送消息
+// 用于向 Kafka集群 发送消息
 func (k *KafkaClient) SendMessage(ctx context.Context, key, value []byte) error {
 	return k.Producer.WriteMessages(ctx, kafka.Message{
 		Key:   key,

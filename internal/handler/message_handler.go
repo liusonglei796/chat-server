@@ -40,14 +40,8 @@ func (h *MessageHandler) GetMessageList(c *gin.Context) {
 		return
 	}
 
-	// 权限校验: 调用者必须是聊天双方之一
-	currentUserId := userId.(string)
-	if currentUserId != req.UserOneId && currentUserId != req.UserTwoId {
-		HandleError(c, errorx.New(errorx.CodeForbidden, "无权查看此聊天记录"))
-		return
-	}
-
-	data, err := h.messageSvc.GetMessageList(req.UserOneId, req.UserTwoId)
+	// 权限校验已下沉到 Service 层
+	data, err := h.messageSvc.GetMessageList(userId.(string), req.UserOneId, req.UserTwoId)
 	if err != nil {
 		HandleError(c, err)
 		return
