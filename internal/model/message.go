@@ -15,9 +15,9 @@ type Message struct {
 	gorm.Model
 
 	// Uuid 消息唯一标识
-	// 使用雪花算法生成的 int64 类型 ID
-	// bigint 类型支持大数值，避免 ID 溢出
-	Uuid int64 `gorm:"column:uuid;uniqueIndex;type:bigint;not null;comment:消息雪花ID"`
+	// 使用雪花算法生成的 string 类型 ID (M + SnowflakeID)
+	// char(20) 类型支持
+	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);not null;comment:消息雪花ID"`
 
 	// SessionId 会话 UUID
 	// 关联到 Session 表，标识消息属于哪个会话

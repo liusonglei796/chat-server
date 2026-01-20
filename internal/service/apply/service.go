@@ -11,6 +11,7 @@ import (
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
+	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/enum/contact/contact_status_enum"
 	"kama_chat_server/pkg/enum/contact/contact_type_enum"
@@ -19,7 +20,6 @@ import (
 	"kama_chat_server/pkg/enum/group_info/group_status_enum"
 	"kama_chat_server/pkg/enum/user_info/user_status_enum"
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/util/random"
 )
 
 // applyService 申请业务逻辑实现
@@ -88,13 +88,13 @@ func (u *applyService) ApplyFriend(userId string, req request.ApplyFriendRequest
 		if errorx.IsNotFound(err) {
 			// 初始化一个新的申请模型对象
 			apply = &model.Apply{
-				Uuid:        fmt.Sprintf("A%s", random.GetNowAndLenRandomString(11)), // 生成唯一的申请记录UUID
-				ApplicantId: userId,                                                  // 设置申请人ID
-				TargetId:    req.FriendId,                                            // 设置目标用户ID
-				ContactType: contact_type_enum.USER,                                  // 设置联系人类型为用户
-				Status:      contact_apply_status_enum.PENDING,                       // 初始状态为待处理
-				Message:     req.Message,                                             // 设置申请附带的留言信息
-				LastApplyAt: time.Now(),                                              // 设置申请时间为当前时间
+				Uuid:        fmt.Sprintf("A%s", snowflake.GenerateIDString()), // 生成唯一的申请记录UUID
+				ApplicantId: userId,                                           // 设置申请人ID
+				TargetId:    req.FriendId,                                     // 设置目标用户ID
+				ContactType: contact_type_enum.USER,                           // 设置联系人类型为用户
+				Status:      contact_apply_status_enum.PENDING,                // 初始状态为待处理
+				Message:     req.Message,                                      // 设置申请附带的留言信息
+				LastApplyAt: time.Now(),                                       // 设置申请时间为当前时间
 			}
 			// 保存新的申请记录到数据库
 			if err := u.repos.Apply.CreateApply(apply); err != nil {
@@ -276,7 +276,7 @@ func (u *applyService) ApplyGroup(userId string, req request.ApplyGroupRequest) 
 	if apply == nil {
 		// 情况A：没有旧申请，创建新申请
 		apply = &model.Apply{
-			Uuid:        fmt.Sprintf("A%s", random.GetNowAndLenRandomString(11)),
+			Uuid:        fmt.Sprintf("A%s", snowflake.GenerateIDString()),
 			ApplicantId: userId,
 			TargetId:    req.GroupId,
 			ContactType: contact_type_enum.GROUP,

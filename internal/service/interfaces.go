@@ -36,8 +36,8 @@ type SessionService interface {
 	CreateSession(req request.CreateSessionRequest) (string, error)
 	// CheckOpenSessionAllowed 检查是否允许打开会话
 	CheckOpenSessionAllowed(sendId, receiveId string) (bool, error)
-	// OpenSession 打开/获取会话
-	OpenSession(req request.OpenSessionRequest) (string, error)
+	// OpenSession 打开/获取会话 (sendId 从 JWT 获取，防止 IDOR)
+	OpenSession(sendId string, req request.OpenSessionRequest) (string, error)
 	// GetUserSessionList 获取用户单聊会话列表
 	GetUserSessionList(ownerId string) ([]respond.UserSessionListRespond, error)
 	// GetGroupSessionList 获取用户群聊会话列表

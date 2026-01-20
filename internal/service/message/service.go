@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"kama_chat_server/pkg/util/random"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/respond"
+	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
 )
@@ -271,7 +271,7 @@ func (m *messageService) saveFile(fileHeader *multipart.FileHeader, dstDir strin
 
 	// 3. 生成唯一文件名
 	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
-	newFileName := random.GetNowAndLenRandomString(10) + ext
+	newFileName := snowflake.GenerateIDString() + ext
 	dst := filepath.Join(dstDir, newFileName)
 
 	// 4. 保存文件

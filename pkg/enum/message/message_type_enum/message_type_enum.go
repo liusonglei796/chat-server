@@ -5,6 +5,7 @@ package message_type_enum
 // Voice: 语音
 // File: 文件
 // AudioOrVideo: 音视频通话
+// KickNotification: 设备下线通知
 const (
 	Text = iota
 	// 语音
@@ -13,4 +14,6 @@ const (
 	File
 	// 通话
 	AudioOrVideo
+	// 设备下线通知（单点登录互踢）
+	KickNotification = 99
 )

@@ -14,12 +14,12 @@ import (
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
 	"kama_chat_server/internal/infrastructure/sms"
+	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/user_info/user_status_enum"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/util/jwt"
-	"kama_chat_server/pkg/util/random"
 )
 
 // userInfoService 用户业务逻辑实现
@@ -28,14 +28,17 @@ type userInfoService struct {
 	repos      *mysql.Repositories
 	cache      myredis.AsyncCacheService
 	smsService sms.SmsService
+	kickClient func(userId, reason string) // 踢人回调函数（解耦 chat 包）
 }
 
 // NewUserService 构造函数，注入所有依赖
-func NewUserService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, smsService sms.SmsService) *userInfoService {
+// kickClient: 可选的踢人回调函数，用于登录时踢掉旧设备
+func NewUserService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string)) *userInfoService {
 	return &userInfoService{
 		repos:      repos,
 		cache:      cacheService,
 		smsService: smsService,
+		kickClient: kickClient,
 	}
 }
 
@@ -78,6 +81,11 @@ func (u *userInfoService) Login(loginReq request.LoginRequest) (*respond.LoginRe
 	}
 	if !user.CheckPassword(password) {
 		return nil, errorx.New(errorx.CodeInvalidPassword, "密码不正确，请重试")
+	}
+
+	// 踢掉旧设备（如果在线）
+	if u.kickClient != nil {
+		u.kickClient(user.Uuid, "您的账号已在其他设备登录")
 	}
 
 	// 生成双 Token
@@ -143,6 +151,11 @@ func (u *userInfoService) SmsLogin(req request.SmsLoginRequest) (*respond.LoginR
 	if err := u.cache.Delete(context.Background(), key); err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
+	}
+
+	// 踢掉旧设备（如果在线）
+	if u.kickClient != nil {
+		u.kickClient(user.Uuid, "您的账号已在其他设备登录")
 	}
 
 	// 生成双 Token
@@ -226,7 +239,7 @@ func (u *userInfoService) Register(registerReq request.RegisterRequest) (*respon
 	}
 
 	var newUser model.UserInfo
-	newUser.Uuid = "U" + random.GetNowAndLenRandomString(11)
+	newUser.Uuid = "U" + snowflake.GenerateIDString()
 	newUser.Telephone = registerReq.Telephone
 	newUser.RawPassword = registerReq.Password
 	newUser.Nickname = registerReq.Nickname

@@ -3,6 +3,7 @@
 package router
 
 import (
+	"kama_chat_server/internal/dao/mysql"
 	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/infrastructure/middleware"
 
@@ -10,15 +11,20 @@ import (
 )
 
 // Router 路由管理器
-// 封装所有路由注册逻辑，通过依赖注入接收 handlers
+// 封装所有路由注册逻辑，通过依赖注入接收 handlers 和 userRepo
 type Router struct {
 	handlers *handler.Handlers
+	userRepo mysql.UserRepository // 用于管理员权限校验
 }
 
 // NewRouter 创建路由管理器
 // handlers: 通过依赖注入传入的 handler 聚合对象
-func NewRouter(handlers *handler.Handlers) *Router {
-	return &Router{handlers: handlers}
+// userRepo: 用户数据访问接口，用于管理员权限校验
+func NewRouter(handlers *handler.Handlers, userRepo mysql.UserRepository) *Router {
+	return &Router{
+		handlers: handlers,
+		userRepo: userRepo,
+	}
 }
 
 // RegisterRoutes 注册所有路由
@@ -38,7 +44,7 @@ func (rt *Router) RegisterRoutes(r *gin.Engine) {
 	private := r.Group("")
 	private.Use(middleware.JWTAuth())
 	{
-		rt.RegisterAdminRoutes(private)     // 管理员路由
+		rt.RegisterAdminRoutes(private)     // 管理员路由（额外校验管理员权限）
 		rt.RegisterUserRoutes(private)      // 用户路由
 		rt.RegisterFriendRoutes(private)    // 好友路由
 		rt.RegisterGroupRoutes(private)     // 群组路由

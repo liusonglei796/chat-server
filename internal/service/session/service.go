@@ -12,13 +12,13 @@ import (
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
+	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/contact/contact_status_enum"
 	"kama_chat_server/pkg/enum/group_info/group_status_enum"
 	"kama_chat_server/pkg/enum/user_info/user_status_enum"
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/util/random"
 )
 
 // sessionService 会话业务逻辑实现
@@ -80,7 +80,7 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 
 	// 3. 构建会话基础信息
 	var session model.Session
-	session.Uuid = fmt.Sprintf("S%s", random.GetNowAndLenRandomString(11))
+	session.Uuid = fmt.Sprintf("S%s", snowflake.GenerateIDString())
 	session.SendId = req.SendId
 	session.ReceiveId = req.ReceiveId
 	session.CreatedAt = time.Now()
@@ -299,8 +299,9 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 }
 
 // OpenSession 打开会话
-func (s *sessionService) OpenSession(req request.OpenSessionRequest) (string, error) {
-	cacheKey := "session_" + req.SendId + "_" + req.ReceiveId
+// sendId: 从 JWT 上下文获取的当前用户 ID，防止 IDOR 攻击
+func (s *sessionService) OpenSession(sendId string, req request.OpenSessionRequest) (string, error) {
+	cacheKey := "session_" + sendId + "_" + req.ReceiveId
 
 	// 1. 查缓存
 	rspString, err := s.cache.Get(context.Background(), cacheKey)
@@ -314,12 +315,12 @@ func (s *sessionService) OpenSession(req request.OpenSessionRequest) (string, er
 	}
 
 	// 2. 查库（缓存未命中或反序列化失败）
-	session, err := s.repos.Session.FindBySendIdAndReceiveId(req.SendId, req.ReceiveId)
+	session, err := s.repos.Session.FindBySendIdAndReceiveId(sendId, req.ReceiveId)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			zap.L().Info("会话没有找到，将新建会话")
 			createReq := request.CreateSessionRequest{
-				SendId:    req.SendId,
+				SendId:    sendId,
 				ReceiveId: req.ReceiveId,
 			}
 			return s.CreateSession(createReq)

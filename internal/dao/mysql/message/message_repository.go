@@ -51,9 +51,9 @@ func (r *messageRepository) FindByGroupId(receiveId string) ([]model.Message, er
 // uuid: 消息唯一标识
 // status: 新状态值
 // 返回: 操作错误
-func (r *messageRepository) UpdateStatus(uuid int64, status int8) error {
+func (r *messageRepository) UpdateStatus(uuid string, status int8) error {
 	if err := r.db.Model(&model.Message{}).Where("uuid = ?", uuid).Update("status", status).Error; err != nil {
-		return errorx.WrapDBErrorf(err, "更新消息状态 uuid=%d", uuid)
+		return errorx.WrapDBErrorf(err, "更新消息状态 uuid=%s", uuid)
 	}
 	return nil
 }

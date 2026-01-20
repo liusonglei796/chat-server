@@ -50,11 +50,7 @@ func main() {
 	}
 	zap.L().Info("SMS Service 初始化成功")
 
-	// 7. 初始化 Service 层 (依赖注入)
-	services := service.NewServices(repos, cacheService, smsService)
-	zap.L().Info("Service 层初始化成功")
-
-	// 7. 初始化 ChatServer（依赖注入）
+	// 7. 初始化 ChatServer（必须在 Services 之前，因为 UserService 需要 KickClient）
 	chatServer := chat.NewChatServer(chat.ChatServerConfig{
 		Mode:            conf.KafkaConfig.MessageMode,
 		MessageRepo:     repos.Message,
@@ -68,13 +64,17 @@ func main() {
 	}
 	zap.L().Info("ChatServer 初始化成功")
 
-	// 8. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 broker)
+	// 8. 初始化 Service 层 (依赖注入，传入 kickClient 实现即时下线通知)
+	services := service.NewServices(repos, cacheService, smsService, chatServer.GetBroker().KickClient)
+	zap.L().Info("Service 层初始化成功")
+
+	// 9. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 broker)
 	handlers := handler.NewHandlers(services, chatServer.GetBroker())
 	zap.L().Info("Handler 层初始化成功")
 
 	// 9. 初始化 SMS Service (依赖注入缓存服务)
-	// 10. 初始化 HTTPS 服务器 (传入 handlers 进行依赖注入)
-	engine := https_server.Init(handlers)
+	// 10. 初始化 HTTPS 服务器 (传入 handlers 和 userRepo 进行依赖注入)
+	engine := https_server.Init(handlers, repos.User)
 	zap.L().Info("HTTPS 服务器初始化成功")
 
 	// 11. 启动服务

@@ -13,6 +13,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/message/message_status_enum"
 	"kama_chat_server/pkg/errorx"
@@ -31,7 +32,7 @@ import (
 // 2. 回显给发送者（Let sender confirm message sent）
 type MessageBack struct {
 	Message []byte
-	Uuid    int64
+	Uuid    string
 }
 
 // UserConn 表示一个 WebSocket 客户端连接
@@ -61,6 +62,7 @@ var upgrader = websocket.Upgrader{
 var ctx = context.Background()
 
 // Read 从 WebSocket 读取消息
+// 安全: 服务端会用连接时认证的用户 ID 覆盖消息中的 SendId，防止 IDOR 攻击
 func (c *UserConn) Read() {
 	zap.L().Info("ws read goroutine start")
 	for {
@@ -70,11 +72,36 @@ func (c *UserConn) Read() {
 			return
 		}
 		log.Println("接受到消息为: ", string(jsonMessage))
+
+		// 安全: 注入真实的用户 ID，覆盖客户端传入的 send_id（防止 IDOR）
+		securedMessage := injectRealSenderId(jsonMessage, c.Uuid)
+
 		// 通过接口发布消息，不关心具体实现
-		if err := c.broker.Publish(ctx, jsonMessage); err != nil {
+		if err := c.broker.Publish(ctx, securedMessage); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 		}
 	}
+}
+
+// injectRealSenderId 将真实的用户 ID 注入消息，覆盖客户端传入的 send_id
+// 这是防止 WebSocket 消息 IDOR 攻击的关键安全措施
+func injectRealSenderId(jsonMessage []byte, realUserId string) []byte {
+	var msg map[string]interface{}
+	if err := json.Unmarshal(jsonMessage, &msg); err != nil {
+		zap.L().Error("Failed to unmarshal message for security injection", zap.Error(err))
+		return jsonMessage // 如果解析失败，原样返回（后续会被校验拦截）
+	}
+
+	// 覆盖 send_id 字段
+	msg["send_id"] = realUserId
+
+	securedMessage, err := json.Marshal(msg)
+	if err != nil {
+		zap.L().Error("Failed to marshal secured message", zap.Error(err))
+		return jsonMessage
+	}
+
+	return securedMessage
 }
 
 // Write 从 SendBack 通道读取消息并发送给 WebSocket

@@ -12,12 +12,12 @@ import (
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
+	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/enum/contact/contact_status_enum"
 	"kama_chat_server/pkg/enum/contact/contact_type_enum"
 	"kama_chat_server/pkg/enum/group_info/group_status_enum"
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/util/random"
 )
 
 // groupInfoService 群组业务逻辑实现
@@ -38,7 +38,7 @@ func NewGroupService(repos *mysql.Repositories, cacheService myredis.AsyncCacheS
 // CreateGroup 创建群聊 (ownerId 从 JWT 获取)
 func (g *groupInfoService) CreateGroup(ownerId string, groupReq request.CreateGroupRequest) error {
 	group := model.GroupInfo{
-		Uuid:      fmt.Sprintf("G%s", random.GetNowAndLenRandomString(11)),
+		Uuid:      fmt.Sprintf("G%s", snowflake.GenerateIDString()),
 		Name:      groupReq.Name,
 		Notice:    groupReq.Notice,
 		OwnerId:   ownerId, // 使用 JWT 中的用户 ID
@@ -76,7 +76,7 @@ func (g *groupInfoService) CreateGroup(ownerId string, groupReq request.CreateGr
 		}
 		// 创建会话
 		session := model.Session{
-			Uuid:        fmt.Sprintf("S%s", random.GetNowAndLenRandomString(11)),
+			Uuid:        fmt.Sprintf("S%s", snowflake.GenerateIDString()),
 			SendId:      ownerId,
 			ReceiveId:   group.Uuid,
 			ReceiveName: group.Name,

@@ -33,9 +33,10 @@ type Services struct {
 }
 
 // NewServices 创建并注入所有 Service 实例
-func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, smsService sms.SmsService) *Services {
+// kickClient: 可选的踢人回调函数，由 ChatServer.Broker.KickClient 提供
+func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string)) *Services {
 	sessionSvc := session.NewSessionService(repos, cacheService)
-	userSvc := user.NewUserService(repos, cacheService, smsService)
+	userSvc := user.NewUserService(repos, cacheService, smsService, kickClient)
 	groupSvc := group.NewGroupService(repos, cacheService)
 	contactSvc := contact.NewContactService(repos, cacheService)
 	applySvc := apply.NewApplyService(repos, cacheService)

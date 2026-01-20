@@ -114,7 +114,7 @@ func (k *MsgConsumer) Start() {
 		for {
 			// 从 Kafka 读取一条消息
 			//  // 3. 阻塞读取：这里会卡住，直到 Kafka 集群里有新消息
-        // k.kafkaClient.Consumer 就是 kafka_client.go 里初始化的那个 Reader 对象
+			// k.kafkaClient.Consumer 就是 kafka_client.go 里初始化的那个 Reader 对象
 			kafkaMessage, err := k.kafkaClient.Consumer.ReadMessage(ctx)
 			if err != nil {
 				zap.L().Error("service error", zap.Error(err))
@@ -221,6 +221,39 @@ func (k *MsgConsumer) GetMessageRepo() mysql.MessageRepository {
 	return k.messageRepo
 }
 
+// KickClient 实现 MessageBroker 接口：向指定用户推送下线通知并断开连接
+// 用于实现单点登录互踢功能
+func (k *MsgConsumer) KickClient(userId string, reason string) {
+	client := k.GetClient(userId)
+	if client == nil {
+		return // 用户不在线，无需踢人
+	}
+
+	// 1. 构造下线通知消息
+	kickMsg := map[string]interface{}{
+		"type":    message_type_enum.KickNotification,
+		"message": reason,
+	}
+	jsonMsg, err := json.Marshal(kickMsg)
+	if err != nil {
+		zap.L().Error("序列化踢人消息失败", zap.Error(err))
+		return
+	}
+
+	// 2. 推送给客户端
+	if err := client.Conn.WriteMessage(websocket.TextMessage, jsonMsg); err != nil {
+		zap.L().Error("发送踢人消息失败", zap.Error(err))
+	}
+
+	// 3. 注销客户端并关闭连接
+	k.UnregisterClient(client)
+	if err := client.Conn.Close(); err != nil {
+		zap.L().Error("关闭连接失败", zap.Error(err))
+	}
+
+	zap.L().Info("用户已被踢下线", zap.String("userId", userId), zap.String("reason", reason))
+}
+
 // handleTextMessage 处理文本消息
 // 1. 生成 Snowflake ID
 // 2. 将消息持久化到 MySQL
@@ -229,7 +262,7 @@ func (k *MsgConsumer) GetMessageRepo() mysql.MessageRepository {
 func (k *MsgConsumer) handleTextMessage(req request.ChatMessageRequest) {
 	// 构建数据库模型
 	message := model.Message{
-		Uuid:       snowflake.GenerateID(),
+		Uuid:       "M" + snowflake.GenerateIDString(),
 		SessionId:  req.SessionId,
 		Type:       req.Type,
 		Content:    req.Content,
@@ -267,7 +300,7 @@ func (k *MsgConsumer) handleTextMessage(req request.ChatMessageRequest) {
 func (k *MsgConsumer) handleFileMessage(req request.ChatMessageRequest) {
 	// 构建数据库模型
 	message := model.Message{
-		Uuid:       snowflake.GenerateID(),
+		Uuid:       "M" + snowflake.GenerateIDString(),
 		SessionId:  req.SessionId,
 		Type:       req.Type,
 		Content:    "",
@@ -312,7 +345,7 @@ func (k *MsgConsumer) handleAVMessage(req request.ChatMessageRequest) {
 
 	// 构建消息模型
 	message := model.Message{
-		Uuid:       snowflake.GenerateID(),
+		Uuid:       "M" + snowflake.GenerateIDString(),
 		SessionId:  req.SessionId,
 		Type:       req.Type,
 		Content:    "",

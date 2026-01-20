@@ -24,15 +24,24 @@ func NewSessionHandler(sessionSvc service.SessionService) *SessionHandler {
 
 // OpenSession 打开/创建会话
 // POST /session/openSession
-// 请求体: request.OpenSessionRequest
+// 请求体: request.OpenSessionRequest (只需 receive_id)
 // 响应: string (会话ID)
+// 安全: 从JWT上下文获取当前用户ID作为sendId，防止IDOR攻击
 func (h *SessionHandler) OpenSession(c *gin.Context) {
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
 	var req request.OpenSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	sessionId, err := h.sessionSvc.OpenSession(req)
+
+	// 直接使用 JWT 中的 userId 作为 sendId，无需比较
+	sessionId, err := h.sessionSvc.OpenSession(userId.(string), req)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -106,16 +115,25 @@ func (h *SessionHandler) DeleteSession(c *gin.Context) {
 
 // CheckOpenSessionAllowed 检查是否允许打开会话
 // 用于检查两个用户之间的关系是否允许建立会话
-// GET /session/checkOpenSessionAllowed?sendId=xxx&receiveId=xxx
-// 查询参数: request.CreateSessionRequest
+// GET /session/checkOpenSessionAllowed?receiveId=xxx
+// 查询参数: request.CheckSessionAllowedRequest (只需 receive_id)
 // 响应: bool
+// 安全: 从JWT上下文获取当前用户ID作为sendId，防止IDOR攻击
 func (h *SessionHandler) CheckOpenSessionAllowed(c *gin.Context) {
-	var req request.CreateSessionRequest
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
+	var req request.CheckSessionAllowedRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	allowed, err := h.sessionSvc.CheckOpenSessionAllowed(req.SendId, req.ReceiveId)
+
+	// 安全: 使用 JWT 中的用户 ID 作为 sendId
+	allowed, err := h.sessionSvc.CheckOpenSessionAllowed(userId.(string), req.ReceiveId)
 	if err != nil {
 		HandleError(c, err)
 		return

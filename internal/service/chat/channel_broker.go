@@ -180,20 +180,20 @@ func (s *StandaloneServer) handleTextMessage(req request.ChatMessageRequest) {
 
 	// 构建数据库模型对象
 	message := model.Message{
-		Uuid:       snowflake.GenerateID(),     // 生成唯一消息ID
-		SessionId:  req.SessionId,              // 会话ID
-		Type:       req.Type,                   // 消息类型
-		Content:    req.Content,                // 消息内容
-		Url:        "",                         // 文本消息无 URL
-		SendId:     req.SendId,                 // 发送者ID
-		SendName:   req.SendName,               // 发送者昵称
-		SendAvatar: req.SendAvatar,             // 发送者头像
-		ReceiveId:  req.ReceiveId,              // 接收者ID
-		FileSize:   "0B",                       // 文本消息大小为0
-		FileType:   "",                         // 文件类型为空
-		FileName:   "",                         // 文件名为空
-		Status:     message_status_enum.Unsent, // 初始状态为未发送
-		AVdata:     "",                         // 无音视频数据
+		Uuid:       "M" + snowflake.GenerateIDString(), // 生成唯一消息ID
+		SessionId:  req.SessionId,                      // 会话ID
+		Type:       req.Type,                           // 消息类型
+		Content:    req.Content,                        // 消息内容
+		Url:        "",                                 // 文本消息无 URL
+		SendId:     req.SendId,                         // 发送者ID
+		SendName:   req.SendName,                       // 发送者昵称
+		SendAvatar: req.SendAvatar,                     // 发送者头像
+		ReceiveId:  req.ReceiveId,                      // 接收者ID
+		FileSize:   "0B",                               // 文本消息大小为0
+		FileType:   "",                                 // 文件类型为空
+		FileName:   "",                                 // 文件名为空
+		Status:     message_status_enum.Unsent,         // 初始状态为未发送
+		AVdata:     "",                                 // 无音视频数据
 	}
 	// 规范化头像路径
 	message.SendAvatar = normalizePath(message.SendAvatar)
@@ -229,7 +229,7 @@ func (s *StandaloneServer) handleFileMessage(req request.ChatMessageRequest) {
 
 	// 构建数据库模型对象
 	message := model.Message{
-		Uuid:       snowflake.GenerateID(),
+		Uuid:       "M" + snowflake.GenerateIDString(),
 		SessionId:  req.SessionId,
 		Type:       req.Type,
 		Content:    "",      // 文件消息内容为空
@@ -278,7 +278,7 @@ func (s *StandaloneServer) handleAVMessage(req request.ChatMessageRequest) {
 
 	// 构建消息模型 (注意：这里大部分信令只是临时构建用于转发，不一定都入库)
 	message := model.Message{
-		Uuid:       snowflake.GenerateID(),
+		Uuid:       "M" + snowflake.GenerateIDString(),
 		SessionId:  req.SessionId,
 		Type:       req.Type,
 		Content:    "",
@@ -532,6 +532,39 @@ func (s *StandaloneServer) UnregisterClient(client *UserConn) {
 // GetMessageRepo 实现 MessageBroker 接口：获取消息仓储
 func (s *StandaloneServer) GetMessageRepo() mysql.MessageRepository {
 	return s.messageRepo
+}
+
+// KickClient 实现 MessageBroker 接口：向指定用户推送下线通知并断开连接
+// 用于实现单点登录互踢功能
+func (s *StandaloneServer) KickClient(userId string, reason string) {
+	client := s.GetClient(userId)
+	if client == nil {
+		return // 用户不在线，无需踢人
+	}
+
+	// 1. 构造下线通知消息
+	kickMsg := map[string]interface{}{
+		"type":    message_type_enum.KickNotification,
+		"message": reason,
+	}
+	jsonMsg, err := json.Marshal(kickMsg)
+	if err != nil {
+		zap.L().Error("序列化踢人消息失败", zap.Error(err))
+		return
+	}
+
+	// 2. 推送给客户端
+	if err := client.Conn.WriteMessage(websocket.TextMessage, jsonMsg); err != nil {
+		zap.L().Error("发送踢人消息失败", zap.Error(err))
+	}
+
+	// 3. 注销客户端并关闭连接
+	s.UnregisterClient(client)
+	if err := client.Conn.Close(); err != nil {
+		zap.L().Error("关闭连接失败", zap.Error(err))
+	}
+
+	zap.L().Info("用户已被踢下线", zap.String("userId", userId), zap.String("reason", reason))
 }
 
 // isBlocked 检查发送者是否有权限发送消息给接收者

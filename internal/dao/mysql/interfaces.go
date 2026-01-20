@@ -111,7 +111,7 @@ type MessageRepository interface {
 	// FindByGroupId 根据群组ID查找群聊消息
 	FindByGroupId(groupId string) ([]model.Message, error)
 	// UpdateStatus 更新消息状态
-	UpdateStatus(uuid int64, status int8) error
+	UpdateStatus(uuid string, status int8) error
 	// Create 创建新消息
 	Create(message *model.Message) error
 	// FindLastMessageByUserIds 获取两人之间最后一条消息
