@@ -11,7 +11,7 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	sessionreq "kama_chat_server/internal/dto/request/session"
-	sessiondto "kama_chat_server/internal/dto/respond/session"
+	sessionrsp "kama_chat_server/internal/dto/respond/session"
 	"kama_chat_server/internal/dto/respond/group"
 	"kama_chat_server/internal/dto/respond/user"
 	"kama_chat_server/internal/infrastructure/snowflake"
@@ -339,13 +339,13 @@ func (s *sessionService) OpenSession(sendId string, req sessionreq.OpenSessionRe
 }
 
 // GetUserSessionList 获取用户会话列表
-func (s *sessionService) GetUserSessionList(ownerId string) ([]sessiondto.UserSessionListRespond, error) {
+func (s *sessionService) GetUserSessionList(ownerId string) ([]sessionrsp.UserSessionListRespond, error) {
 	cacheKey := "direct_session_list_" + ownerId
 
 	// 1. 尝试读缓存
 	rspString, err := s.cache.Get(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
-		var rsp []sessiondto.UserSessionListRespond
+		var rsp []sessionrsp.UserSessionListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
 			return rsp, nil
 		}
@@ -363,7 +363,7 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]sessiondto.UserSe
 		return nil, errorx.ErrServerBusy
 	}
 
-	sessionListRsp := make([]sessiondto.UserSessionListRespond, 0, len(sessionList))
+	sessionListRsp := make([]sessionrsp.UserSessionListRespond, 0, len(sessionList))
 	for i := 0; i < len(sessionList); i++ {
 		// 增加长度判断防止 panic
 		if len(sessionList[i].ReceiveId) > 0 && sessionList[i].ReceiveId[0] == 'U' {
@@ -373,7 +373,7 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]sessiondto.UserSe
 				lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
 			}
 
-			sessionListRsp = append(sessionListRsp, sessiondto.UserSessionListRespond{
+			sessionListRsp = append(sessionListRsp, sessionrsp.UserSessionListRespond{
 				SessionId:       sessionList[i].Uuid,
 				Avatar:          sessionList[i].Avatar,
 				UserId:          sessionList[i].ReceiveId,
@@ -399,13 +399,13 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]sessiondto.UserSe
 }
 
 // GetGroupSessionList 获取群聊会话列表
-func (s *sessionService) GetGroupSessionList(ownerId string) ([]sessiondto.GroupSessionListRespond, error) {
+func (s *sessionService) GetGroupSessionList(ownerId string) ([]sessionrsp.GroupSessionListRespond, error) {
 	cacheKey := "group_session_list_" + ownerId
 
 	// 1. 尝试读缓存
 	rspString, err := s.cache.Get(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
-		var rsp []sessiondto.GroupSessionListRespond
+		var rsp []sessionrsp.GroupSessionListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
 			return rsp, nil
 		}
@@ -423,7 +423,7 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]sessiondto.Group
 		return nil, errorx.ErrServerBusy
 	}
 
-	sessionListRsp := make([]sessiondto.GroupSessionListRespond, 0, len(sessionList))
+	sessionListRsp := make([]sessionrsp.GroupSessionListRespond, 0, len(sessionList))
 	for i := 0; i < len(sessionList); i++ {
 		// 增加长度判断防止 panic
 		if len(sessionList[i].ReceiveId) > 0 && sessionList[i].ReceiveId[0] == 'G' {
@@ -433,7 +433,7 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]sessiondto.Group
 				lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
 			}
 
-			sessionListRsp = append(sessionListRsp, sessiondto.GroupSessionListRespond{
+			sessionListRsp = append(sessionListRsp, sessionrsp.GroupSessionListRespond{
 				SessionId:       sessionList[i].Uuid,
 				Avatar:          sessionList[i].Avatar,
 				GroupId:         sessionList[i].ReceiveId,

@@ -8,7 +8,7 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	adminreq "kama_chat_server/internal/dto/request/admin"
-	admindto "kama_chat_server/internal/dto/respond/admin"
+	adminrsp "kama_chat_server/internal/dto/respond/admin"
 	"kama_chat_server/pkg/enum/user_info/user_status_enum"
 	"kama_chat_server/pkg/errorx"
 )
@@ -29,16 +29,16 @@ func NewUserAdminService(repos *mysql.Repositories, cacheService myredis.AsyncCa
 }
 
 // GetUserListPaged 分页获取用户列表
-func (s *userAdminService) GetUserListPaged(req adminreq.GetUserListRequest) (*admindto.PagedUserListRespond, error) {
+func (s *userAdminService) GetUserListPaged(req adminreq.GetUserListRequest) (*adminrsp.PagedUserListRespond, error) {
 	users, total, err := s.repos.User.FindAllPaged(req.Page, req.PageSize, req.Keyword, req.Status)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
-	list := make([]admindto.GetUserListRespond, 0, len(users))
+	list := make([]adminrsp.GetUserListRespond, 0, len(users))
 	for _, user := range users {
-		list = append(list, admindto.GetUserListRespond{
+		list = append(list, adminrsp.GetUserListRespond{
 			Uuid:      user.Uuid,
 			Telephone: user.Telephone,
 			Nickname:  user.Nickname,
@@ -48,7 +48,7 @@ func (s *userAdminService) GetUserListPaged(req adminreq.GetUserListRequest) (*a
 		})
 	}
 
-	return &admindto.PagedUserListRespond{
+	return &adminrsp.PagedUserListRespond{
 		Total: total,
 		List:  list,
 	}, nil

@@ -8,7 +8,7 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	adminreq "kama_chat_server/internal/dto/request/admin"
-	admindto "kama_chat_server/internal/dto/respond/admin"
+	adminrsp "kama_chat_server/internal/dto/respond/admin"
 	"kama_chat_server/pkg/enum/group_info/group_status_enum"
 	"kama_chat_server/pkg/errorx"
 )
@@ -29,16 +29,16 @@ func NewGroupAdminService(repos *mysql.Repositories, cacheService myredis.AsyncC
 }
 
 // GetGroupInfoList 分页获取群组列表
-func (s *groupAdminService) GetGroupInfoList(req adminreq.GetGroupInfoListRequest) (*admindto.GetGroupListWrapper, error) {
+func (s *groupAdminService) GetGroupInfoList(req adminreq.GetGroupInfoListRequest) (*adminrsp.GetGroupListWrapper, error) {
 	groupList, total, err := s.repos.Group.GetGroupList(req.Page, req.PageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
-	rsp := make([]admindto.GetGroupListRespond, 0, len(groupList))
+	rsp := make([]adminrsp.GetGroupListRespond, 0, len(groupList))
 	for _, group := range groupList {
-		rp := admindto.GetGroupListRespond{
+		rp := adminrsp.GetGroupListRespond{
 			Uuid:      group.Uuid,
 			Name:      group.Name,
 			OwnerId:   group.OwnerId,
@@ -48,7 +48,7 @@ func (s *groupAdminService) GetGroupInfoList(req adminreq.GetGroupInfoListReques
 		rsp = append(rsp, rp)
 	}
 
-	return &admindto.GetGroupListWrapper{
+	return &adminrsp.GetGroupListWrapper{
 		List:  rsp,
 		Total: total,
 	}, nil

@@ -11,8 +11,8 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/respond/contact"
-	groupdto "kama_chat_server/internal/dto/respond/group"
-	userdto "kama_chat_server/internal/dto/respond/user"
+	grouprsp "kama_chat_server/internal/dto/respond/group"
+	userrsp "kama_chat_server/internal/dto/respond/user"
 	"kama_chat_server/pkg/enum/contact/contact_status_enum"
 	"kama_chat_server/pkg/enum/contact/contact_type_enum"
 	"kama_chat_server/pkg/enum/group_info/group_status_enum"
@@ -36,7 +36,7 @@ func NewContactService(repos *mysql.Repositories, cacheService myredis.AsyncCach
 }
 
 // GetUserList 获取指定用户的“好友（联系人）的用户信息列表”。
-func (u *contactService) GetUserList(userId string, page, pageSize int) ([]userdto.MyUserListRespond, int64, error) {
+func (u *contactService) GetUserList(userId string, page, pageSize int) ([]userrsp.MyUserListRespond, int64, error) {
 	// 参数校验
 	if page < 1 { page = 1 }
 	if pageSize < 1 || pageSize > 100 { pageSize = 20 }
@@ -49,18 +49,18 @@ func (u *contactService) GetUserList(userId string, page, pageSize int) ([]userd
 	}
 
 	if len(contactList) == 0 {
-		return []userdto.MyUserListRespond{}, total, nil
+		return []userrsp.MyUserListRespond{}, total, nil
 	}
 
 	// 批量获取好友信息（混合模式：优先 Redis，回退 DB）
-	userListRsp := make([]userdto.MyUserListRespond, 0, len(contactList))
+	userListRsp := make([]userrsp.MyUserListRespond, 0, len(contactList))
 	for _, contact := range contactList {
 		cacheKey := "user_info_" + contact.ContactId
 		val, err := u.cache.Get(context.Background(), cacheKey)
 		if err == nil && val != "" {
-			var userInfo userdto.GetUserInfoRespond
+			var userInfo userrsp.GetUserInfoRespond
 			if err := json.Unmarshal([]byte(val), &userInfo); err == nil {
-				userListRsp = append(userListRsp, userdto.MyUserListRespond{
+				userListRsp = append(userListRsp, userrsp.MyUserListRespond{
 					UserId:   userInfo.Uuid,
 					UserName: userInfo.Nickname,
 					Avatar:   userInfo.Avatar,
@@ -77,7 +77,7 @@ func (u *contactService) GetUserList(userId string, page, pageSize int) ([]userd
 		}
 		
 		// 组装响应
-		userListRsp = append(userListRsp, userdto.MyUserListRespond{
+		userListRsp = append(userListRsp, userrsp.MyUserListRespond{
 			UserId:   userInfo.Uuid,
 			UserName: userInfo.Nickname,
 			Avatar:   userInfo.Avatar,
@@ -94,7 +94,7 @@ func (u *contactService) GetUserList(userId string, page, pageSize int) ([]userd
 
 // GetGroupList 获取用户的群组列表（所有加入的群组）
 // 与 GetUserList 类似，采用 Cache-Aside 模式
-func (u *contactService) GetGroupList(userId string, page, pageSize int) ([]groupdto.MyGroupListRespond, int64, error) {
+func (u *contactService) GetGroupList(userId string, page, pageSize int) ([]grouprsp.MyGroupListRespond, int64, error) {
 	// 参数校验
 	if page < 1 { page = 1 }
 	if pageSize < 1 || pageSize > 100 { pageSize = 20 }
@@ -107,11 +107,11 @@ func (u *contactService) GetGroupList(userId string, page, pageSize int) ([]grou
 	}
 
 	if len(contactList) == 0 {
-		return []groupdto.MyGroupListRespond{}, total, nil
+		return []grouprsp.MyGroupListRespond{}, total, nil
 	}
 
 	// 批量获取群组信息
-	groupListRsp := make([]groupdto.MyGroupListRespond, 0, len(contactList))
+	groupListRsp := make([]grouprsp.MyGroupListRespond, 0, len(contactList))
 	for _, contact := range contactList {
 		groupInfo, err := u.repos.Group.FindByUuid(contact.ContactId)
 		if err != nil {
@@ -119,7 +119,7 @@ func (u *contactService) GetGroupList(userId string, page, pageSize int) ([]grou
 			continue
 		}
 
-		groupListRsp = append(groupListRsp, groupdto.MyGroupListRespond{
+		groupListRsp = append(groupListRsp, grouprsp.MyGroupListRespond{
 			GroupId:   groupInfo.Uuid,
 			GroupName: groupInfo.Name,
 			Avatar:    groupInfo.Avatar,
@@ -150,7 +150,7 @@ func (u *contactService) GetFriendInfo(userId, friendId string) (contact.FriendI
 	cacheKey := "user_info_" + friendId
 	cachedStr, err := u.cache.Get(context.Background(), cacheKey)
 	if err == nil && cachedStr != "" {
-		var userRsp userdto.GetUserInfoRespond
+		var userRsp userrsp.GetUserInfoRespond
 		if err := json.Unmarshal([]byte(cachedStr), &userRsp); err == nil {
 			return contact.FriendInfoRespond{
 				FriendId:        userRsp.Uuid,
@@ -193,7 +193,7 @@ func (u *contactService) GetFriendInfo(userId, friendId string) (contact.FriendI
 	}
 
 	// 5. 回写缓存
-	userRsp := userdto.GetUserInfoRespond{
+	userRsp := userrsp.GetUserInfoRespond{
 		Uuid:      user.Uuid,
 		Telephone: user.Telephone,
 		Nickname:  user.Nickname,
@@ -234,7 +234,7 @@ func (u *contactService) GetGroupDetail(userId, groupId string) (contact.GroupDe
 	cacheKey := "group_info_" + groupId
 	cachedStr, err := u.cache.Get(context.Background(), cacheKey)
 	if err == nil && cachedStr != "" {
-		var groupRsp groupdto.GetGroupInfoRespond
+		var groupRsp grouprsp.GetGroupInfoRespond
 		if err := json.Unmarshal([]byte(cachedStr), &groupRsp); err == nil {
 			return contact.GroupDetailRespond{
 				GroupId:     groupRsp.Uuid,
@@ -275,7 +275,7 @@ func (u *contactService) GetGroupDetail(userId, groupId string) (contact.GroupDe
 	}
 
 	// 5. 回写缓存
-	groupRsp := groupdto.GetGroupInfoRespond{
+	groupRsp := grouprsp.GetGroupInfoRespond{
 		Uuid:      group.Uuid,
 		Name:      group.Name,
 		Notice:    group.Notice,

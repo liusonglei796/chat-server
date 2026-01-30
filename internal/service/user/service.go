@@ -13,7 +13,7 @@ import (
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request/auth"
 	userreq "kama_chat_server/internal/dto/request/user"
-	userdto "kama_chat_server/internal/dto/respond/user"
+	userrsp "kama_chat_server/internal/dto/respond/user"
 	"kama_chat_server/internal/infrastructure/sms"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
@@ -69,7 +69,7 @@ func (u *userInfoService) checkUserIsAdminOrNot(user model.UserInfo) int8 {
 }
 
 // Login 登录
-func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userdto.LoginRespond, error) {
+func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespond, error) {
 	password := loginReq.Password
 	var user *model.UserInfo
 	user, err := u.repos.User.FindByTelephone(loginReq.Telephone)
@@ -109,7 +109,7 @@ func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userdto.LoginRespo
 		// 不阻塞登录流程，仅记录日志
 	}
 
-	loginRsp := &userdto.LoginRespond{
+	loginRsp := &userrsp.LoginRespond{
 		Uuid:         user.Uuid,
 		Telephone:    user.Telephone,
 		Nickname:     user.Nickname,
@@ -130,7 +130,7 @@ func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userdto.LoginRespo
 }
 
 // SmsLogin 验证码登录
-func (u *userInfoService) SmsLogin(req auth.SmsLoginRequest) (*userdto.LoginRespond, error) {
+func (u *userInfoService) SmsLogin(req auth.SmsLoginRequest) (*userrsp.LoginRespond, error) {
 	user, err := u.repos.User.FindByTelephone(req.Telephone)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
@@ -178,7 +178,7 @@ func (u *userInfoService) SmsLogin(req auth.SmsLoginRequest) (*userdto.LoginResp
 		zap.L().Error("存储 Token ID 到缓存失败", zap.Error(err))
 	}
 
-	loginRsp := &userdto.LoginRespond{
+	loginRsp := &userrsp.LoginRespond{
 		Uuid:         user.Uuid,
 		Telephone:    user.Telephone,
 		Nickname:     user.Nickname,
@@ -219,7 +219,7 @@ func (u *userInfoService) checkTelephoneExist(telephone string) error {
 }
 
 // Register 注册
-func (u *userInfoService) Register(registerReq auth.RegisterRequest) (*userdto.RegisterRespond, error) {
+func (u *userInfoService) Register(registerReq auth.RegisterRequest) (*userrsp.RegisterRespond, error) {
 	key := "auth_code_" + registerReq.Telephone
 	code, err := u.cache.Get(context.Background(), key)
 	if err != nil {
@@ -255,7 +255,7 @@ func (u *userInfoService) Register(registerReq auth.RegisterRequest) (*userdto.R
 		return nil, errorx.ErrServerBusy
 	}
 
-	registerRsp := &userdto.RegisterRespond{
+	registerRsp := &userrsp.RegisterRespond{
 		Uuid:      newUser.Uuid,
 		Telephone: newUser.Telephone,
 		Nickname:  newUser.Nickname,
@@ -316,7 +316,7 @@ func (u *userInfoService) UpdateUserInfo(userId string, updateReq userreq.Update
 
 // GetUserInfo 获取用户信息
 // GetUserInfo 获取用户完整信息（仅限自己调用）
-func (u *userInfoService) GetUserInfo(requesterId, targetId string) (*userdto.GetUserInfoRespond, error) {
+func (u *userInfoService) GetUserInfo(requesterId, targetId string) (*userrsp.GetUserInfoRespond, error) {
 	// 权限校验: 只能查看自己的完整信息
 	if requesterId != targetId {
 		return nil, errorx.New(errorx.CodeForbidden, "无权查看他人详细信息")
@@ -327,7 +327,7 @@ func (u *userInfoService) GetUserInfo(requesterId, targetId string) (*userdto.Ge
 	// 1. 尝试从缓存获取
 	rspString, err := u.cache.Get(context.Background(), key)
 	if err == nil && rspString != "" {
-		var rsp userdto.GetUserInfoRespond
+		var rsp userrsp.GetUserInfoRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
 			return &rsp, nil
 		}
@@ -346,7 +346,7 @@ func (u *userInfoService) GetUserInfo(requesterId, targetId string) (*userdto.Ge
 	}
 
 	// 3. 构造响应对象
-	rsp := &userdto.GetUserInfoRespond{
+	rsp := &userrsp.GetUserInfoRespond{
 		Uuid:      user.Uuid,
 		Telephone: user.Telephone,
 		Nickname:  user.Nickname,
@@ -376,7 +376,7 @@ func (u *userInfoService) GetUserInfo(requesterId, targetId string) (*userdto.Ge
 }
 
 // GetPublicUserInfo 获取用户公开信息（查看他人）
-func (u *userInfoService) GetPublicUserInfo(targetId string) (*userdto.PublicUserInfoRespond, error) {
+func (u *userInfoService) GetPublicUserInfo(targetId string) (*userrsp.PublicUserInfoRespond, error) {
 	user, err := u.repos.User.FindByUuid(targetId)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
@@ -386,7 +386,7 @@ func (u *userInfoService) GetPublicUserInfo(targetId string) (*userdto.PublicUse
 		return nil, errorx.ErrServerBusy
 	}
 
-	return &userdto.PublicUserInfoRespond{
+	return &userrsp.PublicUserInfoRespond{
 		Uuid:      user.Uuid,
 		Nickname:  user.Nickname,
 		Avatar:    user.Avatar,

@@ -11,7 +11,7 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request/group"
-	groupdto "kama_chat_server/internal/dto/respond/group"
+	grouprsp "kama_chat_server/internal/dto/respond/group"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/enum/contact/contact_status_enum"
@@ -110,7 +110,7 @@ func (g *groupInfoService) CreateGroup(ownerId string, groupReq group.CreateGrou
 }
 
 // LoadMyGroup 获取我创建的群聊
-func (g *groupInfoService) LoadMyGroup(userId string) ([]groupdto.MyGroupListRespond, error) {
+func (g *groupInfoService) LoadMyGroup(userId string) ([]grouprsp.MyGroupListRespond, error) {
 	// 1. 获取所有关联群组
 	allGroups, err := g.getGroupsByUserId(userId)
 	if err != nil {
@@ -118,10 +118,10 @@ func (g *groupInfoService) LoadMyGroup(userId string) ([]groupdto.MyGroupListRes
 	}
 
 	// 2. 过滤出我创建的群组
-	groupListRsp := make([]groupdto.MyGroupListRespond, 0)
+	groupListRsp := make([]grouprsp.MyGroupListRespond, 0)
 	for _, grp := range allGroups {
 		if grp.OwnerId == userId {
-			groupListRsp = append(groupListRsp, groupdto.MyGroupListRespond{
+			groupListRsp = append(groupListRsp, grouprsp.MyGroupListRespond{
 				GroupId:   grp.Uuid,
 				GroupName: grp.Name,
 				Avatar:    grp.Avatar,
@@ -137,7 +137,7 @@ func (g *groupInfoService) LoadMyGroup(userId string) ([]groupdto.MyGroupListRes
 // 这里为了满足 Contact 模块的需求，通常是指"所有群组"或"非我创建的群组"，
 // 之前的 Contact.GetJoinedGroupsExcludedOwn 是排除自己创建的。
 // 我们这里提供 GetJoinedGroupsExcludedOwn 对应的逻辑：
-func (g *groupInfoService) GetJoinedGroups(userId string) ([]groupdto.MyGroupListRespond, error) {
+func (g *groupInfoService) GetJoinedGroups(userId string) ([]grouprsp.MyGroupListRespond, error) {
 	// 1. 获取所有关联群组
 	allGroups, err := g.getGroupsByUserId(userId)
 	if err != nil {
@@ -145,10 +145,10 @@ func (g *groupInfoService) GetJoinedGroups(userId string) ([]groupdto.MyGroupLis
 	}
 
 	// 2. 过滤出我加入的群组 (排除自己创建的)
-	groupListRsp := make([]groupdto.MyGroupListRespond, 0)
+	groupListRsp := make([]grouprsp.MyGroupListRespond, 0)
 	for _, grp := range allGroups {
 		if grp.OwnerId != userId {
-			groupListRsp = append(groupListRsp, groupdto.MyGroupListRespond{
+			groupListRsp = append(groupListRsp, grouprsp.MyGroupListRespond{
 				GroupId:   grp.Uuid,
 				GroupName: grp.Name,
 				Avatar:    grp.Avatar,
@@ -202,10 +202,10 @@ func (g *groupInfoService) getGroupsByUserId(userId string) ([]model.GroupInfo, 
 		infoKey := "group_info_" + groupId
 		val, err := g.cache.Get(context.Background(), infoKey)
 		if err == nil && val != "" {
-			// 注意：缓存里存的是 groupdto.GetGroupInfoRespond 结构，不是 model.GroupInfo
+			// 注意：缓存里存的是 grouprsp.GetGroupInfoRespond 结构，不是 model.GroupInfo
 			// 所以我们需要 Unmarshal 到 DTO 然后转换，或者统一缓存结构。
-			// 之前的代码是 Unmarshal 到 groupdto.GetGroupInfoRespond
-			var dto groupdto.GetGroupInfoRespond
+			// 之前的代码是 Unmarshal 到 grouprsp.GetGroupInfoRespond
+			var dto grouprsp.GetGroupInfoRespond
 			if err := json.Unmarshal([]byte(val), &dto); err == nil {
 				// DTO -> Model (部分字段)
 				// 为了简化，我们只需要 ID, Name, Avatar, OwnerId
@@ -235,7 +235,7 @@ func (g *groupInfoService) getGroupsByUserId(userId string) ([]model.GroupInfo, 
 			// 异步回写缓存
 			cacheGroup := grp
 			g.cache.SubmitTask(func() {
-				info := groupdto.GetGroupInfoRespond{
+				info := grouprsp.GetGroupInfoRespond{
 					Uuid:      cacheGroup.Uuid,
 					Name:      cacheGroup.Name,
 					Notice:    cacheGroup.Notice,
@@ -263,7 +263,7 @@ func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
 	// 1. 尝试读取缓存
 	rspString, err := g.cache.Get(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
-		var rsp groupdto.GetGroupInfoRespond
+		var rsp grouprsp.GetGroupInfoRespond
 		// 如果反序列化成功，直接返回结果
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
 			return rsp.AddMode, nil
@@ -280,7 +280,7 @@ func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
 	}
 
 	// 3. 【关键】构建缓存对象
-	cacheRsp := groupdto.GetGroupInfoRespond{
+	cacheRsp := grouprsp.GetGroupInfoRespond{
 		Uuid:      group.Uuid,
 		Name:      group.Name,
 		Notice:    group.Notice,
@@ -466,16 +466,16 @@ func (g *groupInfoService) DismissGroup(operatorId, groupId string) error {
 
 // GetPublicGroupInfo 获取群组公开信息（非群成员也可查看）
 // 类似于 UserService.GetPublicUserInfo，只返回公开字段
-func (g *groupInfoService) GetPublicGroupInfo(groupId string) (*groupdto.PublicGroupInfoRespond, error) {
+func (g *groupInfoService) GetPublicGroupInfo(groupId string) (*grouprsp.PublicGroupInfoRespond, error) {
 	cacheKey := "group_info_" + groupId
 
 	// 1. 尝试从缓存获取
 	rspString, err := g.cache.Get(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
-		var fullInfo groupdto.GetGroupInfoRespond
+		var fullInfo grouprsp.GetGroupInfoRespond
 		if err := json.Unmarshal([]byte(rspString), &fullInfo); err == nil {
 			// 转换为公开信息（只包含非敏感字段）
-			return &groupdto.PublicGroupInfoRespond{
+			return &grouprsp.PublicGroupInfoRespond{
 				Uuid:      fullInfo.Uuid,
 				Name:      fullInfo.Name,
 				Notice:    fullInfo.Notice,
@@ -498,7 +498,7 @@ func (g *groupInfoService) GetPublicGroupInfo(groupId string) (*groupdto.PublicG
 	}
 
 	// 3. 构建公开响应（不包含 status, is_deleted, owner_id 等敏感信息）
-	rsp := &groupdto.PublicGroupInfoRespond{
+	rsp := &grouprsp.PublicGroupInfoRespond{
 		Uuid:      group.Uuid,
 		Name:      group.Name,
 		Notice:    group.Notice,
@@ -510,7 +510,7 @@ func (g *groupInfoService) GetPublicGroupInfo(groupId string) (*groupdto.PublicG
 	// 4. 异步回写完整缓存（供其他需要完整信息的方法使用）
 	cacheGroup := *group
 	g.cache.SubmitTask(func() {
-		info := groupdto.GetGroupInfoRespond{
+		info := grouprsp.GetGroupInfoRespond{
 			Uuid:      cacheGroup.Uuid,
 			Name:      cacheGroup.Name,
 			Notice:    cacheGroup.Notice,
@@ -589,7 +589,7 @@ func (g *groupInfoService) UpdateGroupInfo(operatorId string, req group.UpdateGr
 }
 
 // GetGroupMemberList 获取群聊成员列表 (userId 必须是群成员)
-func (g *groupInfoService) GetGroupMemberList(userId, groupId string) ([]groupdto.GetGroupMemberListRespond, error) {
+func (g *groupInfoService) GetGroupMemberList(userId, groupId string) ([]grouprsp.GetGroupMemberListRespond, error) {
 	// 权限校验: 必须是群成员
 	_, err := g.repos.GroupMember.FindByGroupAndUser(groupId, userId)
 	if err != nil {
@@ -605,7 +605,7 @@ func (g *groupInfoService) GetGroupMemberList(userId, groupId string) ([]groupdt
 	// 1. 尝试从缓存获取
 	rspString, err := g.cache.Get(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
-		var rsp []groupdto.GetGroupMemberListRespond
+		var rsp []grouprsp.GetGroupMemberListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
 			return rsp, nil
 		}
@@ -624,9 +624,9 @@ func (g *groupInfoService) GetGroupMemberList(userId, groupId string) ([]groupdt
 	}
 
 	// 3. 构建响应 (预分配)
-	rspList := make([]groupdto.GetGroupMemberListRespond, 0, len(members))
+	rspList := make([]grouprsp.GetGroupMemberListRespond, 0, len(members))
 	for _, m := range members {
-		rspList = append(rspList, groupdto.GetGroupMemberListRespond{
+		rspList = append(rspList, grouprsp.GetGroupMemberListRespond{
 			UserId:   m.UserId,
 			Nickname: m.Nickname,
 			Avatar:   m.Avatar,

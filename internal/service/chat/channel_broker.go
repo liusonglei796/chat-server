@@ -14,7 +14,7 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request/message"
-	messagedto "kama_chat_server/internal/dto/respond/message"
+	messagersp "kama_chat_server/internal/dto/respond/message"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
@@ -308,7 +308,7 @@ func (s *StandaloneServer) handleAVMessage(req message.ChatMessageRequest) {
 	// 只能是单聊 (群聊暂不支持 WebRTC 信令转发逻辑)
 	if req.ReceiveId[0] == 'U' {
 		// 构建信令响应对象
-		messageRsp := messagedto.AVMessageRespond{
+		messageRsp := messagersp.AVMessageRespond{
 			SendId:     message.SendId,
 			SendName:   message.SendName,
 			SendAvatar: message.SendAvatar,
@@ -352,7 +352,7 @@ func (s *StandaloneServer) handleAVMessage(req message.ChatMessageRequest) {
 // 4. 异步更新 Redis 中的双人聊天记录缓存
 func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar string) {
 	// 构造返回给前端的响应体
-	messageRsp := messagedto.GetMessageListRespond{
+	messageRsp := messagersp.GetMessageListRespond{
 		SendId:     message.SendId,
 		SendName:   message.SendName,
 		SendAvatar: originalAvatar,
@@ -405,7 +405,7 @@ func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar stri
 
 			rspString, err := s.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
-				var list []messagedto.GetMessageListRespond
+				var list []messagersp.GetMessageListRespond
 				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 					list = append(list, messageRsp)
 					if rspByte, err := json.Marshal(list); err == nil {
@@ -425,7 +425,7 @@ func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar stri
 // 5. 异步更新 Redis 中的群组聊天记录缓存
 func (s *StandaloneServer) sendToGroup(message model.Message, originalAvatar string) {
 	// 构造群聊响应体
-	messageRsp := messagedto.GetMessageListRespond{
+	messageRsp := messagersp.GetMessageListRespond{
 		SendId:     message.SendId,
 		SendName:   message.SendName,
 		SendAvatar: originalAvatar,
@@ -485,7 +485,7 @@ func (s *StandaloneServer) sendToGroup(message model.Message, originalAvatar str
 			key := "group_messagelist_" + message.ReceiveId
 			rspString, err := s.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
-				var list []messagedto.GetMessageListRespond
+				var list []messagersp.GetMessageListRespond
 				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 					list = append(list, messageRsp)
 					if rspByte, err := json.Marshal(list); err == nil {

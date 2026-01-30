@@ -10,7 +10,7 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	applyreq "kama_chat_server/internal/dto/request/apply"
-	applydto "kama_chat_server/internal/dto/respond/apply"
+	applyrsp "kama_chat_server/internal/dto/respond/apply"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/enum/contact/contact_status_enum"
@@ -308,7 +308,7 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 // GetFriendApplyList 获取收到的好友申请列表
 // userId: 当前用户的ID
 // 返回: 好友申请列表响应对象切片
-func (u *applyService) GetFriendApplyList(userId string) ([]applydto.FriendApplyListRespond, error) {
+func (u *applyService) GetFriendApplyList(userId string) ([]applyrsp.FriendApplyListRespond, error) {
 	// 1. 查询待处理的申请记录
 	// 查询指向当前用户（作为目标）的所有待处理（PENDING）申请
 	applyList, err := u.repos.Apply.FindByTargetIdPending(userId)
@@ -318,7 +318,7 @@ func (u *applyService) GetFriendApplyList(userId string) ([]applydto.FriendApply
 	}
 	// 如果没有申请，直接返回空切片
 	if len(applyList) == 0 {
-		return []applydto.FriendApplyListRespond{}, nil // 返回空切片而不是nil，方便前端处理
+		return []applyrsp.FriendApplyListRespond{}, nil // 返回空切片而不是nil，方便前端处理
 	}
 
 	// 2. 收集申请人ID
@@ -345,7 +345,7 @@ func (u *applyService) GetFriendApplyList(userId string) ([]applydto.FriendApply
 	}
 
 	// 5. 组装响应数据
-	rsp := make([]applydto.FriendApplyListRespond, 0, len(applyList))
+	rsp := make([]applyrsp.FriendApplyListRespond, 0, len(applyList))
 	for _, apply := range applyList {
 		// 从Map中获取申请人详细信息
 		user, ok := userMap[apply.ApplicantId]
@@ -361,7 +361,7 @@ func (u *applyService) GetFriendApplyList(userId string) ([]applydto.FriendApply
 		}
 
 		// 构建并追加响应对象
-		rsp = append(rsp, applydto.FriendApplyListRespond{
+		rsp = append(rsp, applyrsp.FriendApplyListRespond{
 			ApplicantId:     user.Uuid,
 			ApplicantName:   user.Nickname,
 			ApplicantAvatar: user.Avatar,
@@ -375,7 +375,7 @@ func (u *applyService) GetFriendApplyList(userId string) ([]applydto.FriendApply
 // GetGroupApplyList 获取收到的加群申请列表
 // userId: 操作者ID（必须是管理员或群主）
 // groupId: 目标群组ID
-func (u *applyService) GetGroupApplyList(userId, groupId string) ([]applydto.GroupApplyListRespond, error) {
+func (u *applyService) GetGroupApplyList(userId, groupId string) ([]applyrsp.GroupApplyListRespond, error) {
 	// 1. 权限校验
 	// 检查操作者是否是该群的成员
 	member, err := u.repos.GroupMember.FindByGroupAndUser(groupId, userId)
@@ -400,7 +400,7 @@ func (u *applyService) GetGroupApplyList(userId, groupId string) ([]applydto.Gro
 		return nil, errorx.ErrServerBusy
 	}
 	if len(applyList) == 0 {
-		return []applydto.GroupApplyListRespond{}, nil
+		return []applyrsp.GroupApplyListRespond{}, nil
 	}
 
 	// 3. 收集申请人ID
@@ -423,7 +423,7 @@ func (u *applyService) GetGroupApplyList(userId, groupId string) ([]applydto.Gro
 	}
 
 	// 6. 组装响应数据
-	rsp := make([]applydto.GroupApplyListRespond, 0, len(applyList))
+	rsp := make([]applyrsp.GroupApplyListRespond, 0, len(applyList))
 	for _, apply := range applyList {
 		user, ok := userMap[apply.ApplicantId]
 		if !ok {
@@ -435,7 +435,7 @@ func (u *applyService) GetGroupApplyList(userId, groupId string) ([]applydto.Gro
 			message = "申请理由：" + apply.Message
 		}
 
-		rsp = append(rsp, applydto.GroupApplyListRespond{
+		rsp = append(rsp, applyrsp.GroupApplyListRespond{
 			ApplicantId:     user.Uuid,
 			ApplicantName:   user.Nickname,
 			ApplicantAvatar: user.Avatar,

@@ -23,7 +23,7 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request/message"
-	messagedto "kama_chat_server/internal/dto/respond/message"
+	messagersp "kama_chat_server/internal/dto/respond/message"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
@@ -374,7 +374,7 @@ func (k *MsgConsumer) handleAVMessage(req message.ChatMessageRequest) {
 	// 处理单聊信令转发
 	if req.ReceiveId[0] == 'U' {
 		// 构造响应
-		messageRsp := messagedto.AVMessageRespond{
+		messageRsp := messagersp.AVMessageRespond{
 			SendId:     message.SendId,
 			SendName:   message.SendName,
 			SendAvatar: message.SendAvatar,
@@ -414,7 +414,7 @@ func (k *MsgConsumer) handleAVMessage(req message.ChatMessageRequest) {
 // 4. 异步更新 Redis 中的双人聊天记录缓存
 func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 	// 构造响应体
-	messageRsp := messagedto.GetMessageListRespond{
+	messageRsp := messagersp.GetMessageListRespond{
 		SendId:     message.SendId,
 		SendName:   message.SendName,
 		SendAvatar: originalAvatar,
@@ -458,7 +458,7 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 			key := "message_list_" + message.SendId + "_" + message.ReceiveId
 			rspString, err := k.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
-				var list []messagedto.GetMessageListRespond
+				var list []messagersp.GetMessageListRespond
 				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 					list = append(list, messageRsp)
 					if rspByte, err := json.Marshal(list); err == nil {
@@ -478,7 +478,7 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 // 5. 异步更新 Redis 中的群组聊天记录缓存
 func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) {
 	// 构造群聊响应
-	messageRsp := messagedto.GetMessageListRespond{
+	messageRsp := messagersp.GetMessageListRespond{
 		SendId:     message.SendId,
 		SendName:   message.SendName,
 		SendAvatar: originalAvatar,
@@ -537,7 +537,7 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 			key := "group_messagelist_" + message.ReceiveId
 			rspString, err := k.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
-				var list []messagedto.GetMessageListRespond
+				var list []messagersp.GetMessageListRespond
 				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 					list = append(list, messageRsp)
 					if rspByte, err := json.Marshal(list); err == nil {
@@ -550,14 +550,14 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 }
 
 // updateRedisGroup 更新群组聊天记录的缓存
-func (k *MsgConsumer) updateRedisGroup(message model.Message, rsp messagedto.GetMessageListRespond) {
+func (k *MsgConsumer) updateRedisGroup(message model.Message, rsp messagersp.GetMessageListRespond) {
 	if k.cacheService == nil {
 		return
 	}
 	key := "group_messagelist_" + message.ReceiveId
 	rspString, err := k.cacheService.GetOrError(context.Background(), key)
 	if err == nil {
-		var list []messagedto.GetMessageListRespond
+		var list []messagersp.GetMessageListRespond
 		if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 			list = append(list, rsp)
 			if rspByte, err := json.Marshal(list); err == nil {
