@@ -25,6 +25,6 @@ func (rt *Router) RegisterFriendRoutes(rg *gin.RouterGroup) {
 		friendGroup.GET("/applyList", rt.handlers.Apply.GetFriendApplyList)   // 获取待处理的好友申请
 		friendGroup.POST("/passApply", rt.handlers.Apply.PassFriendApply)     // 通过好友申请
 		friendGroup.POST("/refuseApply", rt.handlers.Apply.RefuseFriendApply) // 拒绝好友申请
-		friendGroup.POST("/rejectApply", rt.handlers.Apply.RejectFriendApply) // 拉黑好友申请
+		friendGroup.POST("/blackApply", rt.handlers.Apply.BlackFriendApply)   // 拉黑好友申请
 	}
 }

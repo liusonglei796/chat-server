@@ -25,11 +25,6 @@ func NewApplyHandler(applySvc service.ApplyService) *ApplyHandler {
 // 请求体: apply.ApplyFriendRequest
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
-// ApplyFriend 申请添加好友
-// POST /apply/friend
-// 请求体: apply.ApplyFriendRequest
-// 响应: nil
-// 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
 func (h *ApplyHandler) ApplyFriend(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
@@ -49,11 +44,6 @@ func (h *ApplyHandler) ApplyFriend(c *gin.Context) {
 	HandleSuccess(c, nil)
 }
 
-// ApplyGroup 申请加入群组
-// POST /apply/group
-// 请求体: apply.ApplyGroupRequest
-// 响应: nil
-// 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
 // ApplyGroup 申请加入群组
 // POST /apply/group
 // 请求体: apply.ApplyGroupRequest
@@ -79,9 +69,9 @@ func (h *ApplyHandler) ApplyGroup(c *gin.Context) {
 }
 
 // GetFriendApplyList 获取待处理的好友申请列表
-// GET /apply/friendList
+// GET /apply/friendList?page=1&page_size=20
 // 从JWT上下文获取当前用户ID
-// 响应: []respond.FriendApplyListRespond
+// 响应: respond.PagedFriendApplyListRespond
 func (h *ApplyHandler) GetFriendApplyList(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
@@ -89,7 +79,13 @@ func (h *ApplyHandler) GetFriendApplyList(c *gin.Context) {
 		return
 	}
 
-	data, err := h.applySvc.GetFriendApplyList(userId.(string))
+	var req apply.GetFriendApplyListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+
+	data, err := h.applySvc.GetFriendApplyList(userId.(string), req.Page, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -98,9 +94,9 @@ func (h *ApplyHandler) GetFriendApplyList(c *gin.Context) {
 }
 
 // GetGroupApplyList 获取入群申请列表
-// GET /apply/groupList?groupId=xxx
+// GET /apply/groupList?groupId=xxx&page=1&page_size=20
 // 查询参数: apply.GetGroupApplyListRequest
-// 响应: []respond.GroupApplyListRespond
+// 响应: respond.PagedGroupApplyListRespond
 func (h *ApplyHandler) GetGroupApplyList(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
@@ -113,7 +109,7 @@ func (h *ApplyHandler) GetGroupApplyList(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.applySvc.GetGroupApplyList(userId.(string), req.GroupId)
+	data, err := h.applySvc.GetGroupApplyList(userId.(string), req.GroupId, req.Page, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -123,7 +119,7 @@ func (h *ApplyHandler) GetGroupApplyList(c *gin.Context) {
 
 // PassFriendApply 通过好友申请
 // POST /apply/passFriend
-// 请求体: apply.PassFriendApplyRequest
+// 请求体: apply.HandleFriendApplyRequest
 // 响应: nil
 func (h *ApplyHandler) PassFriendApply(c *gin.Context) {
 	userId, exists := c.Get("user_id")
@@ -132,7 +128,7 @@ func (h *ApplyHandler) PassFriendApply(c *gin.Context) {
 		return
 	}
 
-	var req apply.PassFriendApplyRequest
+	var req apply.HandleFriendApplyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -146,7 +142,7 @@ func (h *ApplyHandler) PassFriendApply(c *gin.Context) {
 
 // PassGroupApply 通过入群申请
 // POST /apply/passGroup
-// 请求体: apply.PassGroupApplyRequest
+// 请求体: apply.HandleGroupApplyRequest
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验审批权限
 func (h *ApplyHandler) PassGroupApply(c *gin.Context) {
@@ -156,7 +152,7 @@ func (h *ApplyHandler) PassGroupApply(c *gin.Context) {
 		return
 	}
 
-	var req apply.PassGroupApplyRequest
+	var req apply.HandleGroupApplyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -170,7 +166,7 @@ func (h *ApplyHandler) PassGroupApply(c *gin.Context) {
 
 // RefuseFriendApply 拒绝好友申请
 // POST /apply/refuseFriend
-// 请求体: apply.PassFriendApplyRequest
+// 请求体: apply.HandleFriendApplyRequest
 // 响应: nil
 func (h *ApplyHandler) RefuseFriendApply(c *gin.Context) {
 	userId, exists := c.Get("user_id")
@@ -179,7 +175,7 @@ func (h *ApplyHandler) RefuseFriendApply(c *gin.Context) {
 		return
 	}
 
-	var req apply.PassFriendApplyRequest
+	var req apply.HandleFriendApplyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -194,7 +190,7 @@ func (h *ApplyHandler) RefuseFriendApply(c *gin.Context) {
 
 // RefuseGroupApply 拒绝入群申请
 // POST /apply/refuseGroup
-// 请求体: apply.PassGroupApplyRequest
+// 请求体: apply.HandleGroupApplyRequest
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验审批权限
 func (h *ApplyHandler) RefuseGroupApply(c *gin.Context) {
@@ -204,7 +200,7 @@ func (h *ApplyHandler) RefuseGroupApply(c *gin.Context) {
 		return
 	}
 
-	var req apply.PassGroupApplyRequest
+	var req apply.HandleGroupApplyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -216,18 +212,18 @@ func (h *ApplyHandler) RefuseGroupApply(c *gin.Context) {
 	HandleSuccess(c, nil)
 }
 
-// RejectFriendApply 拒绝好友申请
-// POST /apply/rejectFriendApply
-// 请求体: apply.RejectFriendApplyRequest
+// BlackFriendApply 拉黑好友申请
+// POST /apply/blackFriend
+// 请求体: apply.HandleFriendApplyRequest
 // 响应: nil
-func (h *ApplyHandler) RejectFriendApply(c *gin.Context) {
+func (h *ApplyHandler) BlackFriendApply(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
 
-	var req apply.RejectFriendApplyRequest
+	var req apply.HandleFriendApplyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -239,18 +235,18 @@ func (h *ApplyHandler) RejectFriendApply(c *gin.Context) {
 	HandleSuccess(c, nil)
 }
 
-// RejectGroupApply 拒绝入群申请
-// POST /apply/rejectGroupApply
-// 请求体: apply.RejectGroupApplyRequest
+// BlackGroupApply 拉黑入群申请
+// POST /apply/blackGroup
+// 请求体: apply.HandleGroupApplyRequest
 // 响应: nil
-func (h *ApplyHandler) RejectGroupApply(c *gin.Context) {
+func (h *ApplyHandler) BlackGroupApply(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
 
-	var req apply.RejectGroupApplyRequest
+	var req apply.HandleGroupApplyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -261,3 +257,5 @@ func (h *ApplyHandler) RejectGroupApply(c *gin.Context) {
 	}
 	HandleSuccess(c, nil)
 }
+
+

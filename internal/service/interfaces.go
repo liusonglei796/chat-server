@@ -109,8 +109,8 @@ type ApplyService interface {
 	// ===== 好友申请相关 =====
 	// ApplyFriend 申请添加好友
 	ApplyFriend(userId string, req apply.ApplyFriendRequest) error
-	// GetFriendApplyList 获取待处理的好友申请列表
-	GetFriendApplyList(userId string) ([]applyrsp.FriendApplyListRespond, error)
+	// GetFriendApplyList 获取待处理的好友申请列表（分页）
+	GetFriendApplyList(userId string, page, pageSize int) (*applyrsp.PagedFriendApplyListRespond, error)
 	// PassFriendApply 通过好友申请
 	PassFriendApply(userId, applicantId string) error
 	// RefuseFriendApply 拒绝好友申请
@@ -121,8 +121,8 @@ type ApplyService interface {
 	// ===== 入群申请相关 =====
 	// ApplyGroup 申请加入群组
 	ApplyGroup(userId string, req apply.ApplyGroupRequest) error
-	// GetGroupApplyList 获取入群申请列表
-	GetGroupApplyList(userId, groupId string) ([]applyrsp.GroupApplyListRespond, error)
+	// GetGroupApplyList 获取入群申请列表（分页）
+	GetGroupApplyList(userId, groupId string, page, pageSize int) (*applyrsp.PagedGroupApplyListRespond, error)
 	// PassGroupApply 通过入群申请 (operatorId 需要是群主或管理员)
 	PassGroupApply(operatorId, groupId, applicantId string) error
 	// RefuseGroupApply 拒绝入群申请 (operatorId 需要是群主或管理员)

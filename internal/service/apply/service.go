@@ -305,10 +305,12 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 }
 
 // GetFriendApplyList 获取收到的好友申请列表
-// GetFriendApplyList 获取收到的好友申请列表
+// GetFriendApplyList 获取收到的好友申请列表（分页）
 // userId: 当前用户的ID
-// 返回: 好友申请列表响应对象切片
-func (u *applyService) GetFriendApplyList(userId string) ([]applyrsp.FriendApplyListRespond, error) {
+// page: 页码，从1开始
+// pageSize: 每页数量
+// 返回: 分页好友申请列表响应对象
+func (u *applyService) GetFriendApplyList(userId string, page, pageSize int) (*applyrsp.PagedFriendApplyListRespond, error) {
 	// 1. 查询待处理的申请记录
 	// 查询指向当前用户（作为目标）的所有待处理（PENDING）申请
 	applyList, err := u.repos.Apply.FindByTargetIdPending(userId)
@@ -316,19 +318,47 @@ func (u *applyService) GetFriendApplyList(userId string) ([]applyrsp.FriendApply
 		zap.L().Error("Find pending applies error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
+	total := int64(len(applyList))
 	// 如果没有申请，直接返回空切片
-	if len(applyList) == 0 {
-		return []applyrsp.FriendApplyListRespond{}, nil // 返回空切片而不是nil，方便前端处理
+	if total == 0 {
+		return &applyrsp.PagedFriendApplyListRespond{
+			Total: 0,
+			List:  []applyrsp.FriendApplyListRespond{},
+		}, nil
 	}
 
-	// 2. 收集申请人ID
-	// 遍历申请列表，提取所有申请人的UUID，以便批量查询用户信息
-	userUuids := make([]string, 0, len(applyList))
-	for _, apply := range applyList {
-		userUuids = append(userUuids, apply.ApplicantId)
+	// 2. 分页处理
+	// 设置默认分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
 	}
 
-	// 3. 批量查询申请人信息
+	// 计算分页范围
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start >= len(applyList) {
+		return &applyrsp.PagedFriendApplyListRespond{
+			Total: total,
+			List:  []applyrsp.FriendApplyListRespond{},
+		}, nil
+	}
+	if end > len(applyList) {
+		end = len(applyList)
+	}
+
+	// 3. 收集当前页申请人ID
+	userUuids := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		userUuids = append(userUuids, applyList[i].ApplicantId)
+	}
+
+	// 4. 批量查询申请人信息
 	// 根据收集到的UUID列表，一次性查询所有用户信息，避免N+1查询问题
 	userList, err := u.repos.User.FindByUuids(userUuids)
 	if err != nil {
@@ -336,7 +366,7 @@ func (u *applyService) GetFriendApplyList(userId string) ([]applyrsp.FriendApply
 		return nil, errorx.ErrServerBusy
 	}
 
-	// 4. 构建用户信息Map
+	// 5. 构建用户信息Map
 	// 将用户列表转换为Map，Key为UUID，Value为用户信息
 	// 这样做是为了后续遍历申请列表时能够以O(1)复杂度获取对应用户信息
 	userMap := make(map[string]model.UserInfo)
@@ -344,9 +374,10 @@ func (u *applyService) GetFriendApplyList(userId string) ([]applyrsp.FriendApply
 		userMap[user.Uuid] = user
 	}
 
-	// 5. 组装响应数据
-	rsp := make([]applyrsp.FriendApplyListRespond, 0, len(applyList))
-	for _, apply := range applyList {
+	// 6. 组装响应数据
+	rsp := make([]applyrsp.FriendApplyListRespond, 0, end-start)
+	for i := start; i < end; i++ {
+		apply := applyList[i]
 		// 从Map中获取申请人详细信息
 		user, ok := userMap[apply.ApplicantId]
 		if !ok {
@@ -368,14 +399,18 @@ func (u *applyService) GetFriendApplyList(userId string) ([]applyrsp.FriendApply
 			Message:         message,
 		})
 	}
-	return rsp, nil
+
+	return &applyrsp.PagedFriendApplyListRespond{
+		Total: total,
+		List:  rsp,
+	}, nil
 }
 
 // GetGroupApplyList 获取收到的加群申请列表
 // GetGroupApplyList 获取收到的加群申请列表
 // userId: 操作者ID（必须是管理员或群主）
 // groupId: 目标群组ID
-func (u *applyService) GetGroupApplyList(userId, groupId string) ([]applyrsp.GroupApplyListRespond, error) {
+func (u *applyService) GetGroupApplyList(userId, groupId string, page, pageSize int) (*applyrsp.PagedGroupApplyListRespond, error) {
 	// 1. 权限校验
 	// 检查操作者是否是该群的成员
 	member, err := u.repos.GroupMember.FindByGroupAndUser(groupId, userId)
@@ -399,32 +434,62 @@ func (u *applyService) GetGroupApplyList(userId, groupId string) ([]applyrsp.Gro
 		zap.L().Error("Find group pending applies error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
-	if len(applyList) == 0 {
-		return []applyrsp.GroupApplyListRespond{}, nil
+	total := int64(len(applyList))
+	if total == 0 {
+		return &applyrsp.PagedGroupApplyListRespond{
+			Total: 0,
+			List:  []applyrsp.GroupApplyListRespond{},
+		}, nil
 	}
 
-	// 3. 收集申请人ID
-	userUuids := make([]string, 0, len(applyList))
-	for _, apply := range applyList {
-		userUuids = append(userUuids, apply.ApplicantId)
+	// 3. 分页处理
+	// 设置默认分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
 	}
 
-	// 4. 批量查询申请人信息
+	// 计算分页范围
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start >= len(applyList) {
+		return &applyrsp.PagedGroupApplyListRespond{
+			Total: total,
+			List:  []applyrsp.GroupApplyListRespond{},
+		}, nil
+	}
+	if end > len(applyList) {
+		end = len(applyList)
+	}
+
+	// 4. 收集当前页申请人ID
+	userUuids := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		userUuids = append(userUuids, applyList[i].ApplicantId)
+	}
+
+	// 5. 批量查询申请人信息
 	userList, err := u.repos.User.FindByUuids(userUuids)
 	if err != nil {
 		zap.L().Error("Batch find users info error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
-	// 5. 构建用户信息Map
+	// 6. 构建用户信息Map
 	userMap := make(map[string]model.UserInfo)
 	for _, user := range userList {
 		userMap[user.Uuid] = user
 	}
 
-	// 6. 组装响应数据
-	rsp := make([]applyrsp.GroupApplyListRespond, 0, len(applyList))
-	for _, apply := range applyList {
+	// 7. 组装响应数据
+	rsp := make([]applyrsp.GroupApplyListRespond, 0, end-start)
+	for i := start; i < end; i++ {
+		apply := applyList[i]
 		user, ok := userMap[apply.ApplicantId]
 		if !ok {
 			continue
@@ -442,7 +507,11 @@ func (u *applyService) GetGroupApplyList(userId, groupId string) ([]applyrsp.Gro
 			Message:         message,
 		})
 	}
-	return rsp, nil
+
+	return &applyrsp.PagedGroupApplyListRespond{
+		Total: total,
+		List:  rsp,
+	}, nil
 }
 
 // PassFriendApply 通过好友申请
