@@ -2,7 +2,7 @@
 // 本文件处理认证相关的 API 请求
 package handler
 import (
-	"kama_chat_server/internal/dto/request"
+	"kama_chat_server/internal/dto/request/auth"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/util/jwt"
@@ -22,7 +22,7 @@ func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
 
 // RefreshToken 刷新 Access Token
 // POST /auth/refresh
-// 请求体: request.RefreshTokenRequest
+// 请求体: auth.RefreshTokenRequest
 // 响应: { access_token: string }
 // 功能:
 //   - 验证 Refresh Token 是否有效
@@ -33,7 +33,7 @@ func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
 //   - 如果用户在其他设备登录，会覆盖旧的 Token ID
 //   - 使用旧 Token ID 刷新时会被拒绝
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
-	var req request.RefreshTokenRequest
+	var req auth.RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return

@@ -3,7 +3,7 @@
 package handler
 
 import (
-	"kama_chat_server/internal/dto/request"
+	"kama_chat_server/internal/dto/request/message"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/pkg/errorx"
 
@@ -23,10 +23,10 @@ func NewMessageHandler(messageSvc service.MessageService) *MessageHandler {
 }
 
 // GetMessageList 获取两个用户之间的聊天记录
-// GET /message/getMessageList?userOneId=xxx&userTwoId=xxx
-// 查询参数: request.GetMessageListRequest
+// GET /message/getMessageList?partner_id=xxx&page=1&page_size=20
+// 查询参数: message.GetMessageListRequest
 // 响应: []respond.GetMessageListRespond
-// 安全: 从JWT上下文获取当前用户ID，校验调用者是聊天双方之一
+// 安全: 从JWT上下文获取当前用户ID，防止查看他人聊天记录
 func (h *MessageHandler) GetMessageList(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
@@ -34,14 +34,21 @@ func (h *MessageHandler) GetMessageList(c *gin.Context) {
 		return
 	}
 
-	var req request.GetMessageListRequest
+	var req message.GetMessageListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
 
-	// 权限校验已下沉到 Service 层
-	data, err := h.messageSvc.GetMessageList(userId.(string), req.UserOneId, req.UserTwoId)
+	// 设置默认分页参数
+	if req.Page <= 0 {
+		req.Page = 1
+	}
+	if req.PageSize <= 0 {
+		req.PageSize = 20
+	}
+
+	data, err := h.messageSvc.GetMessageList(userId.(string), req.PartnerId, req.Page, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -51,8 +58,8 @@ func (h *MessageHandler) GetMessageList(c *gin.Context) {
 
 // GetGroupMessageList 获取群聊消息记录
 // GET /message/getGroupMessageList?groupId=xxx
-// 查询参数: request.GetGroupMessageListRequest
-// 响应: []respond.GetGroupMessageListRespond
+// 查询参数: message.GetGroupMessageListRequest
+// 响应: []respond.GetMessageListRespond
 // 安全: 从JWT上下文获取当前用户ID，Service层校验群成员身份
 func (h *MessageHandler) GetGroupMessageList(c *gin.Context) {
 	userId, exists := c.Get("user_id")
@@ -61,7 +68,7 @@ func (h *MessageHandler) GetGroupMessageList(c *gin.Context) {
 		return
 	}
 
-	var req request.GetGroupMessageListRequest
+	var req message.GetGroupMessageListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return

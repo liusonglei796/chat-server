@@ -5,7 +5,8 @@ package handler
 import (
 	"fmt"
 
-	"kama_chat_server/internal/dto/request"
+	"kama_chat_server/internal/dto/request/auth"
+	"kama_chat_server/internal/dto/request/user"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/pkg/errorx"
 
@@ -26,11 +27,11 @@ func NewUserHandler(userSvc service.UserService) *UserHandler {
 
 // Register 用户注册
 // POST /user/register
-// 请求体: request.RegisterRequest
+// 请求体: auth.RegisterRequest
 // 响应: respond.RegisterRespond (用户信息)
 func (h *UserHandler) Register(c *gin.Context) {
 	// 1. 绑定并验证请求参数
-	var req request.RegisterRequest
+	var req auth.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -50,10 +51,10 @@ func (h *UserHandler) Register(c *gin.Context) {
 
 // Login 用户登录（密码登录）
 // POST /user/login
-// 请求体: request.LoginRequest
+// 请求体: auth.LoginRequest
 // 响应: respond.LoginRespond (用户信息 + JWT Token)
 func (h *UserHandler) Login(c *gin.Context) {
-	var req request.LoginRequest
+	var req auth.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -68,10 +69,10 @@ func (h *UserHandler) Login(c *gin.Context) {
 
 // SmsLogin 短信验证码登录
 // POST /user/smsLogin
-// 请求体: request.SmsLoginRequest
+// 请求体: auth.SmsLoginRequest
 // 响应: respond.LoginRespond (用户信息 + JWT Token)
 func (h *UserHandler) SmsLogin(c *gin.Context) {
-	var req request.SmsLoginRequest
+	var req auth.SmsLoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -86,7 +87,7 @@ func (h *UserHandler) SmsLogin(c *gin.Context) {
 
 // UpdateUserInfo 修改用户信息
 // POST /user/updateUserInfo
-// 请求体: request.UpdateUserInfoRequest
+// 请求体: user.UpdateUserInfoRequest
 // 响应: nil (无返回数据)
 // 安全: 从JWT上下文获取当前用户ID，只能修改自己的信息
 func (h *UserHandler) UpdateUserInfo(c *gin.Context) {
@@ -96,7 +97,7 @@ func (h *UserHandler) UpdateUserInfo(c *gin.Context) {
 		return
 	}
 
-	var req request.UpdateUserInfoRequest
+	var req user.UpdateUserInfoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -129,10 +130,10 @@ func (h *UserHandler) GetUserInfo(c *gin.Context) {
 
 // GetPublicUserInfo 获取他人公开信息
 // GET /user/getPublicUserInfo?uuid=xxx
-// 查询参数: request.GetUserInfoRequest
+// 查询参数: user.GetUserInfoRequest
 // 响应: respond.PublicUserInfoRespond
 func (h *UserHandler) GetPublicUserInfo(c *gin.Context) {
-	var req request.GetUserInfoRequest
+	var req user.GetUserInfoRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -147,10 +148,10 @@ func (h *UserHandler) GetPublicUserInfo(c *gin.Context) {
 
 // SendSmsCode 发送短信验证码
 // POST /user/sendSmsCode
-// 请求体: request.SendSmsCodeRequest
+// 请求体: auth.SendSmsCodeRequest
 // 响应: nil
 func (h *UserHandler) SendSmsCode(c *gin.Context) {
-	var req request.SendSmsCodeRequest
+	var req auth.SendSmsCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return

@@ -3,7 +3,7 @@
 package handler
 
 import (
-	"kama_chat_server/internal/dto/request"
+	"kama_chat_server/internal/dto/request/group"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/pkg/errorx"
 
@@ -24,7 +24,7 @@ func NewGroupHandler(groupSvc service.GroupService) *GroupHandler {
 
 // CreateGroup 创建群聊
 // POST /group/createGroup
-// 请求体: request.CreateGroupRequest
+// 请求体: group.CreateGroupRequest
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID作为群主
 func (h *GroupHandler) CreateGroup(c *gin.Context) {
@@ -34,7 +34,7 @@ func (h *GroupHandler) CreateGroup(c *gin.Context) {
 		return
 	}
 
-	var req request.CreateGroupRequest
+	var req group.CreateGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -68,10 +68,10 @@ func (h *GroupHandler) LoadMyGroup(c *gin.Context) {
 
 // CheckGroupAddMode 检查群聊加入方式
 // GET /group/checkGroupAddMode?groupId=xxx
-// 查询参数: request.CheckGroupAddModeRequest
+// 查询参数: group.CheckGroupAddModeRequest
 // 响应: int8 (0=直接加入, 1=需要审核)
 func (h *GroupHandler) CheckGroupAddMode(c *gin.Context) {
-	var req request.CheckGroupAddModeRequest
+	var req group.CheckGroupAddModeRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -86,7 +86,7 @@ func (h *GroupHandler) CheckGroupAddMode(c *gin.Context) {
 
 // LeaveGroup 退出群聊
 // POST /group/leaveGroup
-// 请求体: request.LeaveGroupRequest
+// 请求体: group.LeaveGroupRequest
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
 func (h *GroupHandler) LeaveGroup(c *gin.Context) {
@@ -96,7 +96,7 @@ func (h *GroupHandler) LeaveGroup(c *gin.Context) {
 		return
 	}
 
-	var req request.LeaveGroupRequest
+	var req group.LeaveGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -110,7 +110,7 @@ func (h *GroupHandler) LeaveGroup(c *gin.Context) {
 
 // DismissGroup 解散群聊（仅群主可操作）
 // POST /group/dismissGroup
-// 请求体: request.DismissGroupRequest
+// 请求体: group.DismissGroupRequest
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验群主权限
 func (h *GroupHandler) DismissGroup(c *gin.Context) {
@@ -120,7 +120,7 @@ func (h *GroupHandler) DismissGroup(c *gin.Context) {
 		return
 	}
 
-	var req request.DismissGroupRequest
+	var req group.DismissGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -134,7 +134,7 @@ func (h *GroupHandler) DismissGroup(c *gin.Context) {
 
 // UpdateGroupInfo 更新群聊信息
 // POST /group/updateGroupInfo
-// 请求体: request.UpdateGroupInfoRequest
+// 请求体: group.UpdateGroupInfoRequest
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验管理员权限
 func (h *GroupHandler) UpdateGroupInfo(c *gin.Context) {
@@ -144,7 +144,7 @@ func (h *GroupHandler) UpdateGroupInfo(c *gin.Context) {
 		return
 	}
 
-	var req request.UpdateGroupInfoRequest
+	var req group.UpdateGroupInfoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -168,7 +168,7 @@ func (h *GroupHandler) GetGroupMemberList(c *gin.Context) {
 		return
 	}
 
-	var req request.GetGroupMemberListRequest
+	var req group.GetGroupMemberListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -183,7 +183,7 @@ func (h *GroupHandler) GetGroupMemberList(c *gin.Context) {
 
 // RemoveGroupMembers 移除群成员
 // POST /group/removeGroupMembers
-// 请求体: request.RemoveGroupMembersRequest
+// 请求体: group.RemoveGroupMembersRequest
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验管理员权限
 func (h *GroupHandler) RemoveGroupMembers(c *gin.Context) {
@@ -193,7 +193,7 @@ func (h *GroupHandler) RemoveGroupMembers(c *gin.Context) {
 		return
 	}
 
-	var req request.RemoveGroupMembersRequest
+	var req group.RemoveGroupMembersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return

@@ -22,8 +22,8 @@ import (
 	"fmt"
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
-	"kama_chat_server/internal/dto/request"
-	"kama_chat_server/internal/dto/respond"
+	"kama_chat_server/internal/dto/request/message"
+	messagedto "kama_chat_server/internal/dto/respond/message"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
@@ -126,7 +126,7 @@ func (k *MsgConsumer) Start() {
 
 			// 获取消息体
 			data := kafkaMessage.Value
-			var chatMessageReq request.ChatMessageRequest
+			var chatMessageReq message.ChatMessageRequest
 			// 反序列化为请求对象
 			if err := json.Unmarshal(data, &chatMessageReq); err != nil {
 				zap.L().Error("service error", zap.Error(err))
@@ -259,7 +259,7 @@ func (k *MsgConsumer) KickClient(userId string, reason string) {
 // 2. 将消息持久化到 MySQL
 // 3. 根据接收者类型 (User/Group) 路由消息
 // 4. 更新 Redis 缓存
-func (k *MsgConsumer) handleTextMessage(req request.ChatMessageRequest) {
+func (k *MsgConsumer) handleTextMessage(req message.ChatMessageRequest) {
 	// 构建数据库模型
 	message := model.Message{
 		Uuid:       "M" + snowflake.GenerateIDString(),
@@ -297,7 +297,7 @@ func (k *MsgConsumer) handleTextMessage(req request.ChatMessageRequest) {
 
 // handleFileMessage 处理文件消息
 // 逻辑与文本消息类似，区别在于 Content 为空，Url 字段存储文件链接
-func (k *MsgConsumer) handleFileMessage(req request.ChatMessageRequest) {
+func (k *MsgConsumer) handleFileMessage(req message.ChatMessageRequest) {
 	// 构建数据库模型
 	message := model.Message{
 		Uuid:       "M" + snowflake.GenerateIDString(),
@@ -336,8 +336,8 @@ func (k *MsgConsumer) handleFileMessage(req request.ChatMessageRequest) {
 // handleAVMessage 处理音视频通话信令
 // 信令消息（如 start_call）用于 WebRTC 连接建立
 // 大部分信令只需透传，特定关键信令（如 PROXY 类型中的 start_call 等）会持久化到数据库
-func (k *MsgConsumer) handleAVMessage(req request.ChatMessageRequest) {
-	var avData request.AVData
+func (k *MsgConsumer) handleAVMessage(req message.ChatMessageRequest) {
+	var avData message.AVData
 	if err := json.Unmarshal([]byte(req.AVdata), &avData); err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return
@@ -374,7 +374,7 @@ func (k *MsgConsumer) handleAVMessage(req request.ChatMessageRequest) {
 	// 处理单聊信令转发
 	if req.ReceiveId[0] == 'U' {
 		// 构造响应
-		messageRsp := respond.AVMessageRespond{
+		messageRsp := messagedto.AVMessageRespond{
 			SendId:     message.SendId,
 			SendName:   message.SendName,
 			SendAvatar: message.SendAvatar,
@@ -414,7 +414,7 @@ func (k *MsgConsumer) handleAVMessage(req request.ChatMessageRequest) {
 // 4. 异步更新 Redis 中的双人聊天记录缓存
 func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 	// 构造响应体
-	messageRsp := respond.GetMessageListRespond{
+	messageRsp := messagedto.GetMessageListRespond{
 		SendId:     message.SendId,
 		SendName:   message.SendName,
 		SendAvatar: originalAvatar,
@@ -458,7 +458,7 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 			key := "message_list_" + message.SendId + "_" + message.ReceiveId
 			rspString, err := k.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
-				var list []respond.GetMessageListRespond
+				var list []messagedto.GetMessageListRespond
 				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 					list = append(list, messageRsp)
 					if rspByte, err := json.Marshal(list); err == nil {
@@ -478,7 +478,7 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 // 5. 异步更新 Redis 中的群组聊天记录缓存
 func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) {
 	// 构造群聊响应
-	messageRsp := respond.GetGroupMessageListRespond{
+	messageRsp := messagedto.GetMessageListRespond{
 		SendId:     message.SendId,
 		SendName:   message.SendName,
 		SendAvatar: originalAvatar,
@@ -537,7 +537,7 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 			key := "group_messagelist_" + message.ReceiveId
 			rspString, err := k.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
-				var list []respond.GetGroupMessageListRespond
+				var list []messagedto.GetMessageListRespond
 				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 					list = append(list, messageRsp)
 					if rspByte, err := json.Marshal(list); err == nil {
@@ -550,14 +550,14 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 }
 
 // updateRedisGroup 更新群组聊天记录的缓存
-func (k *MsgConsumer) updateRedisGroup(message model.Message, rsp respond.GetGroupMessageListRespond) {
+func (k *MsgConsumer) updateRedisGroup(message model.Message, rsp messagedto.GetMessageListRespond) {
 	if k.cacheService == nil {
 		return
 	}
 	key := "group_messagelist_" + message.ReceiveId
 	rspString, err := k.cacheService.GetOrError(context.Background(), key)
 	if err == nil {
-		var list []respond.GetGroupMessageListRespond
+		var list []messagedto.GetMessageListRespond
 		if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 			list = append(list, rsp)
 			if rspByte, err := json.Marshal(list); err == nil {

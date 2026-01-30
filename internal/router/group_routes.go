@@ -32,6 +32,6 @@ func (rt *Router) RegisterGroupRoutes(rg *gin.RouterGroup) {
 		groupGroup.GET("/applyList", rt.handlers.Apply.GetGroupApplyList)         // 获取待处理的入群申请
 		groupGroup.POST("/passApply", rt.handlers.Apply.PassGroupApply)           // 通过入群申请
 		groupGroup.POST("/refuseApply", rt.handlers.Apply.RefuseGroupApply)       // 拒绝入群申请
-		groupGroup.POST("/blackApply", rt.handlers.Apply.BlackGroupApply)         // 拉黑入群申请
+		groupGroup.POST("/rejectApply", rt.handlers.Apply.RejectGroupApply)       // 拉黑入群申请
 	}
 }

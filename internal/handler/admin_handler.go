@@ -3,7 +3,8 @@ package handler
 import (
 	"github.com/gin-gonic/gin"
 
-	"kama_chat_server/internal/dto/request"
+	"kama_chat_server/internal/dto/request/contact"
+	adminreq "kama_chat_server/internal/dto/request/admin"
 	"kama_chat_server/internal/service"
 )
 
@@ -27,7 +28,7 @@ func NewAdminHandler(userAdminSvc service.UserAdminService, groupAdminSvc servic
 // GET /admin/user/list
 // 响应: respond.PagedUserListRespond
 func (h *AdminHandler) GetUserListPaged(c *gin.Context) {
-	var req request.GetUserListPagedRequest
+	var req adminreq.GetUserListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleError(c, err)
 		return
@@ -43,9 +44,9 @@ func (h *AdminHandler) GetUserListPaged(c *gin.Context) {
 
 // BatchUpdateUserStatus 批量更新用户状态
 // POST /admin/user/batchStatus
-// 请求: request.BatchUpdateUserStatusRequest
+// 请求: adminreq.BatchUpdateUserStatusRequest
 func (h *AdminHandler) BatchUpdateUserStatus(c *gin.Context) {
-	var req request.BatchUpdateUserStatusRequest
+	var req adminreq.BatchUpdateUserStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleError(c, err)
 		return
@@ -60,15 +61,15 @@ func (h *AdminHandler) BatchUpdateUserStatus(c *gin.Context) {
 
 // SetAdmin 设置管理员权限
 // POST /admin/user/setAdmin
-// 请求: request.SetAdminRequest
+// 请求: adminreq.SetUserAdminRequest
 func (h *AdminHandler) SetAdmin(c *gin.Context) {
-	var req request.SetAdminRequest
+	var req adminreq.SetUserAdminRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleError(c, err)
 		return
 	}
 
-	if err := h.userAdminSvc.SetAdmin(req.UuidList, req.IsAdmin); err != nil {
+	if err := h.userAdminSvc.SetAdmin(req.UserUUIDs, req.IsAdmin); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -81,7 +82,7 @@ func (h *AdminHandler) SetAdmin(c *gin.Context) {
 // GET /admin/group/list
 // 响应: respond.GetGroupListWrapper
 func (h *AdminHandler) GetGroupInfoList(c *gin.Context) {
-	var req request.GetGroupListRequest
+	var req adminreq.GetGroupInfoListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleError(c, err)
 		return
@@ -97,9 +98,9 @@ func (h *AdminHandler) GetGroupInfoList(c *gin.Context) {
 
 // DeleteGroups 批量删除群组
 // POST /admin/group/delete
-// 请求: request.DeleteGroupsRequest
+// 请求: contact.BatchDeleteRequest
 func (h *AdminHandler) DeleteGroups(c *gin.Context) {
-	var req request.DeleteGroupsRequest
+	var req contact.BatchDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleError(c, err)
 		return
@@ -114,15 +115,26 @@ func (h *AdminHandler) DeleteGroups(c *gin.Context) {
 
 // SetGroupsStatus 批量设置群组状态
 // POST /admin/group/setStatus
-// 请求: request.SetGroupsStatusRequest
+// 请求: adminreq.BatchUpdateGroupStatusRequest
 func (h *AdminHandler) SetGroupsStatus(c *gin.Context) {
-	var req request.SetGroupsStatusRequest
+	var req adminreq.BatchUpdateGroupStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleError(c, err)
 		return
 	}
 
-	if err := h.groupAdminSvc.SetGroupsStatus(req.UuidList, req.Status); err != nil {
+	// 将 action 转换为 status
+	var status int8
+	switch req.Action {
+	case "enable":
+		status = 1
+	case "disable":
+		status = 2
+	case "delete":
+		status = 0
+	}
+
+	if err := h.groupAdminSvc.SetGroupsStatus(req.GroupUUIDs, status); err != nil {
 		HandleError(c, err)
 		return
 	}

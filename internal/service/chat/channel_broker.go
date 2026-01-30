@@ -13,8 +13,8 @@ import (
 	"fmt"
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
-	"kama_chat_server/internal/dto/request"
-	"kama_chat_server/internal/dto/respond"
+	"kama_chat_server/internal/dto/request/message"
+	messagedto "kama_chat_server/internal/dto/respond/message"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
@@ -142,7 +142,7 @@ func (s *StandaloneServer) Start() {
 				return
 			}
 			// 声明请求对象
-			var chatMessageReq request.ChatMessageRequest
+			var chatMessageReq message.ChatMessageRequest
 			// 将 JSON 数据反序列化为请求对象
 			if err := json.Unmarshal(data, &chatMessageReq); err != nil {
 				zap.L().Error("service error", zap.Error(err))
@@ -170,7 +170,7 @@ func (s *StandaloneServer) Start() {
 // 2. 将消息持久化到 MySQL
 // 3. 根据接收者类型 (User/Group) 路由消息
 // 4. 更新 Redis 缓存
-func (s *StandaloneServer) handleTextMessage(req request.ChatMessageRequest) {
+func (s *StandaloneServer) handleTextMessage(req message.ChatMessageRequest) {
 	// 权限校验: 防止非好友/已退群用户发送消息 (Read-Only Enforcement)
 	if s.isBlocked(req.SendId, req.ReceiveId) {
 		zap.L().Warn("Message blocked due to permission check", zap.String("sender", req.SendId), zap.String("receiver", req.ReceiveId))
@@ -220,7 +220,7 @@ func (s *StandaloneServer) handleTextMessage(req request.ChatMessageRequest) {
 
 // handleFileMessage 处理文件消息
 // 逻辑与文本消息类似，区别在于 Content 为空，Url 字段存储文件链接
-func (s *StandaloneServer) handleFileMessage(req request.ChatMessageRequest) {
+func (s *StandaloneServer) handleFileMessage(req message.ChatMessageRequest) {
 	// 权限校验
 	if s.isBlocked(req.SendId, req.ReceiveId) {
 		zap.L().Warn("File blocked due to permission check", zap.String("sender", req.SendId), zap.String("receiver", req.ReceiveId))
@@ -268,9 +268,9 @@ func (s *StandaloneServer) handleFileMessage(req request.ChatMessageRequest) {
 // handleAVMessage 处理音视频通话信令
 // 信令消息（如 start_call）用于 WebRTC 连接建立
 // 大部分信令只需透传，特定关键信令（如 PROXY 类型中的 start_call 等）会持久化到数据库
-func (s *StandaloneServer) handleAVMessage(req request.ChatMessageRequest) {
+func (s *StandaloneServer) handleAVMessage(req message.ChatMessageRequest) {
 	// 反序列化 AVData
-	var avData request.AVData
+	var avData message.AVData
 	if err := json.Unmarshal([]byte(req.AVdata), &avData); err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return
@@ -308,7 +308,7 @@ func (s *StandaloneServer) handleAVMessage(req request.ChatMessageRequest) {
 	// 只能是单聊 (群聊暂不支持 WebRTC 信令转发逻辑)
 	if req.ReceiveId[0] == 'U' {
 		// 构建信令响应对象
-		messageRsp := respond.AVMessageRespond{
+		messageRsp := messagedto.AVMessageRespond{
 			SendId:     message.SendId,
 			SendName:   message.SendName,
 			SendAvatar: message.SendAvatar,
@@ -352,7 +352,7 @@ func (s *StandaloneServer) handleAVMessage(req request.ChatMessageRequest) {
 // 4. 异步更新 Redis 中的双人聊天记录缓存
 func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar string) {
 	// 构造返回给前端的响应体
-	messageRsp := respond.GetMessageListRespond{
+	messageRsp := messagedto.GetMessageListRespond{
 		SendId:     message.SendId,
 		SendName:   message.SendName,
 		SendAvatar: originalAvatar,
@@ -405,7 +405,7 @@ func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar stri
 
 			rspString, err := s.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
-				var list []respond.GetMessageListRespond
+				var list []messagedto.GetMessageListRespond
 				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 					list = append(list, messageRsp)
 					if rspByte, err := json.Marshal(list); err == nil {
@@ -425,7 +425,7 @@ func (s *StandaloneServer) sendToUser(message model.Message, originalAvatar stri
 // 5. 异步更新 Redis 中的群组聊天记录缓存
 func (s *StandaloneServer) sendToGroup(message model.Message, originalAvatar string) {
 	// 构造群聊响应体
-	messageRsp := respond.GetGroupMessageListRespond{
+	messageRsp := messagedto.GetMessageListRespond{
 		SendId:     message.SendId,
 		SendName:   message.SendName,
 		SendAvatar: originalAvatar,
@@ -485,7 +485,7 @@ func (s *StandaloneServer) sendToGroup(message model.Message, originalAvatar str
 			key := "group_messagelist_" + message.ReceiveId
 			rspString, err := s.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
-				var list []respond.GetGroupMessageListRespond
+				var list []messagedto.GetMessageListRespond
 				if err := json.Unmarshal([]byte(rspString), &list); err == nil {
 					list = append(list, messageRsp)
 					if rspByte, err := json.Marshal(list); err == nil {

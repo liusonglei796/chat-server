@@ -10,12 +10,15 @@ import (
 
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
-	"kama_chat_server/internal/dto/request"
-	"kama_chat_server/internal/dto/respond"
+	sessionreq "kama_chat_server/internal/dto/request/session"
+	sessiondto "kama_chat_server/internal/dto/respond/session"
+	"kama_chat_server/internal/dto/respond/group"
+	"kama_chat_server/internal/dto/respond/user"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/contact/contact_status_enum"
+	"kama_chat_server/pkg/enum/contact/contact_type_enum"
 	"kama_chat_server/pkg/enum/group_info/group_status_enum"
 	"kama_chat_server/pkg/enum/user_info/user_status_enum"
 	"kama_chat_server/pkg/errorx"
@@ -37,15 +40,15 @@ func NewSessionService(repos *mysql.Repositories, cacheService myredis.AsyncCach
 }
 
 // CreateSession 创建会话
-func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string, error) {
+func (s *sessionService) CreateSession(sendId, receiveId string) (string, error) {
 	// 1. 幂等性检查：先查询是否已存在会话
-	existingSession, err := s.repos.Session.FindBySendIdAndReceiveId(req.SendId, req.ReceiveId)
+	existingSession, err := s.repos.Session.FindBySendIdAndReceiveId(sendId, receiveId)
 	if err != nil {
 		// 如果不是"未找到"错误，则返回数据库错误
 		if errorx.GetCode(err) != errorx.CodeNotFound {
 			zap.L().Error("查询已有会话失败",
-				zap.String("send_id", req.SendId),
-				zap.String("receive_id", req.ReceiveId),
+				zap.String("send_id", sendId),
+				zap.String("receive_id", receiveId),
 				zap.Error(err),
 			)
 			return "", errorx.ErrServerBusy
@@ -54,25 +57,25 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 	} else {
 		// 会话已存在，直接返回已有会话ID
 		zap.L().Info("会话已存在，返回已有会话",
-			zap.String("send_id", req.SendId),
-			zap.String("receive_id", req.ReceiveId),
+			zap.String("send_id", sendId),
+			zap.String("receive_id", receiveId),
 			zap.String("session_id", existingSession.Uuid),
 		)
 		return existingSession.Uuid, nil
 	}
 
 	// 2. 验证发送者是否存在
-	_, err = s.repos.User.FindByUuid(req.SendId)
+	_, err = s.repos.User.FindByUuid(sendId)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			zap.L().Warn("发送用户不存在",
-				zap.String("send_id", req.SendId),
+				zap.String("send_id", sendId),
 				zap.String("operation", "create_session"),
 			)
 			return "", errorx.New(errorx.CodeUserNotExist, "发送用户不存在")
 		}
 		zap.L().Error("查询发送用户失败",
-			zap.String("send_id", req.SendId),
+			zap.String("send_id", sendId),
 			zap.Error(err),
 		)
 		return "", errorx.ErrServerBusy
@@ -81,39 +84,39 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 	// 3. 构建会话基础信息
 	var session model.Session
 	session.Uuid = fmt.Sprintf("S%s", snowflake.GenerateIDString())
-	session.SendId = req.SendId
-	session.ReceiveId = req.ReceiveId
+	session.SendId = sendId
+	session.ReceiveId = receiveId
 	session.CreatedAt = time.Now()
 
 	// 4. 根据接收者类型设置会话信息
-	if req.ReceiveId[0] == 'U' {
+	if receiveId[0] == 'U' {
 		// 用户对用户会话
-		receiveUser, err := s.repos.User.FindByUuid(req.ReceiveId)
+		receiveUser, err := s.repos.User.FindByUuid(receiveId)
 		if err != nil {
 			if errorx.GetCode(err) == errorx.CodeNotFound {
 				zap.L().Warn("接收用户不存在",
-					zap.String("send_id", req.SendId),
-					zap.String("receive_id", req.ReceiveId),
+					zap.String("send_id", sendId),
+					zap.String("receive_id", receiveId),
 					zap.String("operation", "create_session"),
 				)
 				return "", errorx.New(errorx.CodeUserNotExist, "接收用户不存在")
 			}
 			zap.L().Error("查询接收用户失败",
-				zap.String("send_id", req.SendId),
-				zap.String("receive_id", req.ReceiveId),
+				zap.String("send_id", sendId),
+				zap.String("receive_id", receiveId),
 				zap.Error(err),
 			)
 			return "", errorx.ErrServerBusy
 		}
 		if receiveUser.Status == user_status_enum.DISABLE {
 			zap.L().Warn("接收用户已被禁用",
-				zap.String("send_id", req.SendId),
-				zap.String("receive_id", req.ReceiveId),
+				zap.String("send_id", sendId),
+				zap.String("receive_id", receiveId),
 			)
 			return "", errorx.New(errorx.CodeInvalidParam, "该用户被禁用了")
 		}
 		// 验证好友关系 (必须是好友才能发起会话)
-		isFriend, err := s.repos.Contact.IsFriend(req.SendId, req.ReceiveId)
+		isFriend, err := s.repos.Contact.IsFriend(sendId, receiveId)
 		if err != nil {
 			zap.L().Error("Check friend relationship error", zap.Error(err))
 			return "", errorx.ErrServerBusy
@@ -126,32 +129,32 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 		session.Avatar = receiveUser.Avatar
 	} else {
 		// 用户对群组会话
-		receiveGroup, err := s.repos.Group.FindByUuid(req.ReceiveId)
+		receiveGroup, err := s.repos.Group.FindByUuid(receiveId)
 		if err != nil {
 			if errorx.GetCode(err) == errorx.CodeNotFound {
 				zap.L().Warn("接收群组不存在",
-					zap.String("send_id", req.SendId),
-					zap.String("receive_id", req.ReceiveId),
+					zap.String("send_id", sendId),
+					zap.String("receive_id", receiveId),
 					zap.String("operation", "create_session"),
 				)
 				return "", errorx.New(errorx.CodeNotFound, "接收群组不存在")
 			}
 			zap.L().Error("查询接收群组失败",
-				zap.String("send_id", req.SendId),
-				zap.String("receive_id", req.ReceiveId),
+				zap.String("send_id", sendId),
+				zap.String("receive_id", receiveId),
 				zap.Error(err),
 			)
 			return "", errorx.ErrServerBusy
 		}
 		if receiveGroup.Status == group_status_enum.DISABLE {
 			zap.L().Warn("接收群组已被禁用",
-				zap.String("send_id", req.SendId),
-				zap.String("receive_id", req.ReceiveId),
+				zap.String("send_id", sendId),
+				zap.String("receive_id", receiveId),
 			)
 			return "", errorx.New(errorx.CodeInvalidParam, "该群聊被禁用了")
 		}
 		// 验证群成员身份 (用户必须是群成员才能发起会话)
-		_, errMember := s.repos.GroupMember.FindByGroupAndUser(req.ReceiveId, req.SendId)
+		_, errMember := s.repos.GroupMember.FindByGroupAndUser(receiveId, sendId)
 		if errMember != nil {
 			if errorx.IsNotFound(errMember) {
 				return "", errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -166,8 +169,8 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 	// 5. 创建会话
 	if err = s.repos.Session.CreateSession(&session); err != nil {
 		zap.L().Error("创建会话失败",
-			zap.String("send_id", req.SendId),
-			zap.String("receive_id", req.ReceiveId),
+			zap.String("send_id", sendId),
+			zap.String("receive_id", receiveId),
 			zap.String("session_id", session.Uuid),
 			zap.Error(err),
 		)
@@ -176,12 +179,12 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 
 	// 6. 异步清理缓存
 	s.cache.SubmitTask(func() {
-		s.clearSessionCacheForUser(req.SendId)
+		s.clearSessionCacheForUser(sendId)
 	})
 
 	zap.L().Info("会话创建成功",
-		zap.String("send_id", req.SendId),
-		zap.String("receive_id", req.ReceiveId),
+		zap.String("send_id", sendId),
+		zap.String("receive_id", receiveId),
 		zap.String("session_id", session.Uuid),
 	)
 
@@ -204,7 +207,7 @@ func (s *sessionService) clearSessionCacheForUser(userId string) {
 // CheckOpenSessionAllowed 检查是否允许发起会话
 func (s *sessionService) CheckOpenSessionAllowed(sendId, receiveId string) (bool, error) {
 	// 1. 检查联系人关系状态 (保持数据库查询，确保实时性)
-	contact, err := s.repos.Contact.FindByUserIdAndContactId(sendId, receiveId)
+	contact, err := s.repos.Contact.FindByUserIdAndContactId(sendId, receiveId, contact_type_enum.USER)
 	if err != nil {
 		zap.L().Error("查询联系人关系失败",
 			zap.String("send_id", sendId),
@@ -243,7 +246,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 		key := "user_info_" + targetId
 		// 1. 尝试从 Redis 获取
 		if val, err := s.cache.Get(context.Background(), key); err == nil && val != "" {
-			var userRsp respond.GetUserInfoRespond
+			var userRsp user.GetUserInfoRespond
 			if err := json.Unmarshal([]byte(val), &userRsp); err == nil {
 				if userRsp.Status == user_status_enum.DISABLE {
 					return errorx.New(errorx.CodeInvalidParam, "对方已被禁用，无法发起会话")
@@ -271,7 +274,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 		key := "group_info_" + targetId
 		// 1. 尝试从 Redis 获取
 		if val, err := s.cache.Get(context.Background(), key); err == nil && val != "" {
-			var groupRsp respond.GetGroupInfoRespond
+			var groupRsp group.GetGroupInfoRespond
 			if err := json.Unmarshal([]byte(val), &groupRsp); err == nil {
 				if groupRsp.Status == group_status_enum.DISABLE {
 					return errorx.New(errorx.CodeInvalidParam, "对方群组已被禁用，无法发起会话")
@@ -300,7 +303,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 
 // OpenSession 打开会话
 // sendId: 从 JWT 上下文获取的当前用户 ID，防止 IDOR 攻击
-func (s *sessionService) OpenSession(sendId string, req request.OpenSessionRequest) (string, error) {
+func (s *sessionService) OpenSession(sendId string, req sessionreq.OpenSessionRequest) (string, error) {
 	cacheKey := "session_" + sendId + "_" + req.ReceiveId
 
 	// 1. 查缓存
@@ -319,11 +322,7 @@ func (s *sessionService) OpenSession(sendId string, req request.OpenSessionReque
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			zap.L().Info("会话没有找到，将新建会话")
-			createReq := request.CreateSessionRequest{
-				SendId:    sendId,
-				ReceiveId: req.ReceiveId,
-			}
-			return s.CreateSession(createReq)
+			return s.CreateSession(sendId, req.ReceiveId)
 		}
 		zap.L().Error("service error", zap.Error(err))
 		return "", errorx.ErrServerBusy
@@ -340,13 +339,13 @@ func (s *sessionService) OpenSession(sendId string, req request.OpenSessionReque
 }
 
 // GetUserSessionList 获取用户会话列表
-func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessionListRespond, error) {
+func (s *sessionService) GetUserSessionList(ownerId string) ([]sessiondto.UserSessionListRespond, error) {
 	cacheKey := "direct_session_list_" + ownerId
 
 	// 1. 尝试读缓存
 	rspString, err := s.cache.Get(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
-		var rsp []respond.UserSessionListRespond
+		var rsp []sessiondto.UserSessionListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
 			return rsp, nil
 		}
@@ -364,7 +363,7 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 		return nil, errorx.ErrServerBusy
 	}
 
-	sessionListRsp := make([]respond.UserSessionListRespond, 0, len(sessionList))
+	sessionListRsp := make([]sessiondto.UserSessionListRespond, 0, len(sessionList))
 	for i := 0; i < len(sessionList); i++ {
 		// 增加长度判断防止 panic
 		if len(sessionList[i].ReceiveId) > 0 && sessionList[i].ReceiveId[0] == 'U' {
@@ -374,7 +373,7 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 				lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
 			}
 
-			sessionListRsp = append(sessionListRsp, respond.UserSessionListRespond{
+			sessionListRsp = append(sessionListRsp, sessiondto.UserSessionListRespond{
 				SessionId:       sessionList[i].Uuid,
 				Avatar:          sessionList[i].Avatar,
 				UserId:          sessionList[i].ReceiveId,
@@ -400,13 +399,13 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]respond.UserSessi
 }
 
 // GetGroupSessionList 获取群聊会话列表
-func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSessionListRespond, error) {
+func (s *sessionService) GetGroupSessionList(ownerId string) ([]sessiondto.GroupSessionListRespond, error) {
 	cacheKey := "group_session_list_" + ownerId
 
 	// 1. 尝试读缓存
 	rspString, err := s.cache.Get(context.Background(), cacheKey)
 	if err == nil && rspString != "" {
-		var rsp []respond.GroupSessionListRespond
+		var rsp []sessiondto.GroupSessionListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
 			return rsp, nil
 		}
@@ -424,7 +423,7 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 		return nil, errorx.ErrServerBusy
 	}
 
-	sessionListRsp := make([]respond.GroupSessionListRespond, 0, len(sessionList))
+	sessionListRsp := make([]sessiondto.GroupSessionListRespond, 0, len(sessionList))
 	for i := 0; i < len(sessionList); i++ {
 		// 增加长度判断防止 panic
 		if len(sessionList[i].ReceiveId) > 0 && sessionList[i].ReceiveId[0] == 'G' {
@@ -434,7 +433,7 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]respond.GroupSes
 				lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
 			}
 
-			sessionListRsp = append(sessionListRsp, respond.GroupSessionListRespond{
+			sessionListRsp = append(sessionListRsp, sessiondto.GroupSessionListRespond{
 				SessionId:       sessionList[i].Uuid,
 				Avatar:          sessionList[i].Avatar,
 				GroupId:         sessionList[i].ReceiveId,

@@ -31518,3 +31518,17 @@
 {"L":"INFO","time":"2026-01-06T22:55:05.817+0800","C":"kama_chat_server/main.go:102","M":"服务器已关闭"}
 {"L":"INFO","time":"2026-01-10T00:26:08.506+0800","C":"kama_chat_server/main.go:102","M":"关闭服务器..."}
 {"L":"INFO","time":"2026-01-10T00:26:08.506+0800","C":"kama_chat_server/main.go:104","M":"服务器已关闭"}
+{"L":"INFO","time":"2026-01-30T08:47:48.216+0800","C":"kama_chat_server/main.go:32","M":"日志初始化成功"}
+{"L":"INFO","time":"2026-01-30T08:47:48.332+0800","C":"kama_chat_server/main.go:36","M":"数据库初始化成功"}
+{"L":"INFO","time":"2026-01-30T08:47:48.332+0800","C":"redis/impl.go:40","M":"Redis Cache Workers started","workers":15,"buffer":3000}
+{"L":"INFO","time":"2026-01-30T08:47:48.332+0800","C":"kama_chat_server/main.go:40","M":"Redis 初始化成功"}
+{"L":"INFO","time":"2026-01-30T08:47:48.332+0800","C":"kama_chat_server/main.go:44","M":"JWT 初始化成功"}
+{"L":"WARN","time":"2026-01-30T08:47:48.332+0800","C":"sms/auth_code_service.go:86","M":"SMS Service 使用本地 Mock 模式（仅写入 Redis，不调用第三方短信）"}
+{"L":"INFO","time":"2026-01-30T08:47:48.332+0800","C":"kama_chat_server/main.go:51","M":"SMS Service 初始化成功"}
+{"L":"INFO","time":"2026-01-30T08:47:48.332+0800","C":"kama_chat_server/main.go:65","M":"ChatServer 初始化成功"}
+{"L":"INFO","time":"2026-01-30T08:47:48.332+0800","C":"kama_chat_server/main.go:69","M":"Service 层初始化成功"}
+{"L":"INFO","time":"2026-01-30T08:47:48.332+0800","C":"kama_chat_server/main.go:73","M":"Handler 层初始化成功"}
+{"L":"INFO","time":"2026-01-30T08:47:48.332+0800","C":"kama_chat_server/main.go:78","M":"HTTPS 服务器初始化成功"}
+{"L":"INFO","time":"2026-01-30T08:48:51.688+0800","C":"logger/logger.go:146","M":"http request","status":404,"method":"HEAD","path":"/admin/user/list","query":"page=1&page_size=10","ClientIP":"127.0.0.1","user-agent":"node","cost":"41.848µs","errors":""}
+{"L":"INFO","time":"2026-01-30T08:49:03.800+0800","C":"logger/logger.go:146","M":"http request","status":404,"method":"HEAD","path":"/admin/group/list","query":"page=1&page_size=10","ClientIP":"127.0.0.1","user-agent":"node","cost":"17.864µs","errors":""}
+{"L":"INFO","time":"2026-01-30T08:49:24.253+0800","C":"logger/logger.go:146","M":"http request","status":401,"method":"GET","path":"/admin/user/list","query":"page=1","ClientIP":"::1","user-agent":"curl/8.18.0","cost":"63.009µs","errors":""}

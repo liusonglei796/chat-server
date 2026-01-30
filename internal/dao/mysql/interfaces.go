@@ -67,9 +67,9 @@ type GroupRepository interface {
 // 管理用户之间的好友关系
 type ContactRepository interface {
 	// FindByUserIdAndContactId 根据用户ID和联系人ID查找关系
-	FindByUserIdAndContactId(userId, contactId string) (*model.Contact, error)
-	// FindByUserIdAndType 根据用户ID和联系人类型查找
-	FindByUserIdAndType(userId string, contactType int8) ([]model.Contact, error)
+	FindByUserIdAndContactId(userId, contactId string, contactType int8) (*model.Contact, error)
+// FindByUserIdAndType 根据用户ID和类型查找联系人（分页）
+	FindByUserIdAndType(userId string, contactType int8, page, pageSize int) ([]model.Contact, int64, error)
 	// FindUsersByContactId 根据联系人ID反向查找
 	FindUsersByContactId(contactId string) ([]model.Contact, error)
 	// CreateContact 创建联系人关系
@@ -77,9 +77,9 @@ type ContactRepository interface {
 	// IsFriend 判断两个用户是否互为好友
 	IsFriend(userId1, userId2 string) (bool, error)
 	// UpdateStatus 更新联系人状态（正常/拉黑等）
-	UpdateStatus(userId, contactId string, status int8) error
+	UpdateStatus(userId, contactId string, contactType int8, status int8) error
 	// SoftDelete 软删除联系人关系
-	SoftDelete(userId, contactId string) error
+	SoftDelete(userId, contactId string, contactType int8) error
 	// SoftDeleteByUsers 批量软删除指定用户的所有联系人
 	SoftDeleteByUsers(userUuids []string) error
 }
@@ -108,6 +108,8 @@ type SessionRepository interface {
 type MessageRepository interface {
 	// FindByUserIds 根据两个用户ID查找私聊消息
 	FindByUserIds(userOneId, userTwoId string) ([]model.Message, error)
+	// FindByUserIdsPaged 根据两个用户ID查找私聊消息（分页）
+	FindByUserIdsPaged(userOneId, userTwoId string, offset, limit int) ([]model.Message, error)
 	// FindByGroupId 根据群组ID查找群聊消息
 	FindByGroupId(groupId string) ([]model.Message, error)
 	// UpdateStatus 更新消息状态

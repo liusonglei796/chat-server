@@ -16,15 +16,15 @@ func (rt *Router) RegisterFriendRoutes(rg *gin.RouterGroup) {
 		friendGroup.GET("/info", rt.handlers.Contact.GetFriendInfo) // 获取好友详情
 
 		// ===== 好友关系管理 =====
-		friendGroup.POST("/delete", rt.handlers.Contact.DeleteContact)           // 删除好友
-		friendGroup.POST("/black", rt.handlers.Contact.BlackContact)             // 拉黑好友
-		friendGroup.POST("/cancelBlack", rt.handlers.Contact.CancelBlackContact) // 取消拉黑
+		friendGroup.POST("/delete", rt.handlers.Contact.DeleteContact)       // 删除好友
+		friendGroup.POST("/block", rt.handlers.Contact.BlockContact)         // 拉黑好友
+		friendGroup.POST("/unblock", rt.handlers.Contact.UnblockContact)     // 取消拉黑
 
 		// ===== 好友申请 =====
 		friendGroup.POST("/apply", rt.handlers.Apply.ApplyFriend)             // 申请添加好友
 		friendGroup.GET("/applyList", rt.handlers.Apply.GetFriendApplyList)   // 获取待处理的好友申请
 		friendGroup.POST("/passApply", rt.handlers.Apply.PassFriendApply)     // 通过好友申请
 		friendGroup.POST("/refuseApply", rt.handlers.Apply.RefuseFriendApply) // 拒绝好友申请
-		friendGroup.POST("/blackApply", rt.handlers.Apply.BlackFriendApply)   // 拉黑好友申请
+		friendGroup.POST("/rejectApply", rt.handlers.Apply.RejectFriendApply) // 拉黑好友申请
 	}
 }

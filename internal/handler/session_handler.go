@@ -3,7 +3,8 @@
 package handler
 
 import (
-	"kama_chat_server/internal/dto/request"
+	"kama_chat_server/internal/dto/request/contact"
+	"kama_chat_server/internal/dto/request/session"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/pkg/errorx"
 
@@ -24,7 +25,7 @@ func NewSessionHandler(sessionSvc service.SessionService) *SessionHandler {
 
 // OpenSession 打开/创建会话
 // POST /session/openSession
-// 请求体: request.OpenSessionRequest (只需 receive_id)
+// 请求体: session.OpenSessionRequest (只需 receive_id)
 // 响应: string (会话ID)
 // 安全: 从JWT上下文获取当前用户ID作为sendId，防止IDOR攻击
 func (h *SessionHandler) OpenSession(c *gin.Context) {
@@ -34,7 +35,7 @@ func (h *SessionHandler) OpenSession(c *gin.Context) {
 		return
 	}
 
-	var req request.OpenSessionRequest
+	var req session.OpenSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -101,12 +102,17 @@ func (h *SessionHandler) DeleteSession(c *gin.Context) {
 		return
 	}
 
-	var req request.DeleteSessionRequest
+	var req contact.BatchDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.sessionSvc.DeleteSession(userId.(string), req.SessionId); err != nil {
+	// 从 UuidList 中取第一个（单个操作）
+	if len(req.UuidList) == 0 {
+		HandleError(c, errorx.New(errorx.CodeInvalidParam, "uuid_list 不能为空"))
+		return
+	}
+	if err := h.sessionSvc.DeleteSession(userId.(string), req.UuidList[0]); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -116,7 +122,7 @@ func (h *SessionHandler) DeleteSession(c *gin.Context) {
 // CheckOpenSessionAllowed 检查是否允许打开会话
 // 用于检查两个用户之间的关系是否允许建立会话
 // GET /session/checkOpenSessionAllowed?receiveId=xxx
-// 查询参数: request.CheckSessionAllowedRequest (只需 receive_id)
+// 查询参数: session.CheckSessionAllowedRequest (只需 receive_id)
 // 响应: bool
 // 安全: 从JWT上下文获取当前用户ID作为sendId，防止IDOR攻击
 func (h *SessionHandler) CheckOpenSessionAllowed(c *gin.Context) {
@@ -126,7 +132,7 @@ func (h *SessionHandler) CheckOpenSessionAllowed(c *gin.Context) {
 		return
 	}
 
-	var req request.CheckSessionAllowedRequest
+	var req session.CheckSessionAllowedRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return

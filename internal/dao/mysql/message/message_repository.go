@@ -35,6 +35,25 @@ func (r *messageRepository) FindByUserIds(userOneId, userTwoId string) ([]model.
 	return messages, nil
 }
 
+// FindByUserIdsPaged 根据两个用户ID查找私聊消息（分页）
+// userOneId, userTwoId: 两个用户的 UUID
+// offset: 偏移量
+// limit: 每页数量
+// 返回: 消息列表和错误
+func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, offset, limit int) ([]model.Message, error) {
+	var messages []model.Message
+	// 使用 OR 条件查找双向消息，按时间倒序排列（最新的在前）
+	if err := r.db.Where("(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)",
+		userOneId, userTwoId, userTwoId, userOneId).
+		Order("created_at DESC").
+		Offset(offset).
+		Limit(limit).
+		Find(&messages).Error; err != nil {
+		return nil, errorx.WrapDBErrorf(err, "查询消息 user1=%s user2=%s", userOneId, userTwoId)
+	}
+	return messages, nil
+}
+
 // FindByGroupId 根据群组ID查找群聊消息
 // 群聊消息的 receive_id 为群组 UUID
 // receiveId: 群组 UUID

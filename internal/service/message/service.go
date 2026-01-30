@@ -17,7 +17,7 @@ import (
 	"kama_chat_server/internal/config"
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
-	"kama_chat_server/internal/dto/respond"
+	messagedto "kama_chat_server/internal/dto/respond/message"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
@@ -38,44 +38,28 @@ func NewMessageService(repos *mysql.Repositories, cacheService myredis.AsyncCach
 	}
 }
 
-// GetMessageList 获取聊天记录
-func (m *messageService) GetMessageList(requesterId, userOneId, userTwoId string) ([]respond.GetMessageListRespond, error) {
-	// 权限校验: 调用者必须是聊天双方之一
-	if requesterId != userOneId && requesterId != userTwoId {
-		return nil, errorx.New(errorx.CodeForbidden, "无权查看此聊天记录")
-	}
+// GetMessageList 获取聊天记录（分页）
+func (m *messageService) GetMessageList(requesterId, partnerId string, page, pageSize int) ([]messagedto.GetMessageListRespond, error) {
+	userOneId := requesterId
 
 	// 确保 ID 顺序一致，保证缓存 Key 唯一
-	if userOneId > userTwoId {
-		userOneId, userTwoId = userTwoId, userOneId
-	}
-	cacheKey := "message_list_" + userOneId + "_" + userTwoId
-
-	// 通过注入的 cache 接口获取缓存，遵循依赖倒置原则
-	rspString, err := m.cache.GetOrError(context.Background(), cacheKey)
-	if err == nil {
-		var rsp []respond.GetMessageListRespond
-		if err := json.Unmarshal([]byte(rspString), &rsp); err != nil {
-			zap.L().Error("json unmarshal cache error", zap.Error(err))
-			// 即使缓存解析失败，也尝试查数据库
-		} else {
-			return rsp, nil
-		}
-	} else if errorx.GetCode(err) != errorx.CodeNotFound {
-		// Log error but continue to DB
-		zap.L().Error("redis get key error", zap.Error(err))
+	if userOneId > partnerId {
+		userOneId, partnerId = partnerId, userOneId
 	}
 
-	// 缓存未命中或出错，查数据库
-	messageList, err := m.repos.Message.FindByUserIds(userOneId, userTwoId)
+	// 计算分页偏移量
+	offset := (page - 1) * pageSize
+
+	// 查数据库（带分页）
+	messageList, err := m.repos.Message.FindByUserIdsPaged(userOneId, partnerId, offset, pageSize)
 	if err != nil {
 		zap.L().Error("find messages by user ids error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
-	rspList := make([]respond.GetMessageListRespond, 0, len(messageList))
+	rspList := make([]messagedto.GetMessageListRespond, 0, len(messageList))
 	for _, message := range messageList {
-		rspList = append(rspList, respond.GetMessageListRespond{
+		rspList = append(rspList, messagedto.GetMessageListRespond{
 			SendId:     message.SendId,
 			SendName:   message.SendName,
 			SendAvatar: message.SendAvatar,
@@ -90,23 +74,11 @@ func (m *messageService) GetMessageList(requesterId, userOneId, userTwoId string
 		})
 	}
 
-	// 通过注入的 cache 接口异步更新缓存
-	m.cache.SubmitTask(func() {
-		jsonBytes, err := json.Marshal(rspList)
-		if err != nil {
-			zap.L().Error("json marshal error", zap.Error(err))
-			return
-		}
-		if err := m.cache.Set(context.Background(), cacheKey, string(jsonBytes), time.Duration(constants.REDIS_TIMEOUT)*time.Minute); err != nil {
-			zap.L().Error("redis set key error", zap.Error(err))
-		}
-	})
-
 	return rspList, nil
 }
 
 // GetGroupMessageList 获取群聊消息记录 (userId 必须是群成员)
-func (m *messageService) GetGroupMessageList(userId, groupId string) ([]respond.GetGroupMessageListRespond, error) {
+func (m *messageService) GetGroupMessageList(userId, groupId string) ([]messagedto.GetMessageListRespond, error) {
 	// 权限校验: 只要有 Session 记录(未删除)即可查看历史消息，不仅仅是当前成员
 	// 这样可以支持"退群后查看历史消息"的需求
 	_, err := m.repos.Session.FindBySendIdAndReceiveId(userId, groupId)
@@ -122,7 +94,7 @@ func (m *messageService) GetGroupMessageList(userId, groupId string) ([]respond.
 	// 通过注入的 cache 接口获取缓存
 	rspString, err := m.cache.GetOrError(context.Background(), cacheKey)
 	if err == nil {
-		var rsp []respond.GetGroupMessageListRespond
+		var rsp []messagedto.GetMessageListRespond
 		if err := json.Unmarshal([]byte(rspString), &rsp); err != nil {
 			zap.L().Error("json unmarshal cache error", zap.Error(err))
 		} else {
@@ -138,9 +110,9 @@ func (m *messageService) GetGroupMessageList(userId, groupId string) ([]respond.
 		return nil, errorx.ErrServerBusy
 	}
 
-	rspList := make([]respond.GetGroupMessageListRespond, 0, len(messageList))
+	rspList := make([]messagedto.GetMessageListRespond, 0, len(messageList))
 	for _, message := range messageList {
-		rspList = append(rspList, respond.GetGroupMessageListRespond{
+		rspList = append(rspList, messagedto.GetMessageListRespond{
 			SendId:     message.SendId,
 			SendName:   message.SendName,
 			SendAvatar: message.SendAvatar,
