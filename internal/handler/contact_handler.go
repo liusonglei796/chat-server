@@ -3,8 +3,6 @@
 package handler
 
 import (
-	"strconv"
-
 	"kama_chat_server/internal/dto/request/contact"
 	"kama_chat_server/internal/dto/request/group"
 	"kama_chat_server/internal/service"
@@ -38,15 +36,21 @@ func (h *ContactHandler) GetUserList(c *gin.Context) {
 		return
 	}
 
-	// 获取分页参数
-	pageStr := c.DefaultQuery("page", "1")
-	pageSizeStr := c.DefaultQuery("page_size", "20")
-	page, _ := strconv.Atoi(pageStr)
-	pageSize, _ := strconv.Atoi(pageSizeStr)
+	var req contact.GetFriendListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
 
-	// 参数校验
-	if page < 1 { page = 1 }
-	if pageSize < 1 || pageSize > 100 { pageSize = 20 }
+	// 设置默认值
+	page := req.Page
+	pageSize := req.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
 
 	data, total, err := h.contactSvc.GetUserList(userId.(string), page, pageSize)
 	if err != nil {
@@ -72,15 +76,21 @@ func (h *ContactHandler) LoadMyJoinedGroup(c *gin.Context) {
 		return
 	}
 
-	// 获取分页参数
-	pageStr := c.DefaultQuery("page", "1")
-	pageSizeStr := c.DefaultQuery("page_size", "20")
-	page, _ := strconv.Atoi(pageStr)
-	pageSize, _ := strconv.Atoi(pageSizeStr)
+	var req contact.GetJoinedGroupListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
 
-	// 参数校验
-	if page < 1 { page = 1 }
-	if pageSize < 1 || pageSize > 100 { pageSize = 20 }
+	// 设置默认值
+	page := req.Page
+	pageSize := req.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
 
 	data, total, err := h.contactSvc.GetGroupList(userId.(string), page, pageSize)
 	if err != nil {
