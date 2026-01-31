@@ -18,20 +18,23 @@ import (
 	"kama_chat_server/pkg/enum/contact/contact_type_enum"
 	"kama_chat_server/pkg/enum/group_info/group_status_enum"
 	"kama_chat_server/pkg/errorx"
+	cacheutil "kama_chat_server/pkg/util/cache"
 )
 
 // groupInfoService 群组业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖
 type groupInfoService struct {
-	repos *mysql.Repositories
-	cache myredis.AsyncCacheService
+	repos       *mysql.Repositories
+	cache       myredis.AsyncCacheService
+	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
 }
 
 // NewGroupService 构造函数，注入所有依赖
 func NewGroupService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *groupInfoService {
 	return &groupInfoService{
-		repos: repos,
-		cache: cacheService,
+		repos:       repos,
+		cache:       cacheService,
+		cacheHelper: cacheutil.NewHelper(cacheService),
 	}
 }
 
@@ -465,68 +468,51 @@ func (g *groupInfoService) DismissGroup(operatorId, groupId string) error {
 }
 
 // GetPublicGroupInfo 获取群组公开信息（非群成员也可查看）
-// 类似于 UserService.GetPublicUserInfo，只返回公开字段
+// 使用 Cache-Aside 模式 + singleflight 防止缓存击穿
 func (g *groupInfoService) GetPublicGroupInfo(groupId string) (*grouprsp.PublicGroupInfoRespond, error) {
 	cacheKey := "group_info_" + groupId
+	var fullInfo grouprsp.GetGroupInfoRespond
 
-	// 1. 尝试从缓存获取
-	rspString, err := g.cache.Get(context.Background(), cacheKey)
-	if err == nil && rspString != "" {
-		var fullInfo grouprsp.GetGroupInfoRespond
-		if err := json.Unmarshal([]byte(rspString), &fullInfo); err == nil {
-			// 转换为公开信息（只包含非敏感字段）
-			return &grouprsp.PublicGroupInfoRespond{
-				Uuid:      fullInfo.Uuid,
-				Name:      fullInfo.Name,
-				Notice:    fullInfo.Notice,
-				Avatar:    fullInfo.Avatar,
-				MemberCnt: fullInfo.MemberCnt,
-				AddMode:   fullInfo.AddMode,
+	err := g.cacheHelper.GetOrLoad(
+		context.Background(),
+		cacheKey,
+		func() (interface{}, error) {
+			group, err := g.repos.Group.FindByUuid(groupId)
+			if err != nil {
+				if errorx.IsNotFound(err) {
+					return nil, errorx.New(errorx.CodeNotFound, "群组不存在")
+				}
+				return nil, err
+			}
+			return grouprsp.GetGroupInfoRespond{
+				Uuid:      group.Uuid,
+				Name:      group.Name,
+				Notice:    group.Notice,
+				MemberCnt: group.MemberCnt,
+				OwnerId:   group.OwnerId,
+				AddMode:   group.AddMode,
+				Status:    group.Status,
+				Avatar:    group.Avatar,
+				IsDeleted: group.DeletedAt.Valid,
 			}, nil
-		}
-		zap.L().Warn("Unmarshal group info cache failed", zap.String("groupId", groupId), zap.Error(err))
-	}
-
-	// 2. 查询数据库
-	group, err := g.repos.Group.FindByUuid(groupId)
+		},
+		cacheutil.RandomizedTTL(24*time.Hour), // 数据 TTL (带抖动防雪崩)
+		5*time.Minute,                         // 空值 TTL (防穿透)
+		&fullInfo,
+	)
 	if err != nil {
-		if errorx.IsNotFound(err) {
-			return nil, errorx.New(errorx.CodeNotFound, "群组不存在")
-		}
-		zap.L().Error("Find group error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, err
 	}
 
-	// 3. 构建公开响应（不包含 status, is_deleted, owner_id 等敏感信息）
-	rsp := &grouprsp.PublicGroupInfoRespond{
-		Uuid:      group.Uuid,
-		Name:      group.Name,
-		Notice:    group.Notice,
-		Avatar:    group.Avatar,
-		MemberCnt: group.MemberCnt,
-		AddMode:   group.AddMode,
-	}
-
-	// 4. 异步回写完整缓存（供其他需要完整信息的方法使用）
-	cacheGroup := *group
-	g.cache.SubmitTask(func() {
-		info := grouprsp.GetGroupInfoRespond{
-			Uuid:      cacheGroup.Uuid,
-			Name:      cacheGroup.Name,
-			Notice:    cacheGroup.Notice,
-			MemberCnt: cacheGroup.MemberCnt,
-			OwnerId:   cacheGroup.OwnerId,
-			AddMode:   cacheGroup.AddMode,
-			Status:    cacheGroup.Status,
-			Avatar:    cacheGroup.Avatar,
-			IsDeleted: cacheGroup.DeletedAt.Valid,
-		}
-		if data, err := json.Marshal(info); err == nil {
-			_ = g.cache.Set(context.Background(), cacheKey, string(data), time.Hour*24)
-		}
-	})
-
-	return rsp, nil
+	// 转换为公开信息（只包含非敏感字段）
+	return &grouprsp.PublicGroupInfoRespond{
+		Uuid:      fullInfo.Uuid,
+		Name:      fullInfo.Name,
+		Notice:    fullInfo.Notice,
+		Avatar:    fullInfo.Avatar,
+		MemberCnt: fullInfo.MemberCnt,
+		AddMode:   fullInfo.AddMode,
+	}, nil
 }
 
 // UpdateGroupInfo 更新群组信息 (operatorId 必须是群主或管理员)

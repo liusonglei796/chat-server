@@ -3,7 +3,6 @@ package contact
 import (
 	"context"
 	"encoding/json"
-
 	"time"
 
 	"go.uber.org/zap"
@@ -18,28 +17,35 @@ import (
 	"kama_chat_server/pkg/enum/group_info/group_status_enum"
 	"kama_chat_server/pkg/enum/user_info/user_status_enum"
 	"kama_chat_server/pkg/errorx"
+	cacheutil "kama_chat_server/pkg/util/cache"
 )
 
 // contactService 联系人业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖，遵循依赖倒置原则
 type contactService struct {
-	repos *mysql.Repositories
-	cache myredis.AsyncCacheService
+	repos       *mysql.Repositories
+	cache       myredis.AsyncCacheService
+	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
 }
 
 // NewContactService 构造函数，注入所有依赖
 func NewContactService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *contactService {
 	return &contactService{
-		repos: repos,
-		cache: cacheService,
+		repos:       repos,
+		cache:       cacheService,
+		cacheHelper: cacheutil.NewHelper(cacheService),
 	}
 }
 
 // GetUserList 获取指定用户的“好友（联系人）的用户信息列表”。
 func (u *contactService) GetUserList(userId string, page, pageSize int) ([]userrsp.MyUserListRespond, int64, error) {
 	// 参数校验
-	if page < 1 { page = 1 }
-	if pageSize < 1 || pageSize > 100 { pageSize = 20 }
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
 
 	// 从数据库分页查询联系人
 	contactList, total, err := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.USER, page, pageSize)
@@ -68,21 +74,21 @@ func (u *contactService) GetUserList(userId string, page, pageSize int) ([]userr
 				continue
 			}
 		}
-		
+
 		// 缓存未命中，查数据库
 		userInfo, dbErr := u.repos.User.FindByUuid(contact.ContactId)
 		if dbErr != nil {
 			zap.L().Error("Find user by uuid error", zap.Error(dbErr))
 			continue
 		}
-		
+
 		// 组装响应
 		userListRsp = append(userListRsp, userrsp.MyUserListRespond{
 			UserId:   userInfo.Uuid,
 			UserName: userInfo.Nickname,
 			Avatar:   userInfo.Avatar,
 		})
-		
+
 		// 回写缓存
 		if userInfoStr, err := json.Marshal(userInfo); err == nil {
 			_ = u.cache.Set(context.Background(), cacheKey, string(userInfoStr), 300) // 5分钟过期
@@ -96,8 +102,12 @@ func (u *contactService) GetUserList(userId string, page, pageSize int) ([]userr
 // 与 GetUserList 类似，采用 Cache-Aside 模式
 func (u *contactService) GetGroupList(userId string, page, pageSize int) ([]grouprsp.MyGroupListRespond, int64, error) {
 	// 参数校验
-	if page < 1 { page = 1 }
-	if pageSize < 1 || pageSize > 100 { pageSize = 20 }
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
 
 	// 从数据库分页查询群组
 	contactList, total, err := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.GROUP, page, pageSize)
@@ -130,6 +140,7 @@ func (u *contactService) GetGroupList(userId string, page, pageSize int) ([]grou
 }
 
 // GetFriendInfo 获取好友详情 (userId 必须与 friendId 是好友关系)
+// 使用 Cache-Aside 模式 + singleflight 防止缓存击穿
 func (u *contactService) GetFriendInfo(userId, friendId string) (contact.FriendInfoRespond, error) {
 	// 1. 安全检查和权限校验
 	if len(friendId) == 0 {
@@ -146,74 +157,60 @@ func (u *contactService) GetFriendInfo(userId, friendId string) (contact.FriendI
 		return contact.FriendInfoRespond{}, errorx.New(errorx.CodeForbidden, "你们还不是好友")
 	}
 
-	// 2. 尝试从缓存获取
+	// 2. 使用 cacheHelper 获取用户信息
 	cacheKey := "user_info_" + friendId
-	cachedStr, err := u.cache.Get(context.Background(), cacheKey)
-	if err == nil && cachedStr != "" {
-		var userRsp userrsp.GetUserInfoRespond
-		if err := json.Unmarshal([]byte(cachedStr), &userRsp); err == nil {
-			return contact.FriendInfoRespond{
-				FriendId:        userRsp.Uuid,
-				FriendName:      userRsp.Nickname,
-				FriendAvatar:    userRsp.Avatar,
-				FriendBirthday:  userRsp.Birthday,
-				FriendEmail:     userRsp.Email,
-				FriendPhone:     userRsp.Telephone,
-				FriendGender:    userRsp.Gender,
-				FriendSignature: userRsp.Signature,
+	var userRsp userrsp.GetUserInfoRespond
+
+	err = u.cacheHelper.GetOrLoad(
+		context.Background(),
+		cacheKey,
+		func() (interface{}, error) {
+			user, err := u.repos.User.FindByUuid(friendId)
+			if err != nil {
+				if errorx.IsNotFound(err) {
+					return nil, errorx.New(errorx.CodeUserNotExist, "该用户不存在")
+				}
+				return nil, err
+			}
+			if user.Status == user_status_enum.DISABLE {
+				return nil, errorx.New(errorx.CodeInvalidParam, "该用户处于禁用状态")
+			}
+			return userrsp.GetUserInfoRespond{
+				Uuid:      user.Uuid,
+				Telephone: user.Telephone,
+				Nickname:  user.Nickname,
+				Avatar:    user.Avatar,
+				Birthday:  user.Birthday,
+				Email:     user.Email,
+				Gender:    user.Gender,
+				Signature: user.Signature,
+				CreatedAt: user.CreatedAt.Format("2006-01-02 15:04:05"),
+				IsAdmin:   user.IsAdmin,
+				Status:    user.Status,
 			}, nil
-		}
-		zap.L().Error("Unmarshal user info cache error", zap.Error(err), zap.String("cacheKey", cacheKey))
-	}
-
-	// 3. 缓存未命中，从数据库查询
-	user, err := u.repos.User.FindByUuid(friendId)
+		},
+		cacheutil.RandomizedTTL(time.Hour), // 数据 TTL
+		5*time.Minute,                      // 空值 TTL
+		&userRsp,
+	)
 	if err != nil {
-		if errorx.IsNotFound(err) {
-			return contact.FriendInfoRespond{}, errorx.New(errorx.CodeUserNotExist, "该用户不存在")
-		}
-		zap.L().Error("Find user error", zap.Error(err), zap.String("friendId", friendId))
-		return contact.FriendInfoRespond{}, errorx.ErrServerBusy
+		return contact.FriendInfoRespond{}, err
 	}
 
-	// 4. 检查用户状态
-	if user.Status == user_status_enum.DISABLE {
-		return contact.FriendInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "该用户处于禁用状态")
-	}
-
-	rsp := contact.FriendInfoRespond{
-		FriendId:        user.Uuid,
-		FriendName:      user.Nickname,
-		FriendAvatar:    user.Avatar,
-		FriendBirthday:  user.Birthday,
-		FriendEmail:     user.Email,
-		FriendPhone:     user.Telephone,
-		FriendGender:    user.Gender,
-		FriendSignature: user.Signature,
-	}
-
-	// 5. 回写缓存
-	userRsp := userrsp.GetUserInfoRespond{
-		Uuid:      user.Uuid,
-		Telephone: user.Telephone,
-		Nickname:  user.Nickname,
-		Avatar:    user.Avatar,
-		Birthday:  user.Birthday,
-		Email:     user.Email,
-		Gender:    user.Gender,
-		Signature: user.Signature,
-		CreatedAt: user.CreatedAt.Format("2006-01-02 15:04:05"),
-		IsAdmin:   user.IsAdmin,
-		Status:    user.Status,
-	}
-	if data, err := json.Marshal(userRsp); err == nil {
-		_ = u.cache.Set(context.Background(), cacheKey, string(data), time.Hour)
-	}
-
-	return rsp, nil
+	return contact.FriendInfoRespond{
+		FriendId:        userRsp.Uuid,
+		FriendName:      userRsp.Nickname,
+		FriendAvatar:    userRsp.Avatar,
+		FriendBirthday:  userRsp.Birthday,
+		FriendEmail:     userRsp.Email,
+		FriendPhone:     userRsp.Telephone,
+		FriendGender:    userRsp.Gender,
+		FriendSignature: userRsp.Signature,
+	}, nil
 }
 
 // GetGroupDetail 获取群聊详情 (userId 必须是群成员)
+// 使用 Cache-Aside 模式 + singleflight 防止缓存击穿
 func (u *contactService) GetGroupDetail(userId, groupId string) (contact.GroupDetailRespond, error) {
 	// 1. 安全检查和权限校验
 	if len(groupId) == 0 {
@@ -230,67 +227,53 @@ func (u *contactService) GetGroupDetail(userId, groupId string) (contact.GroupDe
 		return contact.GroupDetailRespond{}, errorx.ErrServerBusy
 	}
 
-	// 2. 尝试从缓存获取
+	// 2. 使用 cacheHelper 获取群组信息
 	cacheKey := "group_info_" + groupId
-	cachedStr, err := u.cache.Get(context.Background(), cacheKey)
-	if err == nil && cachedStr != "" {
-		var groupRsp grouprsp.GetGroupInfoRespond
-		if err := json.Unmarshal([]byte(cachedStr), &groupRsp); err == nil {
-			return contact.GroupDetailRespond{
-				GroupId:     groupRsp.Uuid,
-				GroupName:   groupRsp.Name,
-				GroupAvatar: groupRsp.Avatar,
-				GroupNotice: groupRsp.Notice,
-				MemberCnt:   groupRsp.MemberCnt,
-				OwnerId:     groupRsp.OwnerId,
-				AddMode:     groupRsp.AddMode,
+	var groupRsp grouprsp.GetGroupInfoRespond
+
+	err = u.cacheHelper.GetOrLoad(
+		context.Background(),
+		cacheKey,
+		func() (interface{}, error) {
+			group, err := u.repos.Group.FindByUuid(groupId)
+			if err != nil {
+				if errorx.IsNotFound(err) {
+					return nil, errorx.New(errorx.CodeNotFound, "该群聊不存在")
+				}
+				return nil, err
+			}
+			if group.Status == group_status_enum.DISABLE {
+				return nil, errorx.New(errorx.CodeInvalidParam, "该群聊处于禁用状态")
+			}
+			return grouprsp.GetGroupInfoRespond{
+				Uuid:      group.Uuid,
+				Name:      group.Name,
+				Notice:    group.Notice,
+				Avatar:    group.Avatar,
+				MemberCnt: group.MemberCnt,
+				OwnerId:   group.OwnerId,
+				AddMode:   group.AddMode,
+				Status:    group.Status,
+				IsDeleted: group.DeletedAt.Valid,
 			}, nil
-		}
-		zap.L().Error("Unmarshal group info cache error", zap.Error(err), zap.String("cacheKey", cacheKey))
-	}
-
-	// 3. 缓存未命中，从数据库查询
-	group, err := u.repos.Group.FindByUuid(groupId)
+		},
+		cacheutil.RandomizedTTL(time.Hour), // 数据 TTL
+		5*time.Minute,                      // 空值 TTL
+		&groupRsp,
+	)
 	if err != nil {
-		if errorx.IsNotFound(err) {
-			return contact.GroupDetailRespond{}, errorx.New(errorx.CodeNotFound, "该群聊不存在")
-		}
-		zap.L().Error("Find group error", zap.Error(err), zap.String("groupId", groupId))
-		return contact.GroupDetailRespond{}, errorx.ErrServerBusy
+		return contact.GroupDetailRespond{}, err
 	}
 
-	// 4. 检查群组状态
-	if group.Status == group_status_enum.DISABLE {
-		return contact.GroupDetailRespond{}, errorx.New(errorx.CodeInvalidParam, "该群聊处于禁用状态")
-	}
-
-	rsp := contact.GroupDetailRespond{
-		GroupId:     group.Uuid,
-		GroupName:   group.Name,
-		GroupAvatar: group.Avatar,
-		GroupNotice: group.Notice,
-		MemberCnt:   group.MemberCnt,
-		OwnerId:     group.OwnerId,
-		AddMode:     group.AddMode,
-	}
-
-	// 5. 回写缓存
-	groupRsp := grouprsp.GetGroupInfoRespond{
-		Uuid:      group.Uuid,
-		Name:      group.Name,
-		Notice:    group.Notice,
-		Avatar:    group.Avatar,
-		MemberCnt: group.MemberCnt,
-		OwnerId:   group.OwnerId,
-		AddMode:   group.AddMode,
-		Status:    group.Status,
-		IsDeleted: group.DeletedAt.Valid,
-	}
-	if data, err := json.Marshal(groupRsp); err == nil {
-		_ = u.cache.Set(context.Background(), cacheKey, string(data), time.Hour)
-	}
-
-	return rsp, nil
+	return contact.GroupDetailRespond{
+		GroupId:     groupRsp.Uuid,
+		GroupName:   groupRsp.Name,
+		GroupAvatar: groupRsp.Avatar,
+		GroupNotice: groupRsp.Notice,
+		MemberCnt:   groupRsp.MemberCnt,
+		OwnerId:     groupRsp.OwnerId,
+		AddMode:     groupRsp.AddMode,
+	}, nil
 }
 
 // DeleteContact 删除联系人
