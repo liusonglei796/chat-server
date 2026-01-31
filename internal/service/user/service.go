@@ -2,7 +2,6 @@ package user
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"time"
@@ -20,26 +19,29 @@ import (
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/user_info/user_status_enum"
 	"kama_chat_server/pkg/errorx"
+	cacheutil "kama_chat_server/pkg/util/cache"
 	"kama_chat_server/pkg/util/jwt"
 )
 
 // userInfoService 用户业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖
 type userInfoService struct {
-	repos      *mysql.Repositories
-	cache      myredis.AsyncCacheService
-	smsService sms.SmsService
-	kickClient func(userId, reason string) // 踢人回调函数（解耦 chat 包）
+	repos       *mysql.Repositories
+	cache       myredis.AsyncCacheService
+	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
+	smsService  sms.SmsService
+	kickClient  func(userId, reason string) // 踢人回调函数（解耦 chat 包）
 }
 
 // NewUserService 构造函数，注入所有依赖
 // kickClient: 可选的踢人回调函数，用于登录时踢掉旧设备
 func NewUserService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string)) *userInfoService {
 	return &userInfoService{
-		repos:      repos,
-		cache:      cacheService,
-		smsService: smsService,
-		kickClient: kickClient,
+		repos:       repos,
+		cache:       cacheService,
+		cacheHelper: cacheutil.NewHelper(cacheService),
+		smsService:  smsService,
+		kickClient:  kickClient,
 	}
 }
 
@@ -314,8 +316,8 @@ func (u *userInfoService) UpdateUserInfo(userId string, updateReq userreq.Update
 	return nil
 }
 
-// GetUserInfo 获取用户信息
 // GetUserInfo 获取用户完整信息（仅限自己调用）
+// 使用 Cache-Aside 模式 + singleflight 防止缓存击穿
 func (u *userInfoService) GetUserInfo(requesterId, targetId string) (*userrsp.GetUserInfoRespond, error) {
 	// 权限校验: 只能查看自己的完整信息
 	if requesterId != targetId {
@@ -323,75 +325,75 @@ func (u *userInfoService) GetUserInfo(requesterId, targetId string) (*userrsp.Ge
 	}
 
 	key := "user_info_" + targetId
+	var rsp userrsp.GetUserInfoRespond
 
-	// 1. 尝试从缓存获取
-	rspString, err := u.cache.Get(context.Background(), key)
-	if err == nil && rspString != "" {
-		var rsp userrsp.GetUserInfoRespond
-		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
-			return &rsp, nil
-		}
-		// 如果反序列化失败，视同缓存失效，继续查库
-		zap.L().Error("Cache unmarshal failed", zap.Error(err))
-	}
-
-	// 2. 缓存未命中或异常，查询数据库
-	user, err := u.repos.User.FindByUuid(targetId)
+	err := u.cacheHelper.GetOrLoad(
+		context.Background(),
+		key,
+		func() (interface{}, error) {
+			user, err := u.repos.User.FindByUuid(targetId)
+			if err != nil {
+				if errorx.IsNotFound(err) {
+					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
+				}
+				return nil, err
+			}
+			return userrsp.GetUserInfoRespond{
+				Uuid:      user.Uuid,
+				Telephone: user.Telephone,
+				Nickname:  user.Nickname,
+				Avatar:    user.Avatar,
+				Birthday:  user.Birthday,
+				Email:     user.Email,
+				Gender:    user.Gender,
+				Signature: user.Signature,
+				CreatedAt: user.CreatedAt.Format("2006-01-02 15:04:05"),
+				IsAdmin:   user.IsAdmin,
+				Status:    user.Status,
+			}, nil
+		},
+		cacheutil.RandomizedTTL(time.Hour), // 数据 TTL (带抖动防雪崩)
+		5*time.Minute,                      // 空值 TTL (防穿透)
+		&rsp,
+	)
 	if err != nil {
-		if errorx.GetCode(err) == errorx.CodeNotFound {
-			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
-		}
-		zap.L().Error("service error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, err
 	}
-
-	// 3. 构造响应对象
-	rsp := &userrsp.GetUserInfoRespond{
-		Uuid:      user.Uuid,
-		Telephone: user.Telephone,
-		Nickname:  user.Nickname,
-		Avatar:    user.Avatar,
-		Birthday:  user.Birthday,
-		Email:     user.Email,
-		Gender:    user.Gender,
-		Signature: user.Signature,
-		CreatedAt: user.CreatedAt.Format("2006-01-02 15:04:05"),
-		IsAdmin:   user.IsAdmin,
-		Status:    user.Status,
-	}
-
-	// 4. 异步回写缓存
-	u.cache.SubmitTask(func() {
-		jsonData, err := json.Marshal(rsp)
-		if err != nil {
-			zap.L().Error("JSON marshal failed", zap.Error(err))
-			return
-		}
-		if err := u.cache.Set(context.Background(), key, string(jsonData), time.Hour); err != nil {
-			zap.L().Error("Cache set key failed", zap.Error(err))
-		}
-	})
-
-	return rsp, nil
+	return &rsp, nil
 }
 
 // GetPublicUserInfo 获取用户公开信息（查看他人）
+// 使用 Cache-Aside 模式 + singleflight 防止缓存击穿
 func (u *userInfoService) GetPublicUserInfo(targetId string) (*userrsp.PublicUserInfoRespond, error) {
-	user, err := u.repos.User.FindByUuid(targetId)
-	if err != nil {
-		if errorx.GetCode(err) == errorx.CodeNotFound {
-			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
-		}
-		zap.L().Error("service error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
+	key := "public_user_info_" + targetId
+	var rsp userrsp.PublicUserInfoRespond
 
-	return &userrsp.PublicUserInfoRespond{
-		Uuid:      user.Uuid,
-		Nickname:  user.Nickname,
-		Avatar:    user.Avatar,
-		Gender:    user.Gender,
-		Birthday:  user.Birthday,
-		Signature: user.Signature,
-	}, nil
+	err := u.cacheHelper.GetOrLoad(
+		context.Background(),
+		key,
+		func() (interface{}, error) {
+			user, err := u.repos.User.FindByUuid(targetId)
+			if err != nil {
+				if errorx.IsNotFound(err) {
+					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
+				}
+				return nil, err
+			}
+			return userrsp.PublicUserInfoRespond{
+				Uuid:      user.Uuid,
+				Nickname:  user.Nickname,
+				Avatar:    user.Avatar,
+				Gender:    user.Gender,
+				Birthday:  user.Birthday,
+				Signature: user.Signature,
+			}, nil
+		},
+		cacheutil.RandomizedTTL(30*time.Minute), // 数据 TTL (带抖动防雪崩)
+		5*time.Minute, // 空值 TTL (防穿透)
+		&rsp,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &rsp, nil
 }
