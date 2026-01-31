@@ -1,13 +1,16 @@
 // Package handler 提供 HTTP 请求处理器
 // 本文件处理认证相关的 API 请求
 package handler
+
 import (
 	"kama_chat_server/internal/dto/request/auth"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/util/jwt"
+
 	"github.com/gin-gonic/gin"
 )
+
 // AuthHandler 认证请求处理器
 // 通过构造函数注入 AuthService，遵循依赖倒置原则
 type AuthHandler struct {
@@ -28,6 +31,7 @@ func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
 //   - 验证 Refresh Token 是否有效
 //   - 验证 Token ID 是否与 Redis 中存储的一致（单点互踢）
 //   - 生成新的 Access Token
+//
 // 单点互踢机制:
 //   - 用户登录时会在 Redis 中存储 Token ID
 //   - 如果用户在其他设备登录，会覆盖旧的 Token ID
@@ -60,7 +64,6 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 	// 4. 比对 Token ID（如果不一致，说明用户在其他设备登录过）
 	if !valid {
-		
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "您的账号已在其他设备登录，请重新登录"))
 		return
 	}

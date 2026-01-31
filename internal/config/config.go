@@ -4,6 +4,9 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml" // TOML 配置文件解析库
@@ -93,37 +96,77 @@ type Config struct {
 	SnowflakeConfig `toml:"snowflakeConfig"` // 雪花算法配置
 }
 
-// config 全局配置单例，延迟加载
-var config *Config
+// config 全局配置单例
+var (
+	configInstance *Config
+	once           sync.Once
+)
 
 // LoadConfig 从多个候选路径加载配置文件
 // 按顺序尝试加载，找到第一个可用的配置文件即停止
-// 返回值：加载成功返回 nil，否则返回错误
-func LoadConfig() error {
-	// 候选配置文件路径（优先加载本地配置）
+func LoadConfig() (*Config, error) {
+	newConfig := new(Config)
+
+	// 获取程序执行目录
+	execPath, _ := os.Executable()
+	execDir := filepath.Dir(execPath)
+
+	// 候选配置文件路径
 	paths := []string{
-		"configs/config_local.toml",      // 本地开发配置（优先）
-		"configs/config.toml",            // 默认配置
-		"../../configs/config_local.toml", // 从子目录运行时的路径
-		"../../configs/config.toml",       // 从子目录运行时的路径
+		"configs/config_local.toml",
+		"configs/config.toml",
+		filepath.Join(execDir, "configs/config_local.toml"),
+		filepath.Join(execDir, "configs/config.toml"),
+		"../../configs/config_local.toml",
+		"../../configs/config.toml",
 	}
 
-	// 依次尝试加载配置文件
+	found := false
 	for _, path := range paths {
-		if _, err := toml.DecodeFile(path, config); err == nil {
-			return nil // 加载成功
+		if _, err := os.Stat(path); err == nil {
+			if _, err := toml.DecodeFile(path, newConfig); err == nil {
+				found = true
+				break
+			}
 		}
 	}
 
-	return fmt.Errorf("could not find configuration file in any of the search paths")
+	if !found {
+		return nil, fmt.Errorf("could not find or decode configuration file in any of the search paths")
+	}
+
+	// 环境变量覆盖逻辑（优先级最高）
+	overlayEnvVars(newConfig)
+
+	return newConfig, nil
 }
 
-// GetConfig 获取全局配置实例（单例模式）
-// 首次调用时会自动加载配置文件
-func GetConfig() *Config {
-	if config == nil {
-		config = new(Config)
-		_ = LoadConfig() // 忽略加载错误，使用默认值
+// overlayEnvVars 使用环境变量覆盖配置
+func overlayEnvVars(c *Config) {
+	if v := os.Getenv("MYSQL_PASSWORD"); v != "" {
+		c.MysqlConfig.Password = v
 	}
-	return config
+	if v := os.Getenv("REDIS_PASSWORD"); v != "" {
+		c.RedisConfig.Password = v
+	}
+	if v := os.Getenv("JWT_SECRET"); v != "" {
+		c.JWTConfig.Secret = v
+	}
+	if v := os.Getenv("KAFKA_HOST_PORT"); v != "" {
+		c.KafkaConfig.HostPort = v
+	}
+}
+
+// GetConfig 获取全局配置实例（线程安全单例）
+// 若加载失败会产生 fatal 错误，因为配置是程序运行的基础
+func GetConfig() *Config {
+	once.Do(func() {
+		var err error
+		configInstance, err = LoadConfig()
+		if err != nil {
+			// 如果配置加载失败，程序不应继续运行
+			panic(fmt.Sprintf("Failed to load configuration: %v", err))
+		}
+	})
+	return configInstance
 }
