@@ -109,10 +109,6 @@ func (h *ContactHandler) LoadMyJoinedGroup(c *gin.Context) {
 // GET /contact/getFriendInfo?friendId=xxx
 // 查询参数: contact.GetFriendInfoRequest
 // 响应: respond.PublicUserInfoRespond
-// GetFriendInfo 获取好友详细信息
-// GET /contact/getFriendInfo?friendId=xxx
-// 查询参数: contact.GetFriendInfoRequest
-// 响应: respond.PublicUserInfoRespond
 // 安全: 从JWT上下文获取当前用户ID，校验好友关系
 func (h *ContactHandler) GetFriendInfo(c *gin.Context) {
 	userId, exists := c.Get("user_id")
@@ -134,10 +130,6 @@ func (h *ContactHandler) GetFriendInfo(c *gin.Context) {
 	HandleSuccess(c, data)
 }
 
-// GetGroupDetail 获取群聊详细信息
-// GET /contact/getGroupDetail?groupId=xxx
-// 查询参数: group.GetGroupInfoRequest
-// 响应: respond.GetGroupInfoRespond
 // GetGroupDetail 获取群聊详细信息
 // GET /contact/getGroupDetail?groupId=xxx
 // 查询参数: group.GetGroupInfoRequest
@@ -164,191 +156,85 @@ func (h *ContactHandler) GetGroupDetail(c *gin.Context) {
 }
 
 // DeleteContact 删除联系人
-
 // POST /contact/deleteContact
-
 // 请求体: contact.BatchDeleteRequest
-
 // 响应: nil
-
 // 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
-
 func (h *ContactHandler) DeleteContact(c *gin.Context) {
-
 	userId, exists := c.Get("user_id")
-
 	if !exists {
-
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
-
 		return
-
 	}
-
-
 
 	var req contact.BatchDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
 
+	if len(req.UuidList) == 0 {
+		HandleError(c, errorx.New(errorx.CodeInvalidParam, "uuid_list 不能为空"))
+		return
+	}
 
-
-		if err := c.ShouldBindJSON(&req); err != nil {
-
-
-
-			HandleParamError(c, err)
-
-
-
-			return
-
-
-
-		}
-
-
-
-	
-
-
-
-		// 从 UuidList 中取第一个（单个操作）
-
-
-
-		if len(req.UuidList) == 0 {
-
-
-
-			HandleError(c, errorx.New(errorx.CodeInvalidParam, "uuid_list 不能为空"))
-
-
-
-			return
-
-
-
-		}
-
-
-
-		if err := h.contactSvc.DeleteContact(userId.(string), req.UuidList[0]); err != nil {
-
-
-
+	// 批量删除：遍历所有联系人
+	for _, uuid := range req.UuidList {
+		if err := h.contactSvc.DeleteContact(userId.(string), uuid); err != nil {
 			HandleError(c, err)
-
-
-
 			return
-
-
-
 		}
+	}
 
 	HandleSuccess(c, nil)
-
 }
 
-
-
 // BlockContact 拉黑联系人
-
 // POST /contact/blockContact
-
 // 请求体: contact.BlockContactRequest
-
 // 响应: nil
-
 func (h *ContactHandler) BlockContact(c *gin.Context) {
-
 	userId, exists := c.Get("user_id")
-
 	if !exists {
-
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
-
 		return
-
 	}
-
-
 
 	var req contact.BlockContactRequest
-
 	if err := c.ShouldBindJSON(&req); err != nil {
-
 		HandleParamError(c, err)
-
 		return
-
 	}
-
-
 
 	if err := h.contactSvc.BlackContact(userId.(string), req.ContactId); err != nil {
-
 		HandleError(c, err)
-
 		return
-
 	}
 
 	HandleSuccess(c, nil)
-
 }
 
-
-
 // UnblockContact 取消拉黑联系人
-
 // POST /contact/unblockContact
-
 // 请求体: contact.BlockContactRequest
-
 // 响应: nil
-
 func (h *ContactHandler) UnblockContact(c *gin.Context) {
-
 	userId, exists := c.Get("user_id")
-
 	if !exists {
-
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
-
 		return
-
 	}
-
-
 
 	var req contact.BlockContactRequest
-
 	if err := c.ShouldBindJSON(&req); err != nil {
-
 		HandleParamError(c, err)
-
 		return
-
 	}
 
-
-
 	if err := h.contactSvc.CancelBlackContact(userId.(string), req.ContactId); err != nil {
-
 		HandleError(c, err)
-
 		return
-
 	}
 
 	HandleSuccess(c, nil)
-
 }
-
-// BlockContact 拉黑联系人
-// POST /contact/blockContact
-type BlockContactRequest contact.BlockContactRequest
-
-// UnblockContact 取消拉黑联系人
-// POST /contact/unblockContact
-type UnblockContactRequest contact.BlockContactRequest

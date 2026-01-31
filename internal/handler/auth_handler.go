@@ -60,6 +60,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 	// 4. 比对 Token ID（如果不一致，说明用户在其他设备登录过）
 	if !valid {
+		
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "您的账号已在其他设备登录，请重新登录"))
 		return
 	}
