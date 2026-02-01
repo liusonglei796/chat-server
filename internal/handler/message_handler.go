@@ -57,9 +57,9 @@ func (h *MessageHandler) GetMessageList(c *gin.Context) {
 }
 
 // GetGroupMessageList 获取群聊消息记录
-// GET /message/getGroupMessageList?groupId=xxx
+// GET /message/getGroupMessageList?group_id=xxx&page=1&page_size=20
 // 查询参数: message.GetGroupMessageListRequest
-// 响应: []respond.GetMessageListRespond
+// 响应: map[string]interface{} (list, total, page, page_size)
 // 安全: 从JWT上下文获取当前用户ID，Service层校验群成员身份
 func (h *MessageHandler) GetGroupMessageList(c *gin.Context) {
 	userId, exists := c.Get("user_id")
@@ -73,12 +73,28 @@ func (h *MessageHandler) GetGroupMessageList(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.messageSvc.GetGroupMessageList(userId.(string), req.GroupId)
+
+	// 设置默认分页参数
+	page := req.Page
+	pageSize := req.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+
+	data, total, err := h.messageSvc.GetGroupMessageList(userId.(string), req.GroupId, page, pageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, data)
+	HandleSuccess(c, map[string]interface{}{
+		"list":      data,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
 }
 
 // UploadAvatar 上传用户头像

@@ -54,16 +54,29 @@ func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, offs
 	return messages, nil
 }
 
-// FindByGroupId 根据群组ID查找群聊消息
-// 群聊消息的 receive_id 为群组 UUID
+// FindByGroupIdPaged 根据群组ID分页查找群聊消息
 // receiveId: 群组 UUID
-// 返回: 消息列表和错误
-func (r *messageRepository) FindByGroupId(receiveId string) ([]model.Message, error) {
+// offset: 偏移量
+// limit: 每页数量
+// 返回: 消息列表、总数和错误
+func (r *messageRepository) FindByGroupIdPaged(receiveId string, offset, limit int) ([]model.Message, int64, error) {
 	var messages []model.Message
-	if err := r.db.Where("receive_id = ?", receiveId).Order("created_at ASC").Find(&messages).Error; err != nil {
-		return nil, errorx.WrapDBErrorf(err, "查询群消息 receive_id=%s", receiveId)
+	var total int64
+
+	// 统计总数
+	if err := r.db.Model(&model.Message{}).Where("receive_id = ?", receiveId).Count(&total).Error; err != nil {
+		return nil, 0, errorx.WrapDBErrorf(err, "统计群消息数量 receive_id=%s", receiveId)
 	}
-	return messages, nil
+
+	// 分页查询，按时间倒序（最新的在前）
+	if err := r.db.Where("receive_id = ?", receiveId).
+		Order("created_at DESC").
+		Offset(offset).
+		Limit(limit).
+		Find(&messages).Error; err != nil {
+		return nil, 0, errorx.WrapDBErrorf(err, "分页查询群消息 receive_id=%s", receiveId)
+	}
+	return messages, total, nil
 }
 
 // UpdateStatus 更新消息状态

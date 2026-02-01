@@ -6,6 +6,7 @@ import (
 	"kama_chat_server/internal/dto/request/group"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/pkg/errorx"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -47,9 +48,9 @@ func (h *GroupHandler) CreateGroup(c *gin.Context) {
 }
 
 // LoadMyGroup 获取我创建的群聊
-// GET /group/loadMyGroup
+// GET /group/loadMyGroup?page=1&page_size=20
 // 从JWT上下文获取当前用户ID
-// 响应: []respond.MyGroupListRespond
+// 响应: map[string]interface{} (list, total, page, page_size)
 func (h *GroupHandler) LoadMyGroup(c *gin.Context) {
 	// 从JWT中间件获取当前用户ID
 	userId, exists := c.Get("user_id")
@@ -58,12 +59,31 @@ func (h *GroupHandler) LoadMyGroup(c *gin.Context) {
 		return
 	}
 
-	data, err := h.groupSvc.LoadMyGroup(userId.(string))
+	// 解析分页参数
+	page := 1
+	pageSize := 20
+	if p := c.Query("page"); p != "" {
+		if pVal, err := strconv.Atoi(p); err == nil && pVal > 0 {
+			page = pVal
+		}
+	}
+	if ps := c.Query("page_size"); ps != "" {
+		if psVal, err := strconv.Atoi(ps); err == nil && psVal > 0 {
+			pageSize = psVal
+		}
+	}
+
+	data, total, err := h.groupSvc.LoadMyGroup(userId.(string), page, pageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, data)
+	HandleSuccess(c, map[string]interface{}{
+		"list":      data,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
 }
 
 // CheckGroupAddMode 检查群聊加入方式
@@ -157,9 +177,9 @@ func (h *GroupHandler) UpdateGroupInfo(c *gin.Context) {
 }
 
 // GetGroupMemberList 获取群成员列表
-// GET /group/getGroupMemberList?groupId=xxx
+// GET /group/getGroupMemberList?group_id=xxx&page=1&page_size=20
 // 查询参数: request.GetGroupMemberListRequest
-// 响应: []respond.GetGroupMemberListRespond
+// 响应: map[string]interface{} (list, total, page, page_size)
 // 安全: 从JWT上下文获取当前用户ID，Service层校验成员身份
 func (h *GroupHandler) GetGroupMemberList(c *gin.Context) {
 	userId, exists := c.Get("user_id")
@@ -173,12 +193,28 @@ func (h *GroupHandler) GetGroupMemberList(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.groupSvc.GetGroupMemberList(userId.(string), req.GroupId)
+
+	// 设置默认分页参数
+	page := req.Page
+	pageSize := req.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+
+	data, total, err := h.groupSvc.GetGroupMemberList(userId.(string), req.GroupId, page, pageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, data)
+	HandleSuccess(c, map[string]interface{}{
+		"list":      data,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
 }
 
 // RemoveGroupMembers 移除群成员

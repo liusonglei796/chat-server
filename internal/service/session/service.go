@@ -11,8 +11,8 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	sessionreq "kama_chat_server/internal/dto/request/session"
-	sessionrsp "kama_chat_server/internal/dto/respond/session"
 	"kama_chat_server/internal/dto/respond/group"
+	sessionrsp "kama_chat_server/internal/dto/respond/session"
 	"kama_chat_server/internal/dto/respond/user"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
@@ -338,36 +338,28 @@ func (s *sessionService) OpenSession(sendId string, req sessionreq.OpenSessionRe
 	return session.Uuid, nil
 }
 
-// GetUserSessionList 获取用户会话列表
-func (s *sessionService) GetUserSessionList(ownerId string) ([]sessionrsp.UserSessionListRespond, error) {
-	cacheKey := "direct_session_list_" + ownerId
-
-	// 1. 尝试读缓存
-	rspString, err := s.cache.Get(context.Background(), cacheKey)
-	if err == nil && rspString != "" {
-		var rsp []sessionrsp.UserSessionListRespond
-		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
-			return rsp, nil
-		}
-		// 反序列化失败，记录日志并降级查库
-		zap.L().Error("Unmarshal user session list cache failed", zap.Error(err))
-	} else if err != nil {
-		// Redis 报错（非key不存在），记录日志
-		zap.L().Error("service error", zap.Error(err))
+// GetUserSessionList 获取用户会话列表（分页）
+func (s *sessionService) GetUserSessionList(ownerId string, page, pageSize int) ([]sessionrsp.UserSessionListRespond, int64, error) {
+	// 设置默认分页参数
+	if page < 1 {
+		page = 1
 	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
 
-	// 2. 查库（缓存Miss或反序列化失败）
-	sessionList, err := s.repos.Session.FindBySendId(ownerId)
+	// 直接查库（分页场景不利用缓存，因为缓存 key 需要包含分页参数）
+	sessionList, total, err := s.repos.Session.FindBySendIdPaged(ownerId, offset, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, 0, errorx.ErrServerBusy
 	}
 
 	sessionListRsp := make([]sessionrsp.UserSessionListRespond, 0, len(sessionList))
 	for i := 0; i < len(sessionList); i++ {
-		// 增加长度判断防止 panic
+		// 只筛选私聊会话（接收者以 'U' 开头）
 		if len(sessionList[i].ReceiveId) > 0 && sessionList[i].ReceiveId[0] == 'U' {
-			// 直接从 Session 表读取最后消息信息（已在发消息时同步更新）
 			var lastMessageTime string
 			if sessionList[i].LastMessageAt.Valid {
 				lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
@@ -385,49 +377,31 @@ func (s *sessionService) GetUserSessionList(ownerId string) ([]sessionrsp.UserSe
 		}
 	}
 
-	// 3. 回写缓存
-	s.cache.SubmitTask(func() {
-		rspBytes, err := json.Marshal(sessionListRsp)
-		if err != nil {
-			zap.L().Error("Marshal failed", zap.Error(err))
-			return
-		}
-		_ = s.cache.Set(context.Background(), cacheKey, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
-	})
-
-	return sessionListRsp, nil
+	return sessionListRsp, total, nil
 }
 
-// GetGroupSessionList 获取群聊会话列表
-func (s *sessionService) GetGroupSessionList(ownerId string) ([]sessionrsp.GroupSessionListRespond, error) {
-	cacheKey := "group_session_list_" + ownerId
-
-	// 1. 尝试读缓存
-	rspString, err := s.cache.Get(context.Background(), cacheKey)
-	if err == nil && rspString != "" {
-		var rsp []sessionrsp.GroupSessionListRespond
-		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
-			return rsp, nil
-		}
-		// 反序列化失败，视为缓存失效，记录日志并降级查库
-		zap.L().Error("Unmarshal group session list cache failed", zap.Error(err))
-	} else if err != nil {
-		// Redis 系统错误
-		zap.L().Error("service error", zap.Error(err))
+// GetGroupSessionList 获取群聊会话列表（分页）
+func (s *sessionService) GetGroupSessionList(ownerId string, page, pageSize int) ([]sessionrsp.GroupSessionListRespond, int64, error) {
+	// 设置默认分页参数
+	if page < 1 {
+		page = 1
 	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
 
-	// 2. 查库（缓存Miss或反序列化失败）
-	sessionList, err := s.repos.Session.FindBySendId(ownerId)
+	// 直接查库（分页场景不利用缓存）
+	sessionList, total, err := s.repos.Session.FindBySendIdPaged(ownerId, offset, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, 0, errorx.ErrServerBusy
 	}
 
 	sessionListRsp := make([]sessionrsp.GroupSessionListRespond, 0, len(sessionList))
 	for i := 0; i < len(sessionList); i++ {
-		// 增加长度判断防止 panic
+		// 只筛选群聊会话（接收者以 'G' 开头）
 		if len(sessionList[i].ReceiveId) > 0 && sessionList[i].ReceiveId[0] == 'G' {
-			// 直接从 Session 表读取最后消息信息（已在发消息时同步更新）
 			var lastMessageTime string
 			if sessionList[i].LastMessageAt.Valid {
 				lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
@@ -445,17 +419,7 @@ func (s *sessionService) GetGroupSessionList(ownerId string) ([]sessionrsp.Group
 		}
 	}
 
-	// 3. 回写缓存
-	s.cache.SubmitTask(func() {
-		rspBytes, err := json.Marshal(sessionListRsp)
-		if err != nil {
-			zap.L().Error("Marshal failed", zap.Error(err))
-			return
-		}
-		_ = s.cache.Set(context.Background(), cacheKey, string(rspBytes), time.Minute*constants.REDIS_TIMEOUT)
-	})
-
-	return sessionListRsp, nil
+	return sessionListRsp, total, nil
 }
 
 // DeleteSession 删除会话

@@ -112,26 +112,46 @@ func (g *groupInfoService) CreateGroup(ownerId string, groupReq group.CreateGrou
 	return nil
 }
 
-// LoadMyGroup 获取我创建的群聊
-func (g *groupInfoService) LoadMyGroup(userId string) ([]grouprsp.MyGroupListRespond, error) {
+// LoadMyGroup 获取我创建的群聊（分页）
+func (g *groupInfoService) LoadMyGroup(userId string, page, pageSize int) ([]grouprsp.MyGroupListRespond, int64, error) {
+	// 设置默认分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
 	// 1. 获取所有关联群组
 	allGroups, err := g.getGroupsByUserId(userId)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// 2. 过滤出我创建的群组
-	groupListRsp := make([]grouprsp.MyGroupListRespond, 0)
+	myGroups := make([]grouprsp.MyGroupListRespond, 0)
 	for _, grp := range allGroups {
 		if grp.OwnerId == userId {
-			groupListRsp = append(groupListRsp, grouprsp.MyGroupListRespond{
+			myGroups = append(myGroups, grouprsp.MyGroupListRespond{
 				GroupId:   grp.Uuid,
 				GroupName: grp.Name,
 				Avatar:    grp.Avatar,
 			})
 		}
 	}
-	return groupListRsp, nil
+
+	// 3. 内存分页
+	total := int64(len(myGroups))
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start >= len(myGroups) {
+		return []grouprsp.MyGroupListRespond{}, total, nil
+	}
+	if end > len(myGroups) {
+		end = len(myGroups)
+	}
+
+	return myGroups[start:end], total, nil
 }
 
 // GetJoinedGroups 获取我加入的群组（包含自己创建的）
@@ -574,42 +594,35 @@ func (g *groupInfoService) UpdateGroupInfo(operatorId string, req group.UpdateGr
 	return nil
 }
 
-// GetGroupMemberList 获取群聊成员列表 (userId 必须是群成员)
-func (g *groupInfoService) GetGroupMemberList(userId, groupId string) ([]grouprsp.GetGroupMemberListRespond, error) {
+// GetGroupMemberList 获取群聊成员列表（分页）(userId 必须是群成员)
+func (g *groupInfoService) GetGroupMemberList(userId, groupId string, page, pageSize int) ([]grouprsp.GetGroupMemberListRespond, int64, error) {
+	// 设置默认分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
 	// 权限校验: 必须是群成员
 	_, err := g.repos.GroupMember.FindByGroupAndUser(groupId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return nil, errorx.New(errorx.CodeForbidden, "你不是该群成员")
+			return nil, 0, errorx.New(errorx.CodeForbidden, "你不是该群成员")
 		}
 		zap.L().Error("Find group member error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, 0, errorx.ErrServerBusy
 	}
 
-	cacheKey := "group_memberlist_" + groupId
-
-	// 1. 尝试从缓存获取
-	rspString, err := g.cache.Get(context.Background(), cacheKey)
-	if err == nil && rspString != "" {
-		var rsp []grouprsp.GetGroupMemberListRespond
-		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
-			return rsp, nil
-		}
-		// 反序列化失败，记录警告并降级查库
-		zap.L().Warn("Unmarshal group member list cache failed", zap.String("groupId", groupId), zap.Error(err))
-	} else if err != nil {
-		// Redis 异常（非 Key 不存在），记录错误并降级查库
-		zap.L().Error("Get group member list cache error", zap.String("groupId", groupId), zap.Error(err))
-	}
-
-	// 2. 查询数据库
-	members, err := g.repos.GroupMember.FindMembersWithUserInfo(groupId)
+	// 分页查询数据库
+	members, total, err := g.repos.GroupMember.FindMembersWithUserInfoPaged(groupId, offset, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, 0, errorx.ErrServerBusy
 	}
 
-	// 3. 构建响应 (预分配)
+	// 构建响应
 	rspList := make([]grouprsp.GetGroupMemberListRespond, 0, len(members))
 	for _, m := range members {
 		rspList = append(rspList, grouprsp.GetGroupMemberListRespond{
@@ -619,19 +632,7 @@ func (g *groupInfoService) GetGroupMemberList(userId, groupId string) ([]grouprs
 		})
 	}
 
-	// 4. 回写缓存 (异步)
-	g.cache.SubmitTask(func() {
-		data, err := json.Marshal(rspList)
-		if err != nil {
-			zap.L().Error("Marshal group member list error", zap.Error(err))
-			return
-		}
-		if err := g.cache.Set(context.Background(), cacheKey, string(data), time.Hour*24); err != nil {
-			zap.L().Error("Set group member list cache error", zap.Error(err))
-		}
-	})
-
-	return rspList, nil
+	return rspList, total, nil
 }
 
 // RemoveGroupMembers 移除群聊成员 (operatorId 必须是群主或管理员)

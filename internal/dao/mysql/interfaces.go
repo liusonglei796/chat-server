@@ -68,7 +68,7 @@ type GroupRepository interface {
 type ContactRepository interface {
 	// FindByUserIdAndContactId 根据用户ID和联系人ID查找关系
 	FindByUserIdAndContactId(userId, contactId string, contactType int8) (*model.Contact, error)
-// FindByUserIdAndType 根据用户ID和类型查找联系人（分页）
+	// FindByUserIdAndType 根据用户ID和类型查找联系人（分页）
 	FindByUserIdAndType(userId string, contactType int8, page, pageSize int) ([]model.Contact, int64, error)
 	// FindUsersByContactId 根据联系人ID反向查找
 	FindUsersByContactId(contactId string) ([]model.Contact, error)
@@ -91,6 +91,8 @@ type SessionRepository interface {
 	FindBySendIdAndReceiveId(sendId, receiveId string) (*model.Session, error)
 	// FindBySendId 根据发送者ID查找所有会话
 	FindBySendId(sendId string) ([]model.Session, error)
+	// FindBySendIdPaged 根据发送者ID分页查找会话
+	FindBySendIdPaged(sendId string, offset, limit int) ([]model.Session, int64, error)
 	// CreateSession 创建新会话
 	CreateSession(session *model.Session) error
 	// SoftDeleteByUuids 批量软删除会话
@@ -110,8 +112,8 @@ type MessageRepository interface {
 	FindByUserIds(userOneId, userTwoId string) ([]model.Message, error)
 	// FindByUserIdsPaged 根据两个用户ID查找私聊消息（分页）
 	FindByUserIdsPaged(userOneId, userTwoId string, offset, limit int) ([]model.Message, error)
-	// FindByGroupId 根据群组ID查找群聊消息
-	FindByGroupId(groupId string) ([]model.Message, error)
+	// FindByGroupIdPaged 根据群组ID分页查找群聊消息
+	FindByGroupIdPaged(groupId string, offset, limit int) ([]model.Message, int64, error)
 	// UpdateStatus 更新消息状态
 	UpdateStatus(uuid string, status int8) error
 	// Create 创建新消息
@@ -145,8 +147,8 @@ type ApplyRepository interface {
 type GroupMemberRepository interface {
 	// FindByGroupUuid 根据群组UUID查找所有成员
 	FindByGroupUuid(groupUuid string) ([]model.GroupMember, error)
-	// FindMembersWithUserInfo 查找群成员（含用户详细信息）
-	FindMembersWithUserInfo(groupUuid string) ([]model.GroupMemberWithUserInfo, error)
+	// FindMembersWithUserInfoPaged 分页查找群成员（含用户详细信息）
+	FindMembersWithUserInfoPaged(groupUuid string, offset, limit int) ([]model.GroupMemberWithUserInfo, int64, error)
 	// FindByGroupAndUser 根据群组UUID和用户UUID查找成员
 	FindByGroupAndUser(groupUuid, userUuid string) (*model.GroupMember, error)
 	// CreateGroupMember 添加群成员

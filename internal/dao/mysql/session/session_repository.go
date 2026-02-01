@@ -40,6 +40,28 @@ func (r *sessionRepository) FindBySendId(sendId string) ([]model.Session, error)
 	return sessions, nil
 }
 
+// FindBySendIdPaged 根据发送者分页查找会话
+// 支持按最后消息时间倒序排列，返回总数用于分页
+func (r *sessionRepository) FindBySendIdPaged(sendId string, offset, limit int) ([]model.Session, int64, error) {
+	var sessions []model.Session
+	var total int64
+
+	// 先统计总数
+	if err := r.db.Model(&model.Session{}).Where("send_id = ?", sendId).Count(&total).Error; err != nil {
+		return nil, 0, errorx.WrapDBErrorf(err, "统计会话数量 send_id=%s", sendId)
+	}
+
+	// 分页查询，按最后消息时间倒序（最新的在前）
+	if err := r.db.Where("send_id = ?", sendId).
+		Order("last_message_at DESC").
+		Offset(offset).
+		Limit(limit).
+		Find(&sessions).Error; err != nil {
+		return nil, 0, errorx.WrapDBErrorf(err, "分页查询会话 send_id=%s", sendId)
+	}
+	return sessions, total, nil
+}
+
 // CreateSession 创建会话
 func (r *sessionRepository) CreateSession(session *model.Session) error {
 	if err := r.db.Create(session).Error; err != nil {

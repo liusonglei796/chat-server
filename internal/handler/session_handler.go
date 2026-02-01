@@ -51,9 +51,9 @@ func (h *SessionHandler) OpenSession(c *gin.Context) {
 }
 
 // GetUserSessionList 获取单聊会话列表
-// GET /session/getUserSessionList
+// GET /session/getUserSessionList?page=1&page_size=20
 // 从JWT上下文获取当前用户ID
-// 响应: []respond.UserSessionListRespond
+// 响应: map[string]interface{} (list, total, page, page_size)
 func (h *SessionHandler) GetUserSessionList(c *gin.Context) {
 	// 从JWT中间件获取当前用户ID
 	userId, exists := c.Get("user_id")
@@ -62,18 +62,39 @@ func (h *SessionHandler) GetUserSessionList(c *gin.Context) {
 		return
 	}
 
-	data, err := h.sessionSvc.GetUserSessionList(userId.(string))
+	var req session.GetSessionListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+
+	// 设置默认分页参数
+	page := req.Page
+	pageSize := req.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+
+	data, total, err := h.sessionSvc.GetUserSessionList(userId.(string), page, pageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, data)
+	HandleSuccess(c, map[string]interface{}{
+		"list":      data,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
 }
 
 // GetGroupSessionList 获取群聊会话列表
-// GET /session/getGroupSessionList
+// GET /session/getGroupSessionList?page=1&page_size=20
 // 从JWT上下文获取当前用户ID
-// 响应: []respond.GroupSessionListRespond
+// 响应: map[string]interface{} (list, total, page, page_size)
 func (h *SessionHandler) GetGroupSessionList(c *gin.Context) {
 	// 从JWT中间件获取当前用户ID
 	userId, exists := c.Get("user_id")
@@ -82,12 +103,33 @@ func (h *SessionHandler) GetGroupSessionList(c *gin.Context) {
 		return
 	}
 
-	data, err := h.sessionSvc.GetGroupSessionList(userId.(string))
+	var req session.GetSessionListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+
+	// 设置默认分页参数
+	page := req.Page
+	pageSize := req.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+
+	data, total, err := h.sessionSvc.GetGroupSessionList(userId.(string), page, pageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, data)
+	HandleSuccess(c, map[string]interface{}{
+		"list":      data,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
 }
 
 // DeleteSession 删除会话

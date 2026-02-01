@@ -106,7 +106,6 @@ var (
 // 按顺序尝试加载，找到第一个可用的配置文件即停止
 func LoadConfig() (*Config, error) {
 	newConfig := new(Config)
-
 	// 获取程序执行目录
 	execPath, _ := os.Executable()
 	execDir := filepath.Dir(execPath)

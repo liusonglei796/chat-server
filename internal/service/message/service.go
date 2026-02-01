@@ -1,15 +1,12 @@
 package message
 
 import (
-	"context"
-	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -77,37 +74,33 @@ func (m *messageService) GetMessageList(requesterId, partnerId string, page, pag
 	return rspList, nil
 }
 
-// GetGroupMessageList 获取群聊消息记录 (userId 必须是群成员)
-func (m *messageService) GetGroupMessageList(userId, groupId string) ([]messagersp.GetMessageListRespond, error) {
+// GetGroupMessageList 获取群聊消息记录（分页）(userId 必须是群成员)
+func (m *messageService) GetGroupMessageList(userId, groupId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error) {
+	// 设置默认分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
 	// 权限校验: 只要有 Session 记录(未删除)即可查看历史消息，不仅仅是当前成员
 	// 这样可以支持"退群后查看历史消息"的需求
 	_, err := m.repos.Session.FindBySendIdAndReceiveId(userId, groupId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return nil, errorx.New(errorx.CodeForbidden, "您没有该群的会话记录")
+			return nil, 0, errorx.New(errorx.CodeForbidden, "您没有该群的会话记录")
 		}
 		zap.L().Error("Find session error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, 0, errorx.ErrServerBusy
 	}
 
-	cacheKey := "group_messagelist_" + groupId
-	// 通过注入的 cache 接口获取缓存
-	rspString, err := m.cache.GetOrError(context.Background(), cacheKey)
-	if err == nil {
-		var rsp []messagersp.GetMessageListRespond
-		if err := json.Unmarshal([]byte(rspString), &rsp); err != nil {
-			zap.L().Error("json unmarshal cache error", zap.Error(err))
-		} else {
-			return rsp, nil
-		}
-	} else if errorx.GetCode(err) != errorx.CodeNotFound {
-		zap.L().Error("redis get key error", zap.Error(err))
-	}
-
-	messageList, err := m.repos.Message.FindByGroupId(groupId)
+	// 分页查询数据库
+	messageList, total, err := m.repos.Message.FindByGroupIdPaged(groupId, offset, pageSize)
 	if err != nil {
 		zap.L().Error("find group messages error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, 0, errorx.ErrServerBusy
 	}
 
 	rspList := make([]messagersp.GetMessageListRespond, 0, len(messageList))
@@ -127,19 +120,7 @@ func (m *messageService) GetGroupMessageList(userId, groupId string) ([]messager
 		})
 	}
 
-	// 通过注入的 cache 接口异步更新缓存
-	m.cache.SubmitTask(func() {
-		jsonBytes, err := json.Marshal(rspList)
-		if err != nil {
-			zap.L().Error("json marshal error", zap.Error(err))
-			return
-		}
-		if err := m.cache.Set(context.Background(), cacheKey, string(jsonBytes), time.Duration(constants.REDIS_TIMEOUT)*time.Minute); err != nil {
-			zap.L().Error("redis set key error", zap.Error(err))
-		}
-	})
-
-	return rspList, nil
+	return rspList, total, nil
 }
 
 // UploadAvatar 上传头像

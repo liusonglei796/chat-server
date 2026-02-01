@@ -50,10 +50,10 @@ type SessionService interface {
 	CheckOpenSessionAllowed(sendId, receiveId string) (bool, error)
 	// OpenSession 打开/获取会话 (sendId 从 JWT 获取，防止 IDOR)
 	OpenSession(sendId string, req session.OpenSessionRequest) (string, error)
-	// GetUserSessionList 获取用户单聊会话列表
-	GetUserSessionList(ownerId string) ([]sessionrsp.UserSessionListRespond, error)
-	// GetGroupSessionList 获取用户群聊会话列表
-	GetGroupSessionList(ownerId string) ([]sessionrsp.GroupSessionListRespond, error)
+	// GetUserSessionList 获取用户单聊会话列表（分页）
+	GetUserSessionList(ownerId string, page, pageSize int) ([]sessionrsp.UserSessionListRespond, int64, error)
+	// GetGroupSessionList 获取用户群聊会话列表（分页）
+	GetGroupSessionList(ownerId string, page, pageSize int) ([]sessionrsp.GroupSessionListRespond, int64, error)
 	// DeleteSession 删除会话
 	DeleteSession(ownerId, sessionId string) error
 }
@@ -63,8 +63,8 @@ type SessionService interface {
 type GroupService interface {
 	// CreateGroup 创建群组 (ownerId 从 JWT 获取)
 	CreateGroup(ownerId string, req group.CreateGroupRequest) error
-	// LoadMyGroup 加载我创建的群组
-	LoadMyGroup(ownerId string) ([]grouprsp.MyGroupListRespond, error)
+	// LoadMyGroup 加载我创建的群组（分页）
+	LoadMyGroup(ownerId string, page, pageSize int) ([]grouprsp.MyGroupListRespond, int64, error)
 	// GetJoinedGroups 获取我加入的群组
 	GetJoinedGroups(userId string) ([]grouprsp.MyGroupListRespond, error)
 	// CheckGroupAddMode 检查加群方式
@@ -77,8 +77,8 @@ type GroupService interface {
 	GetPublicGroupInfo(groupId string) (*grouprsp.PublicGroupInfoRespond, error)
 	// UpdateGroupInfo 更新群组信息 (operatorId 必须是群主或管理员)
 	UpdateGroupInfo(operatorId string, req group.UpdateGroupInfoRequest) error
-	// GetGroupMemberList 获取群成员列表 (userId 必须是群成员)
-	GetGroupMemberList(userId, groupId string) ([]grouprsp.GetGroupMemberListRespond, error)
+	// GetGroupMemberList 获取群成员列表（分页）(userId 必须是群成员)
+	GetGroupMemberList(userId, groupId string, page, pageSize int) ([]grouprsp.GetGroupMemberListRespond, int64, error)
 	// RemoveGroupMembers 移除群成员 (operatorId 必须是群主或管理员)
 	RemoveGroupMembers(operatorId string, req group.RemoveGroupMembersRequest) error
 }
@@ -86,9 +86,9 @@ type GroupService interface {
 // ContactService 联系人业务接口
 // 处理好友关系、联系人管理等功能
 type ContactService interface {
-// GetUserList 获取好友列表（分页）
+	// GetUserList 获取好友列表（分页）
 	GetUserList(userId string, page, pageSize int) ([]userrsp.MyUserListRespond, int64, error)
-// GetGroupList 获取群组列表（分页）
+	// GetGroupList 获取群组列表（分页）
 	GetGroupList(userId string, page, pageSize int) ([]grouprsp.MyGroupListRespond, int64, error)
 
 	// GetFriendInfo 获取好友详情 (userId 必须与 friendId 是好友关系)
@@ -136,8 +136,8 @@ type ApplyService interface {
 type MessageService interface {
 	// GetMessageList 获取两个用户之间的聊天记录 (requesterId 用于权限校验)
 	GetMessageList(requesterId, partnerId string, page, pageSize int) ([]messagersp.GetMessageListRespond, error)
-	// GetGroupMessageList 获取群聊消息记录 (userId 必须是群成员)
-	GetGroupMessageList(userId, groupId string) ([]messagersp.GetMessageListRespond, error)
+	// GetGroupMessageList 获取群聊消息记录（分页）(userId 必须是群成员)
+	GetGroupMessageList(userId, groupId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error)
 	// UploadAvatar 上传头像，返回新文件名
 	UploadAvatar(c *gin.Context) (string, error)
 	// UploadFile 上传文件，返回文件名列表
