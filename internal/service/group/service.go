@@ -603,7 +603,6 @@ func (g *groupInfoService) GetGroupMemberList(userId, groupId string, page, page
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	offset := (page - 1) * pageSize
 
 	// 权限校验: 必须是群成员
 	_, err := g.repos.GroupMember.FindByGroupAndUser(groupId, userId)
@@ -616,7 +615,7 @@ func (g *groupInfoService) GetGroupMemberList(userId, groupId string, page, page
 	}
 
 	// 分页查询数据库
-	members, total, err := g.repos.GroupMember.FindMembersWithUserInfoPaged(groupId, offset, pageSize)
+	members, total, err := g.repos.GroupMember.FindMembersWithUserInfoPaged(groupId, page, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy

@@ -37,7 +37,7 @@ func (r *groupRepository) FindByOwnerId(ownerId string) ([]model.GroupInfo, erro
 	return groups, nil
 }
 
-// FindAll 查找所有群组（包含软删除的）
+// FindAll [管理员] 查找所有群组（包含软删除的）
 // 用于管理员查看全部群组
 func (r *groupRepository) FindAll() ([]model.GroupInfo, error) {
 	var groups []model.GroupInfo
@@ -48,14 +48,13 @@ func (r *groupRepository) FindAll() ([]model.GroupInfo, error) {
 	return groups, nil
 }
 
-// GetList 分页查找群组（给管理员看的所以包含软删除的）
+// GetGroupList [管理员] 分页查找群组（包含软删除的）
 // page: 页码（从1开始）
 // pageSize: 每页数量
 // 返回: 群组列表、总数、错误
 func (r *groupRepository) GetGroupList(page, pageSize int) ([]model.GroupInfo, int64, error) {
 	var groups []model.GroupInfo
 	var total int64
-
 	// 计算偏移量
 	offset := (page - 1) * pageSize
 	if offset < 0 {
@@ -100,7 +99,8 @@ func (r *groupRepository) Update(group *model.GroupInfo) error {
 	return nil
 }
 
-// UpdateStatusByUuids 批量更新群组状态// status: 0=正常, 1=禁用, 2=解散
+// UpdateStatusByUuids [管理员] 批量更新群组状态
+// status: 0=正常, 1=禁用, 2=解散
 func (r *groupRepository) UpdateStatusByUuids(uuids []string, status int8) error {
 	if len(uuids) == 0 {
 		return nil
@@ -132,7 +132,7 @@ func (r *groupRepository) DecrementMemberCountBy(uuid string, count int) error {
 	return nil
 }
 
-// SoftDeleteByUuids 批量软删除群组
+// SoftDeleteByUuids [管理员] 批量软删除群组
 func (r *groupRepository) SoftDeleteByUuids(uuids []string) error {
 	if len(uuids) == 0 {
 		return nil

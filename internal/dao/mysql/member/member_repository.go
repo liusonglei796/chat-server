@@ -32,13 +32,12 @@ func (r *groupMemberRepository) FindByGroupUuid(groupUuid string) ([]model.Group
 
 // FindMembersWithUserInfoPaged 分页查询群成员详细信息
 // groupUuid: 群组 UUID
-// offset: 偏移量
-// limit: 每页数量
+// page: 页码（从1开始）
+// pageSize: 每页数量
 // 返回: 带用户信息的群成员列表、总数和错误
-func (r *groupMemberRepository) FindMembersWithUserInfoPaged(groupUuid string, offset, limit int) ([]model.GroupMemberWithUserInfo, int64, error) {
+func (r *groupMemberRepository) FindMembersWithUserInfoPaged(groupUuid string, page, pageSize int) ([]model.GroupMemberWithUserInfo, int64, error) {
 	var members []model.GroupMemberWithUserInfo
 	var total int64
-
 	// 统计总数
 	if err := r.db.Table("group_member").
 		Where("group_uuid = ? AND deleted_at IS NULL", groupUuid).
@@ -46,13 +45,14 @@ func (r *groupMemberRepository) FindMembersWithUserInfoPaged(groupUuid string, o
 		return nil, 0, errorx.WrapDBErrorf(err, "统计群成员数量 group_uuid=%s", groupUuid)
 	}
 
-	// 分页查询
+	// 计算偏移量并分页查询
+	offset := (page - 1) * pageSize
 	if err := r.db.Table("group_member").
 		Select("user_info.uuid as user_id, user_info.nickname, user_info.avatar").
 		Joins("LEFT JOIN user_info ON group_member.user_uuid = user_info.uuid").
 		Where("group_member.group_uuid = ? AND group_member.deleted_at IS NULL", groupUuid).
 		Offset(offset).
-		Limit(limit).
+		Limit(pageSize).
 		Scan(&members).Error; err != nil {
 		return nil, 0, errorx.WrapDBErrorf(err, "分页查询群成员详情 group_uuid=%s", groupUuid)
 	}
@@ -94,7 +94,7 @@ func (r *groupMemberRepository) DeleteByUserUuids(groupUuid string, userUuids []
 	return nil
 }
 
-// DeleteByGroupUuids 批量删除多个群组的所有成员
+// DeleteByGroupUuids [管理员] 批量删除多个群组的所有成员
 // 用于批量删除群组时清理成员数据
 func (r *groupMemberRepository) DeleteByGroupUuids(groupUuids []string) error {
 	if len(groupUuids) == 0 {
@@ -106,7 +106,7 @@ func (r *groupMemberRepository) DeleteByGroupUuids(groupUuids []string) error {
 	return nil
 }
 
-// GetMemberIdsByGroupUuids 获取多个群组的所有成员UUID（去重）
+// GetMemberIdsByGroupUuids [管理员] 获取多个群组的所有成员UUID（去重）
 // 用于批量操作时获取受影响的用户
 func (r *groupMemberRepository) GetMemberIdsByGroupUuids(groupUuids []string) ([]string, error) {
 	var members []string

@@ -44,11 +44,8 @@ func (m *messageService) GetMessageList(requesterId, partnerId string, page, pag
 		userOneId, partnerId = partnerId, userOneId
 	}
 
-	// 计算分页偏移量
-	offset := (page - 1) * pageSize
-
 	// 查数据库（带分页）
-	messageList, err := m.repos.Message.FindByUserIdsPaged(userOneId, partnerId, offset, pageSize)
+	messageList, err := m.repos.Message.FindByUserIdsPaged(userOneId, partnerId, page, pageSize)
 	if err != nil {
 		zap.L().Error("find messages by user ids error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -83,7 +80,6 @@ func (m *messageService) GetGroupMessageList(userId, groupId string, page, pageS
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	offset := (page - 1) * pageSize
 
 	// 权限校验: 只要有 Session 记录(未删除)即可查看历史消息，不仅仅是当前成员
 	// 这样可以支持"退群后查看历史消息"的需求
@@ -97,7 +93,7 @@ func (m *messageService) GetGroupMessageList(userId, groupId string, page, pageS
 	}
 
 	// 分页查询数据库
-	messageList, total, err := m.repos.Message.FindByGroupIdPaged(groupId, offset, pageSize)
+	messageList, total, err := m.repos.Message.FindByGroupIdPaged(groupId, page, pageSize)
 	if err != nil {
 		zap.L().Error("find group messages error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy

@@ -37,17 +37,19 @@ func (r *messageRepository) FindByUserIds(userOneId, userTwoId string) ([]model.
 
 // FindByUserIdsPaged 根据两个用户ID查找私聊消息（分页）
 // userOneId, userTwoId: 两个用户的 UUID
-// offset: 偏移量
-// limit: 每页数量
+// page: 页码（从1开始）
+// pageSize: 每页数量
 // 返回: 消息列表和错误
-func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, offset, limit int) ([]model.Message, error) {
+func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, page, pageSize int) ([]model.Message, error) {
 	var messages []model.Message
+	// 计算偏移量
+	offset := (page - 1) * pageSize
 	// 使用 OR 条件查找双向消息，按时间倒序排列（最新的在前）
 	if err := r.db.Where("(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)",
 		userOneId, userTwoId, userTwoId, userOneId).
 		Order("created_at DESC").
 		Offset(offset).
-		Limit(limit).
+		Limit(pageSize).
 		Find(&messages).Error; err != nil {
 		return nil, errorx.WrapDBErrorf(err, "查询消息 user1=%s user2=%s", userOneId, userTwoId)
 	}
@@ -56,10 +58,10 @@ func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, offs
 
 // FindByGroupIdPaged 根据群组ID分页查找群聊消息
 // receiveId: 群组 UUID
-// offset: 偏移量
-// limit: 每页数量
+// page: 页码（从1开始）
+// pageSize: 每页数量
 // 返回: 消息列表、总数和错误
-func (r *messageRepository) FindByGroupIdPaged(receiveId string, offset, limit int) ([]model.Message, int64, error) {
+func (r *messageRepository) FindByGroupIdPaged(receiveId string, page, pageSize int) ([]model.Message, int64, error) {
 	var messages []model.Message
 	var total int64
 
@@ -68,11 +70,12 @@ func (r *messageRepository) FindByGroupIdPaged(receiveId string, offset, limit i
 		return nil, 0, errorx.WrapDBErrorf(err, "统计群消息数量 receive_id=%s", receiveId)
 	}
 
-	// 分页查询，按时间倒序（最新的在前）
+	// 计算偏移量并分页查询，按时间倒序（最新的在前）
+	offset := (page - 1) * pageSize
 	if err := r.db.Where("receive_id = ?", receiveId).
 		Order("created_at DESC").
 		Offset(offset).
-		Limit(limit).
+		Limit(pageSize).
 		Find(&messages).Error; err != nil {
 		return nil, 0, errorx.WrapDBErrorf(err, "分页查询群消息 receive_id=%s", receiveId)
 	}

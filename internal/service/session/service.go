@@ -347,10 +347,9 @@ func (s *sessionService) GetUserSessionList(ownerId string, page, pageSize int) 
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	offset := (page - 1) * pageSize
 
 	// 直接查库（分页场景不利用缓存，因为缓存 key 需要包含分页参数）
-	sessionList, total, err := s.repos.Session.FindBySendIdPaged(ownerId, offset, pageSize)
+	sessionList, total, err := s.repos.Session.FindBySendIdPaged(ownerId, page, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -389,10 +388,9 @@ func (s *sessionService) GetGroupSessionList(ownerId string, page, pageSize int)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	offset := (page - 1) * pageSize
 
 	// 直接查库（分页场景不利用缓存）
-	sessionList, total, err := s.repos.Session.FindBySendIdPaged(ownerId, offset, pageSize)
+	sessionList, total, err := s.repos.Session.FindBySendIdPaged(ownerId, page, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy

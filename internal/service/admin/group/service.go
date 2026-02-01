@@ -139,14 +139,28 @@ func (s *groupAdminService) SetGroupsStatus(groupUUIDs []string, status int8) er
 		return nil
 	}
 
-	if err := s.repos.Group.UpdateStatusByUuids(groupUUIDs, status); err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
-	}
-
 	if status == group_status_enum.DISABLE {
-		if err := s.repos.Session.SoftDeleteByUsers(groupUUIDs); err != nil {
+		// 禁用群组（事务：更新状态 + 删除会话）
+		err := s.repos.Transaction(func(txRepos *mysql.Repositories) error {
+			if err := txRepos.Group.UpdateStatusByUuids(groupUUIDs, status); err != nil {
+				zap.L().Error("Batch update group status error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+			if err := txRepos.Session.SoftDeleteByUsers(groupUUIDs); err != nil {
+				zap.L().Error("Batch delete sessions error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+			return nil
+		})
+		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
+		}
+	} else {
+		// 非禁用操作，直接更新状态
+		if err := s.repos.Group.UpdateStatusByUuids(groupUUIDs, status); err != nil {
+			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
 		}
 	}
 

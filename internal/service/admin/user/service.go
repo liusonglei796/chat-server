@@ -70,13 +70,19 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 		}
 
 	case "disable":
-		// 禁用用户
-		if err := s.repos.User.UpdateUserStatusByUuids(req.UserUUIDs, user_status_enum.DISABLE); err != nil {
-			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
-		// 批量删除会话
-		if err := s.repos.Session.SoftDeleteByUsers(req.UserUUIDs); err != nil {
+		// 禁用用户（事务：更新状态 + 删除会话）
+		err := s.repos.Transaction(func(txRepos *mysql.Repositories) error {
+			if err := txRepos.User.UpdateUserStatusByUuids(req.UserUUIDs, user_status_enum.DISABLE); err != nil {
+				zap.L().Error("Batch disable users error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+			if err := txRepos.Session.SoftDeleteByUsers(req.UserUUIDs); err != nil {
+				zap.L().Error("Batch delete sessions error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+			return nil
+		})
+		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}

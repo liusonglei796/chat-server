@@ -25,13 +25,13 @@ type UserRepository interface {
 	CreateUser(user *model.UserInfo) error
 	// UpdateUserInfo 更新用户信息
 	UpdateUserInfo(user *model.UserInfo) error
-	// UpdateUserStatusByUuids 批量更新用户状态（启用/禁用）
+	// UpdateUserStatusByUuids [管理员] 批量更新用户状态（启用/禁用）
 	UpdateUserStatusByUuids(uuids []string, status int8) error
-	// UpdateUserIsAdminByUuids 批量设置用户管理员权限
+	// UpdateUserIsAdminByUuids [管理员] 批量设置用户管理员权限
 	UpdateUserIsAdminByUuids(uuids []string, isAdmin int8) error
-	// SoftDeleteUserByUuids 批量软删除用户
+	// SoftDeleteUserByUuids [管理员] 批量软删除用户
 	SoftDeleteUserByUuids(uuids []string) error
-	// FindAllPaged 分页查询用户列表（支持关键词搜索和状态筛选）
+	// FindAllPaged [管理员] 分页查询用户列表（支持关键词搜索和状态筛选）
 	FindAllPaged(page, pageSize int, keyword string, status *int8) ([]model.UserInfo, int64, error)
 }
 
@@ -42,24 +42,24 @@ type GroupRepository interface {
 	FindByUuid(uuid string) (*model.GroupInfo, error)
 	// FindByOwnerId 根据群主 ID 查找群组
 	FindByOwnerId(ownerId string) ([]model.GroupInfo, error)
-	// FindAll 查找所有群组
+	// FindAll [管理员] 查找所有群组
 	FindAll() ([]model.GroupInfo, error)
 	// FindByUuids 批量根据 UUID 查找群组
 	FindByUuids(uuids []string) ([]model.GroupInfo, error)
-	// GetList 分页获取群组列表
+	// GetGroupList [管理员] 分页获取群组列表
 	GetGroupList(page, pageSize int) ([]model.GroupInfo, int64, error)
 	// CreateGroup 创建新群组
 	CreateGroup(group *model.GroupInfo) error
 	// Update 更新群组信息
 	Update(group *model.GroupInfo) error
 
-	// UpdateStatusByUuids 批量更新群组状态
+	// UpdateStatusByUuids [管理员] 批量更新群组状态
 	UpdateStatusByUuids(uuids []string, status int8) error
 	// IncrementMemberCount 增加群成员数量（+1）
 	IncrementMemberCount(uuid string) error
 	// DecrementMemberCountBy 减少群成员数量（指定数量）
 	DecrementMemberCountBy(uuid string, count int) error
-	// SoftDeleteByUuids 批量软删除群组
+	// SoftDeleteByUuids [管理员] 批量软删除群组
 	SoftDeleteByUuids(uuids []string) error
 }
 
@@ -80,7 +80,7 @@ type ContactRepository interface {
 	UpdateStatus(userId, contactId string, contactType int8, status int8) error
 	// SoftDelete 软删除联系人关系
 	SoftDelete(userId, contactId string, contactType int8) error
-	// SoftDeleteByUsers 批量软删除指定用户的所有联系人
+	// SoftDeleteByUsers [管理员] 批量软删除指定用户的所有联系人（用于注销账号）
 	SoftDeleteByUsers(userUuids []string) error
 }
 
@@ -92,12 +92,12 @@ type SessionRepository interface {
 	// FindBySendId 根据发送者ID查找所有会话
 	FindBySendId(sendId string) ([]model.Session, error)
 	// FindBySendIdPaged 根据发送者ID分页查找会话
-	FindBySendIdPaged(sendId string, offset, limit int) ([]model.Session, int64, error)
+	FindBySendIdPaged(sendId string, page, pageSize int) ([]model.Session, int64, error)
 	// CreateSession 创建新会话
 	CreateSession(session *model.Session) error
 	// SoftDeleteByUuids 批量软删除会话
 	SoftDeleteByUuids(uuids []string) error
-	// SoftDeleteByUsers 软删除指定用户的所有会话
+	// SoftDeleteByUsers [管理员] 软删除指定用户的所有会话（用于注销账号）
 	SoftDeleteByUsers(userUuids []string) error
 	// UpdateByReceiveId 根据接收者ID更新会话字段
 	UpdateByReceiveId(receiveId string, updates map[string]interface{}) error
@@ -111,9 +111,9 @@ type MessageRepository interface {
 	// FindByUserIds 根据两个用户ID查找私聊消息
 	FindByUserIds(userOneId, userTwoId string) ([]model.Message, error)
 	// FindByUserIdsPaged 根据两个用户ID查找私聊消息（分页）
-	FindByUserIdsPaged(userOneId, userTwoId string, offset, limit int) ([]model.Message, error)
+	FindByUserIdsPaged(userOneId, userTwoId string, page, pageSize int) ([]model.Message, error)
 	// FindByGroupIdPaged 根据群组ID分页查找群聊消息
-	FindByGroupIdPaged(groupId string, offset, limit int) ([]model.Message, int64, error)
+	FindByGroupIdPaged(groupId string, page, pageSize int) ([]model.Message, int64, error)
 	// UpdateStatus 更新消息状态
 	UpdateStatus(uuid string, status int8) error
 	// Create 创建新消息
@@ -137,7 +137,7 @@ type ApplyRepository interface {
 	Update(apply *model.Apply) error
 	// SoftDelete 软删除申请
 	SoftDelete(applicantId, targetId string) error
-	// SoftDeleteByUsers 批量软删除指定用户的所有申请
+	// SoftDeleteByUsers [管理员] 批量软删除指定用户的所有申请（用于注销账号）
 	SoftDeleteByUsers(userUuids []string) error
 }
 
@@ -148,7 +148,7 @@ type GroupMemberRepository interface {
 	// FindByGroupUuid 根据群组UUID查找所有成员
 	FindByGroupUuid(groupUuid string) ([]model.GroupMember, error)
 	// FindMembersWithUserInfoPaged 分页查找群成员（含用户详细信息）
-	FindMembersWithUserInfoPaged(groupUuid string, offset, limit int) ([]model.GroupMemberWithUserInfo, int64, error)
+	FindMembersWithUserInfoPaged(groupUuid string, page, pageSize int) ([]model.GroupMemberWithUserInfo, int64, error)
 	// FindByGroupAndUser 根据群组UUID和用户UUID查找成员
 	FindByGroupAndUser(groupUuid, userUuid string) (*model.GroupMember, error)
 	// CreateGroupMember 添加群成员
@@ -158,8 +158,8 @@ type GroupMemberRepository interface {
 	DeleteByGroupUuid(groupUuid string) error
 	// DeleteByUserUuids 批量删除指定用户
 	DeleteByUserUuids(groupUuid string, userUuids []string) error
-	// DeleteByGroupUuids 批量删除多个群组的所有成员
+	// DeleteByGroupUuids [管理员] 批量删除多个群组的所有成员
 	DeleteByGroupUuids(groupUuids []string) error
-	// GetMemberIdsByGroupUuids 获取多个群组的所有成员ID
+	// GetMemberIdsByGroupUuids [管理员] 获取多个群组的所有成员ID
 	GetMemberIdsByGroupUuids(groupUuids []string) ([]string, error)
 }

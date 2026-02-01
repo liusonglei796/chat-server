@@ -96,7 +96,7 @@ func (r *userRepository) UpdateUserInfo(user *model.UserInfo) error {
 	return nil
 }
 
-// UpdateUserStatusByUuids 批量更新用户状态
+// UpdateUserStatusByUuids [管理员] 批量更新用户状态
 // 用于管理员启用/禁用用户
 // uuids: 用户 UUID 列表
 // status: 新状态（0=正常, 1=禁用）
@@ -113,7 +113,7 @@ func (r *userRepository) UpdateUserStatusByUuids(uuids []string, status int8) er
 	return nil
 }
 
-// UpdateUserIsAdminByUuids 批量设置用户管理员权限
+// UpdateUserIsAdminByUuids [管理员] 批量设置用户管理员权限
 // uuids: 用户 UUID 列表
 // isAdmin: 管理员标志（0=普通用户, 1=管理员）
 // 返回: 操作错误
@@ -127,7 +127,7 @@ func (r *userRepository) UpdateUserIsAdminByUuids(uuids []string, isAdmin int8) 
 	return nil
 }
 
-// SoftDeleteUserByUuids 批量软删除用户
+// SoftDeleteUserByUuids [管理员] 批量软删除用户
 // GORM 软删除：设置 deleted_at 字段而非真正删除
 // uuids: 要删除的用户 UUID 列表
 // 返回: 操作错误
@@ -142,7 +142,7 @@ func (r *userRepository) SoftDeleteUserByUuids(uuids []string) error {
 	return nil
 }
 
-// FindAllPaged 分页查询用户列表
+// FindAllPaged [管理员] 分页查询用户列表
 // page: 页码（从1开始）
 // pageSize: 每页数量
 // keyword: 搜索关键词（匹配昵称或手机号）
