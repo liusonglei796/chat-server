@@ -8,7 +8,7 @@
 //
 // 关键协作：
 // - **收消息**: 收到用户消息后，调用 `broker.Publish` (不关心是发给 Kafka 还是直接转发)。
-// - **发消息**: `kafka_broker` 或 `channel_broker` 最终会调用这里的 `WriteMessage` 把消息推给用户。
+// - **发消息**: `kafka_broker` 最终会调用这里的 `WriteMessage` 把消息推给用户。
 package chat
 
 import (

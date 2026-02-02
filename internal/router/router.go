@@ -3,7 +3,6 @@
 package router
 
 import (
-	"kama_chat_server/internal/dao/mysql"
 	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/infrastructure/middleware"
 
@@ -11,19 +10,16 @@ import (
 )
 
 // Router 路由管理器
-// 封装所有路由注册逻辑，通过依赖注入接收 handlers 和 userRepo
+// 封装所有路由注册逻辑，通过依赖注入接收 handlers
 type Router struct {
 	handlers *handler.Handlers
-	userRepo mysql.UserRepository // 用于管理员权限校验
 }
 
 // NewRouter 创建路由管理器
 // handlers: 通过依赖注入传入的 handler 聚合对象
-// userRepo: 用户数据访问接口，用于管理员权限校验
-func NewRouter(handlers *handler.Handlers, userRepo mysql.UserRepository) *Router {
+func NewRouter(handlers *handler.Handlers) *Router {
 	return &Router{
 		handlers: handlers,
-		userRepo: userRepo,
 	}
 }
 

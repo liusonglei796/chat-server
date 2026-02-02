@@ -91,8 +91,8 @@ func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespo
 		u.kickClient(user.Uuid, "您的账号已在其他设备登录")
 	}
 
-	// 生成双 Token
-	accessToken, err := jwt.GenerateAccessToken(user.Uuid)
+	// 生成双 Token (传入 isAdmin 用于 JWT Claims)
+	accessToken, err := jwt.GenerateAccessToken(user.Uuid, user.IsAdmin == 1)
 	if err != nil {
 		zap.L().Error("生成 Access Token 失败", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -161,8 +161,8 @@ func (u *userInfoService) SmsLogin(req auth.SmsLoginRequest) (*userrsp.LoginResp
 		u.kickClient(user.Uuid, "您的账号已在其他设备登录")
 	}
 
-	// 生成双 Token
-	accessToken, err := jwt.GenerateAccessToken(user.Uuid)
+	// 生成双 Token (传入 isAdmin 用于 JWT Claims)
+	accessToken, err := jwt.GenerateAccessToken(user.Uuid, user.IsAdmin == 1)
 	if err != nil {
 		zap.L().Error("生成 Access Token 失败", zap.Error(err))
 		return nil, errorx.ErrServerBusy

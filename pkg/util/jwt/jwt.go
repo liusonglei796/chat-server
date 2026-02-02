@@ -31,13 +31,16 @@ func Init(secret string, accessExpiryMinutes, refreshExpiryHours int) {
 type Claims struct {
 	UserID               string `json:"user_id"`            // 用户 ID
 	TokenID              string `json:"token_id,omitempty"` // 仅 Refresh Token 使用，用于单点互踢
+	IsAdmin              bool   `json:"is_admin"`           // 是否为管理员（减少中间件查库）
 	jwt.RegisteredClaims        // 标准声明
 }
 
 // GenerateAccessToken 生成 Access Token (短期，用于接口认证)
-func GenerateAccessToken(userID string) (string, error) {
+// isAdmin: 用户是否为管理员，会写入 Claims 供中间件使用
+func GenerateAccessToken(userID string, isAdmin bool) (string, error) {
 	claims := Claims{ // 构造声明
-		UserID: userID, // 设置用户 ID
+		UserID:  userID,  // 设置用户 ID
+		IsAdmin: isAdmin, // 设置管理员标识
 		RegisteredClaims: jwt.RegisteredClaims{ // 填充标准字段
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(jwtConfig.AccessTokenExpiry)), // 过期时间
 			IssuedAt:  jwt.NewNumericDate(time.Now()),                                  // 签发时间

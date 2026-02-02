@@ -41,7 +41,7 @@ func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheServi
 	contactSvc := contact.NewContactService(repos, cacheService)
 	applySvc := apply.NewApplyService(repos, cacheService)
 	messageSvc := message.NewMessageService(repos, cacheService)
-	authSvc := auth.NewAuthService(cacheService)
+	authSvc := auth.NewAuthService(cacheService, repos.User)
 
 	// 后台管理服务
 	userAdminSvc := adminuser.NewUserAdminService(repos, cacheService)

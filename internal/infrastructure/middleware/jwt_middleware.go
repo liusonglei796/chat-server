@@ -55,6 +55,7 @@ func JWTAuth() gin.HandlerFunc {
 
 		// 5. 将用户信息存入上下文，供后续 Handler 使用
 		c.Set("user_id", claims.UserID)
+		c.Set("is_admin", claims.IsAdmin) // 管理员标识（从 JWT Claims 读取，无需查库）
 		c.Next()
 	}
 }

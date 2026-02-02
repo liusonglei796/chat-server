@@ -52,16 +52,11 @@ func main() {
 
 	// 7. 初始化 ChatServer（必须在 Services 之前，因为 UserService 需要 KickClient）
 	chatServer := chat.NewChatServer(chat.ChatServerConfig{
-		Mode:            conf.KafkaConfig.MessageMode,
 		MessageRepo:     repos.Message,
-		SessionRepo:     repos.Session,
 		GroupMemberRepo: repos.GroupMember,
-		ContactRepo:     repos.Contact,
 		CacheService:    cacheService,
 	})
-	if conf.KafkaConfig.MessageMode == "kafka" {
-		chatServer.InitKafka()
-	}
+	chatServer.InitKafka()
 	zap.L().Info("ChatServer 初始化成功")
 
 	// 8. 初始化 Service 层 (依赖注入，传入 kickClient 实现即时下线通知)
@@ -72,9 +67,8 @@ func main() {
 	handlers := handler.NewHandlers(services, chatServer.GetBroker())
 	zap.L().Info("Handler 层初始化成功")
 
-	// 9. 初始化 SMS Service (依赖注入缓存服务)
-	// 10. 初始化 HTTPS 服务器 (传入 handlers 和 userRepo 进行依赖注入)
-	engine := https_server.Init(handlers, repos.User)
+	// 10. 初始化 HTTPS 服务器 (传入 handlers 进行依赖注入)
+	engine := https_server.Init(handlers)
 	zap.L().Info("HTTPS 服务器初始化成功")
 
 	// 11. 启动服务

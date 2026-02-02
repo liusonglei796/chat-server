@@ -8,12 +8,13 @@ import (
 	"context"
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
+	"strings"
 )
 
 // MessageBroker 定义消息代理接口
-// 支持多种实现：KafkaBroker (分布式), ChannelBroker (单机)
+// 实现：MsgConsumer (基于 Kafka 的分布式模式)
 type MessageBroker interface {
-	// Publish 发布消息到消息队列/通道
+	// Publish 发布消息到 Kafka
 	Publish(ctx context.Context, msg []byte) error
 	// RegisterClient 注册客户端连接
 	RegisterClient(client *UserConn)
@@ -31,78 +32,68 @@ type MessageBroker interface {
 	GetMessageRepo() mysql.MessageRepository
 }
 
+// normalizePath 将完整 URL 转换为相对路径
+// 例如: https://127.0.0.1:8000/static/xxx -> /static/xxx
+// 特殊处理: 保留 elemecdn 的默认头像链接
+func normalizePath(path string) string {
+	// 特殊处理默认头像（如果是远程链接且不含 /static/ 则原样返回）
+	if strings.HasPrefix(path, "https://cube.elemecdn.com") {
+		return path
+	}
+	// 查找 "/static/" 的位置
+	idx := strings.Index(path, "/static/")
+	// 如果没找到 "/static/"，说明不是本地静态资源路径，直接返回原路径
+	if idx == -1 {
+		return path
+	}
+	// 返回从 "/static/" 开始的子串，即相对路径
+	return path[idx:]
+}
+
 // ChatServer 聊天服务器聚合结构
 // 封装所有聊天相关组件，通过依赖注入管理生命周期
 type ChatServer struct {
-	// Broker 消息代理接口（抽象层）
-	// 运行时根据配置注入具体实现：ChannelBroker (单机) 或 KafkaBroker (集群)
+	// Broker 消息代理接口（MsgConsumer 实现）
 	Broker MessageBroker
 
-	// KafkaClient Kafka 客户端（仅 Kafka 模式使用）
+	// KafkaClient Kafka 客户端
 	KafkaClient *KafkaClient
 
 	// messageRepo 消息 Repository
 	messageRepo mysql.MessageRepository
 
-	// sessionRepo 会话 Repository
-	sessionRepo mysql.SessionRepository
-
 	// groupMemberRepo 群成员 Repository
 	groupMemberRepo mysql.GroupMemberRepository
 
-	// contactRepo 联系人 Repository
-	contactRepo mysql.ContactRepository
-
 	// cacheService 缓存服务
 	cacheService myredis.AsyncCacheService
-
-	// mode 运行模式: "channel" 或 "kafka"
-	mode string
 }
 
 // ChatServerConfig 聊天服务器配置
 type ChatServerConfig struct {
-	Mode            string // "channel" 或 "kafka"
 	MessageRepo     mysql.MessageRepository
-	SessionRepo     mysql.SessionRepository
 	GroupMemberRepo mysql.GroupMemberRepository
-	ContactRepo     mysql.ContactRepository
 	CacheService    myredis.AsyncCacheService
-	KafkaHostPort   string
-	KafkaTopic      string
 }
 
 // NewChatServer 创建聊天服务器实例
-// 根据配置选择 ChannelBroker 或 KafkaBroker
 func NewChatServer(cfg ChatServerConfig) *ChatServer {
 	cs := &ChatServer{
 		messageRepo:     cfg.MessageRepo,
-		sessionRepo:     cfg.SessionRepo,
 		groupMemberRepo: cfg.GroupMemberRepo,
-		contactRepo:     cfg.ContactRepo,
 		cacheService:    cfg.CacheService,
-		mode:            cfg.Mode,
 	}
 
-	if cfg.Mode == "kafka" {
-		// Kafka 模式
-		cs.KafkaClient = NewKafkaClient()
-		kafkaBroker := NewMsgConsumer(cs.KafkaClient, cs.messageRepo, cs.groupMemberRepo, cs.cacheService)
-		cs.Broker = kafkaBroker
-	} else {
-		// Channel 模式（默认）
-		channelBroker := NewStandaloneServer(cs.messageRepo, cs.sessionRepo, cs.groupMemberRepo, cs.contactRepo, cs.cacheService)
-		cs.Broker = channelBroker
-	}
+	// 初始化 Kafka 客户端和消费者
+	cs.KafkaClient = NewKafkaClient()
+	cs.Broker = NewMsgConsumer(cs.KafkaClient, cs.messageRepo, cs.groupMemberRepo, cs.cacheService)
 
 	return cs
 }
 
-// InitKafka 初始化 Kafka 连接（仅 Kafka 模式需要调用）
+// InitKafka 初始化 Kafka 连接
 func (cs *ChatServer) InitKafka() {
-	if cs.KafkaClient != nil {
-		cs.KafkaClient.KafkaInit()
-	}
+	cs.KafkaClient.KafkaInit()
 }
 
 // Run 启动聊天服务器

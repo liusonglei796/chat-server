@@ -152,6 +152,8 @@ type AuthService interface {
 	// tokenID: 需要验证的 Token ID
 	// 返回: 是否有效, 错误信息
 	ValidateTokenID(userID, tokenID string) (bool, error)
+	// GetUserIsAdmin 获取用户是否为管理员（用于 Token 刷新时获取最新状态）
+	GetUserIsAdmin(userID string) (bool, error)
 }
 
 // ==================== 后台管理服务 ====================

@@ -68,8 +68,15 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	// 5. 生成新的 Access Token
-	newAccessToken, err := jwt.GenerateAccessToken(claims.UserID)
+	// 5. 获取用户最新的管理员状态（确保权限变更能及时生效）
+	isAdmin, err := h.authSvc.GetUserIsAdmin(claims.UserID)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	// 6. 生成新的 Access Token（带最新的 isAdmin 状态）
+	newAccessToken, err := jwt.GenerateAccessToken(claims.UserID, isAdmin)
 	if err != nil {
 		HandleError(c, errorx.ErrServerBusy)
 		return

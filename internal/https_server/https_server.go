@@ -4,7 +4,6 @@ package https_server
 
 import (
 	"kama_chat_server/internal/config"                // 配置管理
-	"kama_chat_server/internal/dao/mysql"             // 数据访问层
 	"kama_chat_server/internal/handler"               // Handler 聚合对象
 	"kama_chat_server/internal/infrastructure/logger" // 自定义日志中间件
 	"kama_chat_server/internal/router"                // 路由注册
@@ -14,8 +13,7 @@ import (
 )
 
 // Init 初始化 HTTP/HTTPS 服务器并返回 Gin 引擎实例
-// handlers: 通过依赖注入传入的 handler 聚合对象
-// userRepo: 用户数据访问接口，用于管理员权限校验
+// handlers: 通过依赖注入传入的 handler 聚合对象（已包含预构造的中间件）
 // 配置顺序：
 //  1. 创建 Gin 引擎（空白，不含默认中间件）
 //  2. 注册日志和恢复中间件
@@ -24,7 +22,7 @@ import (
 //  5. 注册业务路由
 //
 // 返回: 配置完成的 Gin 引擎实例
-func Init(handlers *handler.Handlers, userRepo mysql.UserRepository) *gin.Engine {
+func Init(handlers *handler.Handlers) *gin.Engine {
 	// 创建空白 Gin 引擎（不使用 gin.Default() 以便完全控制中间件）
 	engine := gin.New()
 
@@ -54,7 +52,7 @@ func Init(handlers *handler.Handlers, userRepo mysql.UserRepository) *gin.Engine
 	engine.Static("/static/files", config.GetConfig().StaticFilePath)
 
 	// 创建路由管理器并注册所有业务路由
-	rt := router.NewRouter(handlers, userRepo)
+	rt := router.NewRouter(handlers)
 	rt.RegisterRoutes(engine)
 
 	return engine
