@@ -12,11 +12,11 @@ type GroupMember struct {
 
 	// GroupUuid 群组 UUID
 	// 关联到 GroupInfo 表
-	GroupUuid string `gorm:"type:char(20);index;not null;comment:群组ID"`
+	GroupUuid string `gorm:"type:char(20);index;not null;uniqueIndex:idx_group_user;comment:群组ID"`
 
 	// UserUuid 用户 UUID
 	// 关联到 UserInfo 表
-	UserUuid string `gorm:"type:char(20);index;not null;comment:用户ID"`
+	UserUuid string `gorm:"type:char(20);index;not null;uniqueIndex:idx_group_user;comment:用户ID"`
 
 	// Role 成员角色
 	// 1=普通成员, 2=管理员, 3=群主

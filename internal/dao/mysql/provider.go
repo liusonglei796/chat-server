@@ -5,7 +5,7 @@ import (
 	"gorm.io/gorm"
 
 	"kama_chat_server/internal/dao/mysql/apply"
-	"kama_chat_server/internal/dao/mysql/contact"
+	"kama_chat_server/internal/dao/mysql/friendship"
 	"kama_chat_server/internal/dao/mysql/group"
 	"kama_chat_server/internal/dao/mysql/member"
 	"kama_chat_server/internal/dao/mysql/message"
@@ -19,7 +19,7 @@ type Repositories struct {
 	db          *gorm.DB              // GORM 数据库实例
 	User        UserRepository        // 用户 Repository
 	Group       GroupRepository       // 群组 Repository
-	Contact     ContactRepository     // 联系人 Repository
+	Friendship  FriendshipRepository  // 好友关系 Repository
 	Session     SessionRepository     // 会话 Repository
 	Message     MessageRepository     // 消息 Repository
 	Apply       ApplyRepository       // 申请 Repository
@@ -35,7 +35,7 @@ func NewRepositories(db *gorm.DB) *Repositories {
 		db:          db,
 		User:        user.NewUserRepository(db),
 		Group:       group.NewGroupRepository(db),
-		Contact:     contact.NewContactRepository(db),
+		Friendship:  friendship.NewFriendshipRepository(db),
 		Session:     session.NewSessionRepository(db),
 		Message:     message.NewMessageRepository(db),
 		Apply:       apply.NewApplyRepository(db),

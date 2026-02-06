@@ -17,8 +17,6 @@ type UserRepository interface {
 	FindByUuid(uuid string) (*model.UserInfo, error)
 	// FindByTelephone 根据手机号查找用户
 	FindByTelephone(telephone string) (*model.UserInfo, error)
-	// FindAllExcept 查找除指定用户外的所有用户
-	FindAllExcept(excludeUuid string) ([]model.UserInfo, error)
 	// FindByUuids 批量根据 UUID 查找用户
 	FindByUuids(uuids []string) ([]model.UserInfo, error)
 	// CreateUser 创建新用户
@@ -46,8 +44,6 @@ type GroupRepository interface {
 	// pageSize: 每页数量
 	// 返回: 群组列表、总数、错误
 	FindByOwnerIdPaged(ownerId string, page, pageSize int) ([]model.GroupInfo, int64, error)
-	// FindAll [管理员] 查找所有群组
-	FindAll() ([]model.GroupInfo, error)
 	// FindByUuids 批量根据 UUID 查找群组
 	FindByUuids(uuids []string) ([]model.GroupInfo, error)
 	// GetGroupList [管理员] 分页获取群组列表
@@ -67,24 +63,22 @@ type GroupRepository interface {
 	SoftDeleteByUuids(uuids []string) error
 }
 
-// ContactRepository 联系人数据访问接口
+// FriendshipRepository 好友关系数据访问接口
 // 管理用户之间的好友关系
-type ContactRepository interface {
-	// FindByUserIdAndContactId 根据用户ID和联系人ID查找关系
-	FindByUserIdAndContactId(userId, contactId string, contactType int8) (*model.Contact, error)
-	// FindByUserIdAndType 根据用户ID和类型查找联系人（分页）
-	FindByUserIdAndType(userId string, contactType int8, page, pageSize int) ([]model.Contact, int64, error)
-	// FindUsersByContactId 根据联系人ID反向查找
-	FindUsersByContactId(contactId string) ([]model.Contact, error)
-	// CreateContact 创建联系人关系
-	CreateContact(contact *model.Contact) error
+type FriendshipRepository interface {
+	// FindByUserIdAndFriendId 根据用户ID和好友ID查找好友关系
+	FindByUserIdAndFriendId(userId, friendId string) (*model.Friendship, error)
+	// FindFriendsByUserId 分页查询用户的好友列表
+	FindFriendsByUserId(userId string, page, pageSize int) ([]model.Friendship, int64, error)
+	// CreateFriendship 创建好友关系
+	CreateFriendship(fs *model.Friendship) error
 	// IsFriend 判断两个用户是否互为好友
 	IsFriend(userId1, userId2 string) (bool, error)
-	// UpdateStatus 更新联系人状态（正常/拉黑等）
-	UpdateStatus(userId, contactId string, contactType int8, status int8) error
-	// SoftDelete 软删除联系人关系
-	SoftDelete(userId, contactId string, contactType int8) error
-	// SoftDeleteByUsers [管理员] 批量软删除指定用户的所有联系人（用于注销账号）
+	// UpdateStatus 更新好友关系状态（正常/拉黑等）
+	UpdateStatus(userId, friendId string, status int8) error
+	// SoftDelete 软删除好友关系（双向）
+	SoftDelete(userId, friendId string) error
+	// SoftDeleteByUsers [管理员] 批量软删除指定用户的所有好友关系
 	SoftDeleteByUsers(userUuids []string) error
 }
 
@@ -95,10 +89,6 @@ type SessionRepository interface {
 	FindByUuid(uuid string) (*model.Session, error)
 	// FindBySendIdAndReceiveId 根据发送者和接收者查找会话
 	FindBySendIdAndReceiveId(sendId, receiveId string) (*model.Session, error)
-	// FindBySendId 根据发送者ID查找所有会话
-	FindBySendId(sendId string) ([]model.Session, error)
-	// FindBySendIdPaged 根据发送者ID分页查找会话
-	FindBySendIdPaged(sendId string, page, pageSize int) ([]model.Session, int64, error)
 	// FindBySendIdAndTypePaged 根据发送者ID和接收者类型前缀分页查找会话
 	// receiveIdPrefix: "U" 表示私聊会话，"G" 表示群聊会话
 	FindBySendIdAndTypePaged(sendId string, receiveIdPrefix string, page, pageSize int) ([]model.Session, int64, error)
@@ -117,8 +107,6 @@ type SessionRepository interface {
 // MessageRepository 消息数据访问接口
 // 管理聊天消息的存取
 type MessageRepository interface {
-	// FindByUserIds 根据两个用户ID查找私聊消息
-	FindByUserIds(userOneId, userTwoId string) ([]model.Message, error)
 	// FindByUserIdsPaged 根据两个用户ID查找私聊消息（分页）
 	FindByUserIdsPaged(userOneId, userTwoId string, page, pageSize int) ([]model.Message, int64, error)
 	// FindByGroupIdPaged 根据群组ID分页查找群聊消息
@@ -127,10 +115,6 @@ type MessageRepository interface {
 	UpdateStatus(uuid string, status int8) error
 	// Create 创建新消息
 	Create(message *model.Message) error
-	// FindLastMessageByUserIds 获取两人之间最后一条消息
-	FindLastMessageByUserIds(userOneId, userTwoId string) (*model.Message, error)
-	// FindLastMessageByGroupId 获取群组最后一条消息
-	FindLastMessageByGroupId(groupId string) (*model.Message, error)
 }
 
 // ApplyRepository 联系人申请数据访问接口
@@ -175,4 +159,8 @@ type GroupMemberRepository interface {
 	DeleteByGroupUuids(groupUuids []string) error
 	// GetMemberIdsByGroupUuids [管理员] 获取多个群组的所有成员ID
 	GetMemberIdsByGroupUuids(groupUuids []string) ([]string, error)
+	// FindGroupUuidsByUser 根据用户UUID查找其加入的所有群组UUID
+	FindGroupUuidsByUser(userUuid string) ([]string, error)
+	// FindGroupUuidsByUserPaged 根据用户UUID分页查找其加入的群组UUID
+	FindGroupUuidsByUserPaged(userUuid string, page, pageSize int) ([]string, int64, error)
 }

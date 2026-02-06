@@ -13,7 +13,7 @@ import (
 type Handlers struct {
 	User    *UserHandler
 	Auth    *AuthHandler
-	Contact *ContactHandler
+	Friendship *FriendshipHandler
 	Apply   *ApplyHandler
 	Group   *GroupHandler
 	Session *SessionHandler
@@ -27,7 +27,7 @@ func NewHandlers(svc *service.Services, broker chat.MessageBroker) *Handlers {
 	return &Handlers{
 		User:    NewUserHandler(svc.User),
 		Auth:    NewAuthHandler(svc.Auth),
-		Contact: NewContactHandler(svc.Contact, svc.Group),
+		Friendship: NewFriendshipHandler(svc.Friendship, svc.Group),
 		Apply:   NewApplyHandler(svc.Apply),
 		Group:   NewGroupHandler(svc.Group),
 		Session: NewSessionHandler(svc.Session),

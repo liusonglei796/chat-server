@@ -9,7 +9,7 @@ import (
 	adminuser "kama_chat_server/internal/service/admin/user"
 	"kama_chat_server/internal/service/apply"
 	"kama_chat_server/internal/service/auth"
-	"kama_chat_server/internal/service/contact"
+	"kama_chat_server/internal/service/friendship"
 	"kama_chat_server/internal/service/group"
 	"kama_chat_server/internal/service/message"
 	"kama_chat_server/internal/service/session"
@@ -22,7 +22,7 @@ type Services struct {
 	User    UserService    // 用户 Service
 	Session SessionService // 会话 Service
 	Group   GroupService   // 群组 Service
-	Contact ContactService // 联系 Service
+	Friendship FriendshipService // 好友关系 Service
 	Apply   ApplyService   // 申请 Service
 	Message MessageService // 消息 Service
 	Auth    AuthService    // 认证 Service
@@ -38,7 +38,7 @@ func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheServi
 	sessionSvc := session.NewSessionService(repos, cacheService)
 	userSvc := user.NewUserService(repos, cacheService, smsService, kickClient)
 	groupSvc := group.NewGroupService(repos, cacheService)
-	contactSvc := contact.NewContactService(repos, cacheService)
+	friendshipSvc := friendship.NewFriendshipService(repos, cacheService)
 	applySvc := apply.NewApplyService(repos, cacheService)
 	messageSvc := message.NewMessageService(repos, cacheService)
 	authSvc := auth.NewAuthService(cacheService, repos.User)
@@ -51,7 +51,7 @@ func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheServi
 		User:       userSvc,
 		Session:    sessionSvc,
 		Group:      groupSvc,
-		Contact:    contactSvc,
+		Friendship: friendshipSvc,
 		Apply:      applySvc,
 		Message:    messageSvc,
 		Auth:       authSvc,

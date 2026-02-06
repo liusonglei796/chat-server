@@ -15,7 +15,7 @@ import (
 
 	adminrsp "kama_chat_server/internal/dto/respond/admin"
 	applyrsp "kama_chat_server/internal/dto/respond/apply"
-	contactrsp "kama_chat_server/internal/dto/respond/contact"
+	friendshiprsp "kama_chat_server/internal/dto/respond/friendship"
 	grouprsp "kama_chat_server/internal/dto/respond/group"
 	messagersp "kama_chat_server/internal/dto/respond/message"
 	sessionrsp "kama_chat_server/internal/dto/respond/session"
@@ -44,8 +44,6 @@ type UserService interface {
 // SessionService 会话业务接口
 // 处理聊天会话的创建、打开、删除等功能
 type SessionService interface {
-	// CreateSession 创建新会话
-	CreateSession(sendId, receiveId string) (string, error)
 	// CheckOpenSessionAllowed 检查是否允许打开会话
 	CheckOpenSessionAllowed(sendId, receiveId string) (bool, error)
 	// OpenSession 打开/获取会话 (sendId 从 JWT 获取，防止 IDOR)
@@ -65,16 +63,16 @@ type GroupService interface {
 	CreateGroup(ownerId string, req group.CreateGroupRequest) error
 	// LoadMyGroup 加载我创建的群组（分页）
 	LoadMyGroup(ownerId string, page, pageSize int) ([]grouprsp.MyGroupListRespond, int64, error)
-	// GetJoinedGroups 获取我加入的群组
-	GetJoinedGroups(userId string) ([]grouprsp.MyGroupListRespond, error)
+	// GetGroupListByMember 通过 GroupMember 表分页获取用户加入的所有群组
+	GetGroupListByMember(userId string, page, pageSize int) ([]grouprsp.MyGroupListRespond, int64, error)
+	// GetGroupDetail 获取群聊详情 (userId 必须是群成员)
+	GetGroupDetail(userId, groupId string) (grouprsp.PublicGroupInfoRespond, error)
 	// CheckGroupAddMode 检查加群方式
 	CheckGroupAddMode(groupId string) (int8, error)
 	// LeaveGroup 退出群组
 	LeaveGroup(userId, groupId string) error
 	// DismissGroup 解散群组 (operatorId 必须是群主)
 	DismissGroup(operatorId, groupId string) error
-	// GetPublicGroupInfo 获取群组公开信息（非群成员也可查看）
-	GetPublicGroupInfo(groupId string) (*grouprsp.PublicGroupInfoRespond, error)
 	// UpdateGroupInfo 更新群组信息 (operatorId 必须是群主或管理员)
 	UpdateGroupInfo(operatorId string, req group.UpdateGroupInfoRequest) error
 	// GetGroupMemberList 获取群成员列表（分页）(userId 必须是群成员)
@@ -83,24 +81,21 @@ type GroupService interface {
 	RemoveGroupMembers(operatorId string, req group.RemoveGroupMembersRequest) error
 }
 
-// ContactService 联系业务接口
-// 处理好友关系、联系管理等功能
-type ContactService interface {
-	// GetUserList 获取好友列表（分页）
-	GetUserList(userId string, page, pageSize int) ([]userrsp.MyUserListRespond, int64, error)
-	// GetGroupList 获取群组列表（分页）
-	GetGroupList(userId string, page, pageSize int) ([]grouprsp.MyGroupListRespond, int64, error)
+// FriendshipService 好友关系业务接口
+// 处理好友关系管理等功能
+// 注意：群组关系由 GroupMember 表管理，FriendshipService 仅处理好友关系
+type FriendshipService interface {
+	// GetFriendList 获取好友列表（分页）
+	GetFriendList(userId string, page, pageSize int) ([]userrsp.MyUserListRespond, int64, error)
 
 	// GetFriendInfo 获取好友详情 (userId 必须与 friendId 是好友关系)
-	GetFriendInfo(userId, friendId string) (contactrsp.FriendInfoRespond, error)
-	// GetGroupDetail 获取群聊详情 (userId 必须是群成员)
-	GetGroupDetail(userId, groupId string) (contactrsp.GroupDetailRespond, error)
-	// DeleteContact 删除联系
-	DeleteContact(userId, contactId string) error
-	// BlackContact 拉黑联系
-	BlackContact(userId, contactId string) error
-	// CancelBlackContact 取消拉黑
-	CancelBlackContact(userId, contactId string) error
+	GetFriendInfo(userId, friendId string) (friendshiprsp.FriendInfoRespond, error)
+	// DeleteFriend 删除好友（双向删除）
+	DeleteFriend(userId, friendId string) error
+	// BlackFriend 拉黑好友
+	BlackFriend(userId, friendId string) error
+	// UnblackFriend 取消拉黑好友
+	UnblackFriend(userId, friendId string) error
 }
 
 // ApplyService 申请业务接口

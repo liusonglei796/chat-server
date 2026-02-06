@@ -1,42 +1,41 @@
 // Package handler 提供 HTTP 请求处理器
-// 本文件处理联系人相关的 API 请求
+// 本文件处理好友关系相关的 API 请求
 package handler
 
 import (
-	"kama_chat_server/internal/dto/request/contact"
-	"kama_chat_server/internal/dto/request/group"
+	"kama_chat_server/internal/dto/request/friendship"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
 )
 
-// ContactHandler 联系人请求处理器
-type ContactHandler struct {
-	contactSvc service.ContactService
-	groupSvc   service.GroupService
+// FriendshipHandler 好友关系请求处理器
+type FriendshipHandler struct {
+	friendshipSvc service.FriendshipService
+	groupSvc      service.GroupService
 }
 
-// NewContactHandler 创建联系人处理器实例
-func NewContactHandler(contactSvc service.ContactService, groupSvc service.GroupService) *ContactHandler {
-	return &ContactHandler{
-		contactSvc: contactSvc,
-		groupSvc:   groupSvc,
+// NewFriendshipHandler 创建好友关系处理器实例
+func NewFriendshipHandler(friendshipSvc service.FriendshipService, groupSvc service.GroupService) *FriendshipHandler {
+	return &FriendshipHandler{
+		friendshipSvc: friendshipSvc,
+		groupSvc:      groupSvc,
 	}
 }
 
-// GetUserList 获取好友列表（分页）
-// GET /contact/getUserList?page=1&page_size=20
+// GetFriendList 获取好友列表（分页）
+// GET /friends?page=1&page_size=20
 // 从JWT上下文获取当前用户ID
 // 响应: map[string]interface{} (list, total, page, page_size)
-func (h *ContactHandler) GetUserList(c *gin.Context) {
+func (h *FriendshipHandler) GetFriendList(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
 
-	var req contact.GetFriendListRequest
+	var req friendship.GetFriendListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -52,7 +51,7 @@ func (h *ContactHandler) GetUserList(c *gin.Context) {
 		pageSize = 20
 	}
 
-	data, total, err := h.contactSvc.GetUserList(userId.(string), page, pageSize)
+	data, total, err := h.friendshipSvc.GetFriendList(userId.(string), page, pageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -66,17 +65,17 @@ func (h *ContactHandler) GetUserList(c *gin.Context) {
 }
 
 // LoadMyJoinedGroup 获取已加入的群组（分页）
-// GET /contact/loadMyJoinedGroup?page=1&page_size=20
+// GET /groups/joined?page=1&page_size=20
 // 从JWT上下文获取当前用户ID
 // 响应: map[string]interface{} (list, total, page, page_size)
-func (h *ContactHandler) LoadMyJoinedGroup(c *gin.Context) {
+func (h *FriendshipHandler) LoadMyJoinedGroup(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
 
-	var req contact.GetJoinedGroupListRequest
+	var req friendship.GetJoinedGroupListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -92,7 +91,8 @@ func (h *ContactHandler) LoadMyJoinedGroup(c *gin.Context) {
 		pageSize = 20
 	}
 
-	data, total, err := h.contactSvc.GetGroupList(userId.(string), page, pageSize)
+	// 通过 GroupService 查询（基于 GroupMember 表）
+	data, total, err := h.groupSvc.GetGroupListByMember(userId.(string), page, pageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -106,23 +106,23 @@ func (h *ContactHandler) LoadMyJoinedGroup(c *gin.Context) {
 }
 
 // GetFriendInfo 获取好友详细信息
-// GET /contact/getFriendInfo?friendId=xxx
-// 查询参数: contact.GetFriendInfoRequest
-// 响应: respond.PublicUserInfoRespond
+// GET /friends/info?friend_id=xxx
+// 查询参数: friendship.GetFriendInfoRequest
+// 响应: friendshiprsp.FriendInfoRespond
 // 安全: 从JWT上下文获取当前用户ID，校验好友关系
-func (h *ContactHandler) GetFriendInfo(c *gin.Context) {
+func (h *FriendshipHandler) GetFriendInfo(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
 
-	var req contact.GetFriendInfoRequest
+	var req friendship.GetFriendInfoRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.contactSvc.GetFriendInfo(userId.(string), req.FriendId)
+	data, err := h.friendshipSvc.GetFriendInfo(userId.(string), req.FriendId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -130,44 +130,19 @@ func (h *ContactHandler) GetFriendInfo(c *gin.Context) {
 	HandleSuccess(c, data)
 }
 
-// GetGroupDetail 获取群聊详细信息
-// GET /contact/getGroupDetail?groupId=xxx
-// 查询参数: group.GetGroupInfoRequest
-// 响应: respond.GetGroupInfoRespond
-// 安全: 从JWT上下文获取当前用户ID，校验群成员身份
-func (h *ContactHandler) GetGroupDetail(c *gin.Context) {
-	userId, exists := c.Get("user_id")
-	if !exists {
-		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
-		return
-	}
-
-	var req group.GetGroupInfoRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	data, err := h.contactSvc.GetGroupDetail(userId.(string), req.GroupId)
-	if err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, data)
-}
-
-// DeleteContact 删除联系人
-// POST /contact/deleteContact
-// 请求体: contact.BatchDeleteRequest
+// DeleteFriend 删除好友
+// DELETE /friends
+// 请求体: friendship.BatchDeleteRequest
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
-func (h *ContactHandler) DeleteContact(c *gin.Context) {
+func (h *FriendshipHandler) DeleteFriend(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
 
-	var req contact.BatchDeleteRequest
+	var req friendship.BatchDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
@@ -178,9 +153,9 @@ func (h *ContactHandler) DeleteContact(c *gin.Context) {
 		return
 	}
 
-	// 批量删除：遍历所有联系人
+	// 批量删除：遍历所有好友
 	for _, uuid := range req.UuidList {
-		if err := h.contactSvc.DeleteContact(userId.(string), uuid); err != nil {
+		if err := h.friendshipSvc.DeleteFriend(userId.(string), uuid); err != nil {
 			HandleError(c, err)
 			return
 		}
@@ -189,24 +164,24 @@ func (h *ContactHandler) DeleteContact(c *gin.Context) {
 	HandleSuccess(c, nil)
 }
 
-// BlockContact 拉黑联系人
-// POST /contact/blockContact
-// 请求体: contact.BlockContactRequest
+// BlockFriend 拉黑好友
+// POST /friends/block
+// 请求体: friendship.BlockFriendRequest
 // 响应: nil
-func (h *ContactHandler) BlockContact(c *gin.Context) {
+func (h *FriendshipHandler) BlockFriend(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
 
-	var req contact.BlockContactRequest
+	var req friendship.BlockFriendRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
 
-	if err := h.contactSvc.BlackContact(userId.(string), req.ContactId); err != nil {
+	if err := h.friendshipSvc.BlackFriend(userId.(string), req.FriendId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -214,24 +189,24 @@ func (h *ContactHandler) BlockContact(c *gin.Context) {
 	HandleSuccess(c, nil)
 }
 
-// UnblockContact 取消拉黑联系人
-// POST /contact/unblockContact
-// 请求体: contact.BlockContactRequest
+// UnblockFriend 取消拉黑好友
+// DELETE /friends/block
+// 请求体: friendship.BlockFriendRequest
 // 响应: nil
-func (h *ContactHandler) UnblockContact(c *gin.Context) {
+func (h *FriendshipHandler) UnblockFriend(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
 
-	var req contact.BlockContactRequest
+	var req friendship.BlockFriendRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
 
-	if err := h.contactSvc.CancelBlackContact(userId.(string), req.ContactId); err != nil {
+	if err := h.friendshipSvc.UnblackFriend(userId.(string), req.FriendId); err != nil {
 		HandleError(c, err)
 		return
 	}

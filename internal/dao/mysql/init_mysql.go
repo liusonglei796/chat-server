@@ -49,7 +49,7 @@ func Init() *Repositories {
 	err = db.AutoMigrate(
 		&model.UserInfo{},    // 用户信息表
 		&model.GroupInfo{},   // 群组信息表
-		&model.Contact{},     // 用户联系人表
+		&model.Friendship{},  // 好友关系表
 		&model.Session{},     // 会话表
 		&model.Apply{},       // 联系人申请表
 		&model.Message{},     // 消息表

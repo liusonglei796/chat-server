@@ -53,7 +53,9 @@ func main() {
 	// 7. 初始化 ChatServer（必须在 Services 之前，因为 UserService 需要 KickClient）
 	chatServer := chat.NewChatServer(chat.ChatServerConfig{
 		MessageRepo:     repos.Message,
+		FriendshipRepo:  repos.Friendship,
 		GroupMemberRepo: repos.GroupMember,
+		SessionRepo:     repos.Session,
 		CacheService:    cacheService,
 	})
 	chatServer.InitKafka()
@@ -67,8 +69,8 @@ func main() {
 	handlers := handler.NewHandlers(services, chatServer.GetBroker())
 	zap.L().Info("Handler 层初始化成功")
 
-	// 10. 初始化 HTTPS 服务器 (传入 handlers 进行依赖注入)
-	engine := https_server.Init(handlers)
+	// 10. 初始化 HTTPS 服务器 (传入 handlers 和管理员校验回调进行依赖注入)
+	engine := https_server.Init(handlers, services.Auth.GetUserIsAdmin, cacheService)
 	zap.L().Info("HTTPS 服务器初始化成功")
 
 	// 11. 启动服务

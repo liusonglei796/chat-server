@@ -7,24 +7,24 @@ import (
 )
 
 // RegisterFriendRoutes 注册好友相关路由（需要认证）
-// 包括好友列表查询、好友详情、好友关系管理等
+// 使用 RESTful 风格：复数名词 + HTTP 动词语义
 func (rt *Router) RegisterFriendRoutes(rg *gin.RouterGroup) {
-	friendGroup := rg.Group("/friend")
+	friendGroup := rg.Group("/friends")
 	{
 		// ===== 查询 =====
-		friendGroup.GET("/list", rt.handlers.Contact.GetUserList)   // 获取好友列表
-		friendGroup.GET("/info", rt.handlers.Contact.GetFriendInfo) // 获取好友详情
+		friendGroup.GET("", rt.handlers.Friendship.GetFriendList)     // 获取好友列表
+		friendGroup.GET("/info", rt.handlers.Friendship.GetFriendInfo) // 获取好友详情
 
 		// ===== 好友关系管理 =====
-		friendGroup.POST("/delete", rt.handlers.Contact.DeleteContact)       // 删除好友
-		friendGroup.POST("/block", rt.handlers.Contact.BlockContact)         // 拉黑好友
-		friendGroup.POST("/unblock", rt.handlers.Contact.UnblockContact)     // 取消拉黑
+		friendGroup.DELETE("", rt.handlers.Friendship.DeleteFriend)         // 删除好友
+		friendGroup.POST("/block", rt.handlers.Friendship.BlockFriend)      // 拉黑好友
+		friendGroup.DELETE("/block", rt.handlers.Friendship.UnblockFriend)   // 取消拉黑
 
 		// ===== 好友申请 =====
-		friendGroup.POST("/apply", rt.handlers.Apply.ApplyFriend)             // 申请添加好友
-		friendGroup.GET("/applyList", rt.handlers.Apply.GetFriendApplyList)   // 获取待处理的好友申请
-		friendGroup.POST("/passApply", rt.handlers.Apply.PassFriendApply)     // 通过好友申请
-		friendGroup.POST("/refuseApply", rt.handlers.Apply.RefuseFriendApply) // 拒绝好友申请
-		friendGroup.POST("/blackApply", rt.handlers.Apply.BlackFriendApply)   // 拉黑好友申请
+		friendGroup.POST("/apply", rt.handlers.Apply.ApplyFriend)                // 申请添加好友
+		friendGroup.GET("/applies", rt.handlers.Apply.GetFriendApplyList)        // 获取待处理的好友申请
+		friendGroup.POST("/applies/approve", rt.handlers.Apply.PassFriendApply)  // 通过好友申请
+		friendGroup.POST("/applies/refuse", rt.handlers.Apply.RefuseFriendApply) // 拒绝好友申请
+		friendGroup.POST("/applies/block", rt.handlers.Apply.BlackFriendApply)   // 拉黑好友申请
 	}
 }
