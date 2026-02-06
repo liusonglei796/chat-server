@@ -4,7 +4,7 @@ package apply
 
 import (
 	"kama_chat_server/internal/model"
-	"kama_chat_server/pkg/enum/contact_apply/contact_apply_status_enum"
+	"kama_chat_server/pkg/enum/apply/apply_status"
 	"kama_chat_server/pkg/errorx"
 
 	"gorm.io/gorm"
@@ -42,7 +42,7 @@ func (r *applyRepository) FindByTargetIdPendingPaged(targetId string, page, page
 	var total int64
 
 	// 构建查询条件
-	query := r.db.Model(&model.Apply{}).Where("target_id = ? AND status = ?", targetId, contact_apply_status_enum.PENDING)
+	query := r.db.Model(&model.Apply{}).Where("target_id = ? AND status = ?", targetId, apply_status.PENDING)
 
 	// 先统计总数
 	if err := query.Count(&total).Error; err != nil {
@@ -51,7 +51,7 @@ func (r *applyRepository) FindByTargetIdPendingPaged(targetId string, page, page
 
 	// 计算偏移量并分页查询，按申请时间倒序（最新的在前）
 	offset := (page - 1) * pageSize
-	if err := r.db.Where("target_id = ? AND status = ?", targetId, contact_apply_status_enum.PENDING).
+	if err := r.db.Where("target_id = ? AND status = ?", targetId, apply_status.PENDING).
 		Order("last_apply_at DESC").
 		Offset(offset).
 		Limit(pageSize).

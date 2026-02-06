@@ -25,7 +25,7 @@ type Message struct {
 
 	// Type 消息类型
 	// 0=文本消息, 1=语音消息, 2=文件消息, 3=音视频通话信令
-	// 参见 pkg/enum/message_type_enum.go
+	// 参见 pkg/enum/message/message_type/message_type.go
 	Type int8 `gorm:"column:type;not null;comment:消息类型，0.文本，1.语音，2.文件，3.通话"`
 
 	// Content 消息文本内容
@@ -67,7 +67,7 @@ type Message struct {
 
 	// Status 消息状态
 	// 0=未发送, 1=已发送
-	// 参见 pkg/enum/message_status_enum.go
+	// 参见 pkg/enum/message/message_status/message_status.go
 	Status int8 `gorm:"column:status;not null;comment:状态，0.未发送，1.已发送"`
 
 	// SendAt 实际发送时间

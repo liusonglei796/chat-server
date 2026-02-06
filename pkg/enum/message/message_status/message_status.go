@@ -1,4 +1,4 @@
-package message_status_enum
+package message_status
 
 // 消息发送状态
 // Unsent: 未发送

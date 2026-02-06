@@ -1,4 +1,4 @@
-package user_status_enum
+package user_status
 
 // 用户账号状态
 // NORMAL: 正常

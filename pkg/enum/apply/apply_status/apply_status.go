@@ -1,4 +1,4 @@
-package contact_apply_status_enum
+package apply_status
 
 // 好友/入群申请状态
 // PENDING: 待处理

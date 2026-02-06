@@ -1,4 +1,4 @@
-package add_mode_enum
+package add_mode
 
 // 群组加入方式
 // DIRECT: 直接加入，无需审核

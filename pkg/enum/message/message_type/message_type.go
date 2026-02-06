@@ -1,4 +1,4 @@
-package message_type_enum
+package message_type
 
 // 消息类型
 // Text: 文本
