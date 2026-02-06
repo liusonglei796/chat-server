@@ -22,7 +22,7 @@ type Services struct {
 	User    UserService    // 用户 Service
 	Session SessionService // 会话 Service
 	Group   GroupService   // 群组 Service
-	Contact ContactService // 联系人 Service
+	Contact ContactService // 联系 Service
 	Apply   ApplyService   // 申请 Service
 	Message MessageService // 消息 Service
 	Auth    AuthService    // 认证 Service

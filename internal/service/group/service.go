@@ -66,7 +66,7 @@ func (g *groupInfoService) CreateGroup(ownerId string, groupReq group.CreateGrou
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
-		// 添加联系人
+		// 添加联系
 		contact := model.Contact{
 			UserId:      ownerId,
 			ContactId:   group.Uuid,
@@ -99,7 +99,7 @@ func (g *groupInfoService) CreateGroup(ownerId string, groupReq group.CreateGrou
 	}
 
 	g.cache.SubmitTask(func() {
-		// 删除联系人关系缓存
+		// 删除联系关系缓存
 		if err := g.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+ownerId+"*"); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 		}
@@ -214,22 +214,23 @@ func (g *groupInfoService) getGroupsByUserId(userId string) ([]model.GroupInfo, 
 		val, err := g.cache.Get(context.Background(), infoKey)
 		if err == nil && val != "" {
 			// 注意：缓存里存的是 grouprsp.GetGroupInfoRespond 结构，不是 model.GroupInfo
-			// 所以我们需要 Unmarshal 到 DTO 然后转换，或者统一缓存结构。
-			// 之前的代码是 Unmarshal 到 grouprsp.GetGroupInfoRespond
 			var dto grouprsp.GetGroupInfoRespond
 			if err := json.Unmarshal([]byte(val), &dto); err == nil {
 				// DTO -> Model (部分字段)
-				// 为了简化，我们只需要 ID, Name, Avatar, OwnerId
 				result = append(result, model.GroupInfo{
 					Uuid:    dto.Uuid,
 					Name:    dto.Name,
 					Avatar:  dto.Avatar,
 					OwnerId: dto.OwnerId,
 				})
-				continue
+			} else {
+				// 反序列化失败，视为缓存脏数据，需要从数据库获取
+				missingIds = append(missingIds, groupId)
 			}
+		} else {
+			// 缓存未命中，需要从数据库获取
+			missingIds = append(missingIds, groupId)
 		}
-		missingIds = append(missingIds, groupId)
 	}
 
 	// 4. 处理缺失的详情
@@ -268,54 +269,44 @@ func (g *groupInfoService) getGroupsByUserId(userId string) ([]model.GroupInfo, 
 }
 
 // CheckGroupAddMode 检查群聊加群方式
+// 使用 Cache-Aside 模式 + singleflight 防止缓存击穿
 func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
 	cacheKey := "group_info_" + groupId
+	var groupInfo grouprsp.GetGroupInfoRespond
 
-	// 1. 尝试读取缓存
-	rspString, err := g.cache.Get(context.Background(), cacheKey)
-	if err == nil && rspString != "" {
-		var rsp grouprsp.GetGroupInfoRespond
-		// 如果反序列化成功，直接返回结果
-		if err := json.Unmarshal([]byte(rspString), &rsp); err == nil {
-			return rsp.AddMode, nil
-		}
-		// 如果反序列化失败，记录日志，视为缓存脏数据，继续向下查库
-		zap.L().Warn("Unmarshal group info cache failed, fallback to DB", zap.String("groupId", groupId), zap.Error(err))
-	}
-
-	// 2. 查询数据库 (Source of Truth)
-	group, err := g.repos.Group.FindByUuid(groupId)
+	err := g.cacheHelper.GetOrLoad(
+		context.Background(),
+		cacheKey,
+		func() (interface{}, error) {
+			group, err := g.repos.Group.FindByUuid(groupId)
+			if err != nil {
+				if errorx.IsNotFound(err) {
+					return nil, errorx.New(errorx.CodeNotFound, "群组不存在")
+				}
+				return nil, err
+			}
+			return grouprsp.GetGroupInfoRespond{
+				Uuid:      group.Uuid,
+				Name:      group.Name,
+				Notice:    group.Notice,
+				MemberCnt: group.MemberCnt,
+				OwnerId:   group.OwnerId,
+				AddMode:   group.AddMode,
+				Status:    group.Status,
+				Avatar:    group.Avatar,
+				IsDeleted: group.DeletedAt.Valid,
+			}, nil
+		},
+		cacheutil.RandomizedTTL(24*time.Hour), // 数据 TTL (带抖动防雪崩)
+		5*time.Minute,                         // 空值 TTL (防穿透)
+		&groupInfo,
+	)
 	if err != nil {
-		zap.L().Error("Find group by uuid error", zap.Error(err))
-		return -1, errorx.ErrServerBusy
+		zap.L().Error("Get group info error", zap.String("groupId", groupId), zap.Error(err))
+		return -1, err
 	}
 
-	// 3. 【关键】构建缓存对象
-	cacheRsp := grouprsp.GetGroupInfoRespond{
-		Uuid:      group.Uuid,
-		Name:      group.Name,
-		Notice:    group.Notice,
-		MemberCnt: group.MemberCnt,
-		OwnerId:   group.OwnerId,
-		AddMode:   group.AddMode,
-		Status:    group.Status,
-		Avatar:    group.Avatar,
-		IsDeleted: false,
-	}
-
-	// 4. 异步回写缓存 (修复缓存)
-	g.cache.SubmitTask(func() {
-		rspBytes, err := json.Marshal(cacheRsp)
-		if err != nil {
-			zap.L().Error("Marshal group info for cache error", zap.Error(err))
-			return
-		}
-		if err := g.cache.Set(context.Background(), cacheKey, string(rspBytes), time.Hour*24); err != nil {
-			zap.L().Error("Set group info cache error", zap.Error(err))
-		}
-	})
-
-	return group.AddMode, nil
+	return groupInfo.AddMode, nil
 }
 
 // LeaveGroup 退群
@@ -428,7 +419,7 @@ func (g *groupInfoService) DismissGroup(operatorId, groupId string) error {
 			return errorx.ErrServerBusy
 		}
 
-		// 5. 批量软删除涉及该群的联系人关系
+		// 5. 批量软删除涉及该群的联系关系
 		if err := txRepos.Contact.SoftDeleteByUsers([]string{groupId}); err != nil {
 			zap.L().Error("Soft delete contacts error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -572,10 +563,25 @@ func (g *groupInfoService) UpdateGroupInfo(operatorId string, req group.UpdateGr
 		zap.L().Error("service error", zap.Error(err))
 	}
 
+	// 获取群成员列表用于缓存清理
+	members, _ := g.repos.GroupMember.FindByGroupUuid(req.Uuid)
+	memberIds := make([]string, 0, len(members))
+	for _, m := range members {
+		memberIds = append(memberIds, m.UserUuid)
+	}
+
 	// 异步清理缓存
+	groupId := req.Uuid
 	g.cache.SubmitTask(func() {
-		if err := g.cache.Delete(context.Background(), "group_info_"+req.Uuid); err != nil {
+		// 清理群信息缓存
+		if err := g.cache.Delete(context.Background(), "group_info_"+groupId); err != nil {
 			zap.L().Error("service error", zap.Error(err))
+		}
+		// 清理所有群成员的会话列表缓存
+		for _, memberId := range memberIds {
+			if err := g.cache.DeleteByPattern(context.Background(), "group_session_list_"+memberId+"*"); err != nil {
+				zap.L().Error("service error", zap.Error(err))
+			}
 		}
 	})
 

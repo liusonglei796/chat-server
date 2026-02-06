@@ -87,7 +87,7 @@ func (s *groupAdminService) DeleteGroups(groupUUIDs []string) error {
 			return errorx.ErrServerBusy
 		}
 
-		// 软删除相关联系人
+		// 软删除相关联系
 		if err := txRepos.Contact.SoftDeleteByUsers(groupUUIDs); err != nil {
 			zap.L().Error("Batch soft delete contacts error", zap.Error(err))
 			return errorx.ErrServerBusy

@@ -71,7 +71,7 @@ func (m *messageService) GetMessageList(requesterId, partnerId string, page, pag
 	return rspList, nil
 }
 
-// GetGroupMessageList 获取群聊消息记录（分页）(userId 必须是群成员)
+// GetGroupMessageList 获取群聊消息记录（分页）
 func (m *messageService) GetGroupMessageList(userId, groupId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error) {
 	// 设置默认分页参数
 	if page < 1 {
@@ -185,29 +185,37 @@ func (m *messageService) UploadFile(c *gin.Context) ([]string, error) {
 }
 
 // saveFile 通用保存文件方法，支持 Magic Bytes 类型校验
+// fileHeader: 上传的文件头信息
+// dstDir: 目标保存目录
+// allowedMimes: 允许的 MIME 类型列表（可变参数，为空则不校验）
+// 返回: 生成的新文件名, 错误
 func (m *messageService) saveFile(fileHeader *multipart.FileHeader, dstDir string, allowedMimes ...string) (string, error) {
+	// 打开上传的文件，获取文件读取流
 	src, err := fileHeader.Open()
 	if err != nil {
 		return "", err
 	}
-	defer src.Close()
+	defer src.Close() // 确保函数结束时关闭文件
 
-	// 1. 读取前 512 字节进行 MIME 类型的 Magic Bytes 校验
+	// 1. 读取前 512 字节进行 Magic Bytes 校验
+	// Magic Bytes 是文件开头的特征字节，用于识别真实文件类型（防止伪造扩展名）
 	buffer := make([]byte, 512)
 	if _, err := src.Read(buffer); err != nil && err != io.EOF {
 		return "", err
 	}
+	// 使用 http.DetectContentType 根据 Magic Bytes 检测真实 MIME 类型
 	contentType := http.DetectContentType(buffer)
 
-	// 重置文件指针
+	// 重置文件指针到开头，以便后续完整读取文件内容
 	if _, err := src.Seek(0, 0); err != nil {
 		return "", err
 	}
 
-	// 2. 校验 MIME 类型
+	// 2. 校验 MIME 类型是否在白名单中
 	if len(allowedMimes) > 0 {
 		isAllowed := false
 		for _, mime := range allowedMimes {
+			// 使用 HasPrefix 匹配，如 "image/jpeg" 匹配 "image/"
 			if strings.HasPrefix(contentType, mime) {
 				isAllowed = true
 				break
@@ -218,18 +226,19 @@ func (m *messageService) saveFile(fileHeader *multipart.FileHeader, dstDir strin
 		}
 	}
 
-	// 3. 生成唯一文件名
-	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
-	newFileName := snowflake.GenerateIDString() + ext
-	dst := filepath.Join(dstDir, newFileName)
+	// 3. 生成唯一文件名（雪花ID + 原始扩展名）
+	ext := strings.ToLower(filepath.Ext(fileHeader.Filename)) // 获取并转小写的扩展名
+	newFileName := snowflake.GenerateIDString() + ext         // 雪花ID保证文件名唯一
+	dst := filepath.Join(dstDir, newFileName)                 // 拼接完整目标路径
 
-	// 4. 保存文件
+	// 4. 创建目标文件并写入内容
 	out, err := os.Create(dst)
 	if err != nil {
 		return "", err
 	}
-	defer out.Close()
+	defer out.Close() // 确保函数结束时关闭文件
 
+	// 将源文件内容拷贝到目标文件
 	if _, err := io.Copy(out, src); err != nil {
 		return "", err
 	}

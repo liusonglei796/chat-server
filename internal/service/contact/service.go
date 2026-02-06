@@ -2,7 +2,6 @@ package contact
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"go.uber.org/zap"
@@ -20,7 +19,7 @@ import (
 	cacheutil "kama_chat_server/pkg/util/cache"
 )
 
-// contactService 联系人业务逻辑实现
+// contactService 联系业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖，遵循依赖倒置原则
 type contactService struct {
 	repos       *mysql.Repositories
@@ -37,7 +36,7 @@ func NewContactService(repos *mysql.Repositories, cacheService myredis.AsyncCach
 	}
 }
 
-// GetUserList 获取指定用户的“好友（联系人）的用户信息列表”。
+// GetUserList 获取指定用户的“好友（联系）的用户信息列表”。
 func (u *contactService) GetUserList(userId string, page, pageSize int) ([]userrsp.MyUserListRespond, int64, error) {
 	// 参数校验
 	if page < 1 {
@@ -47,7 +46,7 @@ func (u *contactService) GetUserList(userId string, page, pageSize int) ([]userr
 		pageSize = 20
 	}
 
-	// 从数据库分页查询联系人
+	// 从数据库分页查询联系
 	contactList, total, err := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.USER, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find contact list error", zap.Error(err))
@@ -58,40 +57,39 @@ func (u *contactService) GetUserList(userId string, page, pageSize int) ([]userr
 		return []userrsp.MyUserListRespond{}, total, nil
 	}
 
-	// 批量获取好友信息（混合模式：优先 Redis，回退 DB）
+	// 批量获取好友信息（使用 cacheHelper，带 singleflight 防击穿）
 	userListRsp := make([]userrsp.MyUserListRespond, 0, len(contactList))
 	for _, contact := range contactList {
 		cacheKey := "user_info_" + contact.ContactId
-		val, err := u.cache.Get(context.Background(), cacheKey)
-		if err == nil && val != "" {
-			var userInfo userrsp.GetUserInfoRespond
-			if err := json.Unmarshal([]byte(val), &userInfo); err == nil {
-				userListRsp = append(userListRsp, userrsp.MyUserListRespond{
-					UserId:   userInfo.Uuid,
-					UserName: userInfo.Nickname,
-					Avatar:   userInfo.Avatar,
-				})
-				continue
-			}
-		}
+		contactId := contact.ContactId // 闭包捕获
 
-		// 缓存未命中，查数据库
-		userInfo, dbErr := u.repos.User.FindByUuid(contact.ContactId)
-		if dbErr != nil {
-			zap.L().Error("Find user by uuid error", zap.Error(dbErr))
-			continue
-		}
-
-		// 组装响应
-		userListRsp = append(userListRsp, userrsp.MyUserListRespond{
-			UserId:   userInfo.Uuid,
-			UserName: userInfo.Nickname,
-			Avatar:   userInfo.Avatar,
-		})
-
-		// 回写缓存
-		if userInfoStr, err := json.Marshal(userInfo); err == nil {
-			_ = u.cache.Set(context.Background(), cacheKey, string(userInfoStr), 300) // 5分钟过期
+		var userInfo userrsp.GetUserInfoRespond
+		err := u.cacheHelper.GetOrLoad(
+			context.Background(),
+			cacheKey,
+			func() (interface{}, error) {
+				user, err := u.repos.User.FindByUuid(contactId)
+				if err != nil {
+					return nil, err
+				}
+				return userrsp.GetUserInfoRespond{
+					Uuid:     user.Uuid,
+					Nickname: user.Nickname,
+					Avatar:   user.Avatar,
+				}, nil
+			},
+			cacheutil.RandomizedTTL(5*time.Minute), // 数据 TTL (带抖动防雪崩)
+			time.Minute,                            // 空值 TTL (防穿透)
+			&userInfo,
+		)
+		if err != nil {
+			zap.L().Error("Get user info error", zap.String("contactId", contactId), zap.Error(err))
+		} else {
+			userListRsp = append(userListRsp, userrsp.MyUserListRespond{
+				UserId:   userInfo.Uuid,
+				UserName: userInfo.Nickname,
+				Avatar:   userInfo.Avatar,
+			})
 		}
 	}
 
@@ -126,14 +124,13 @@ func (u *contactService) GetGroupList(userId string, page, pageSize int) ([]grou
 		groupInfo, err := u.repos.Group.FindByUuid(contact.ContactId)
 		if err != nil {
 			zap.L().Error("Find group by uuid error", zap.Error(err))
-			continue
+		} else {
+			groupListRsp = append(groupListRsp, grouprsp.MyGroupListRespond{
+				GroupId:   groupInfo.Uuid,
+				GroupName: groupInfo.Name,
+				Avatar:    groupInfo.Avatar,
+			})
 		}
-
-		groupListRsp = append(groupListRsp, grouprsp.MyGroupListRespond{
-			GroupId:   groupInfo.Uuid,
-			GroupName: groupInfo.Name,
-			Avatar:    groupInfo.Avatar,
-		})
 	}
 
 	return groupListRsp, total, nil
@@ -276,9 +273,14 @@ func (u *contactService) GetGroupDetail(userId, groupId string) (contact.GroupDe
 	}, nil
 }
 
-// DeleteContact 删除联系人
+// DeleteContact 删除联系（单向删除，仅从我的列表中移除对方）
 func (u *contactService) DeleteContact(userId, contactId string) error {
-	// 校验是否是好友关系
+	// 1. 参数校验
+	if userId == contactId {
+		return errorx.New(errorx.CodeInvalidParam, "不能删除自己")
+	}
+
+	// 2. 校验是否是好友关系
 	isFriend, err := u.repos.Contact.IsFriend(userId, contactId)
 	if err != nil {
 		zap.L().Error("Check friend relationship error", zap.Error(err))
@@ -287,20 +289,18 @@ func (u *contactService) DeleteContact(userId, contactId string) error {
 	if !isFriend {
 		return errorx.New(errorx.CodeForbidden, "你们还不是好友")
 	}
-	// 使用事务确保操作原子性
+
+	// 3. 使用事务确保操作原子性
 	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
-		// 1. 仅从“我的”联系人列表中移除对方 (单向操作)
 		if err := txRepos.Contact.SoftDelete(userId, contactId, contact_type_enum.USER); err != nil {
 			zap.L().Error("Delete contact relation error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		// 2. 仅清理“我的”视角下的会话 (Session)
-		// 历史需求变更: 仅删除联系人关系，保留会话历史(Read-Only)
-		// 因此不再执行 Session.SoftDelete
-
-		// 3. 清理“我的”视角下的申请记录 (可选，通常为了防止再次申请时逻辑混淆)
-		_ = txRepos.Apply.SoftDelete(userId, contactId)
+		// Apply 删除失败只记录日志，不影响主流程
+		if err := txRepos.Apply.SoftDelete(userId, contactId); err != nil {
+			zap.L().Warn("Delete apply record error (non-critical)", zap.Error(err))
+		}
 
 		return nil
 	})
@@ -310,7 +310,6 @@ func (u *contactService) DeleteContact(userId, contactId string) error {
 		return errorx.ErrServerBusy
 	}
 
-	// 4. 异步清理"我的"缓存
 	u.cache.SubmitTask(func() {
 		_ = u.cache.RemoveFromSet(context.Background(), "contact_relation:user:"+userId, contactId)
 		_ = u.cache.DeleteByPattern(context.Background(), "direct_session_list_"+userId)
@@ -319,9 +318,9 @@ func (u *contactService) DeleteContact(userId, contactId string) error {
 	return nil
 }
 
-// BlackContact 拉黑联系人
+// BlackContact 拉黑联系
 // userId: 操作者（发起拉黑的用户）
-// contactId: 被拉黑的联系人
+// contactId: 被拉黑的联系
 func (u *contactService) BlackContact(userId string, contactId string) error {
 	// 1. 参数校验：不能拉黑自己
 	if userId == contactId {
@@ -381,9 +380,9 @@ func (u *contactService) BlackContact(userId string, contactId string) error {
 	return nil
 }
 
-// CancelBlackContact 取消拉黑联系人
+// CancelBlackContact 取消拉黑联系
 // userId: 操作者（发起解除拉黑的用户，即之前拉黑对方的人）
-// contactId: 被解除拉黑的联系人
+// contactId: 被解除拉黑的联系
 func (u *contactService) CancelBlackContact(userId string, contactId string) error {
 	// 1. 参数校验：不能解除拉黑自己
 	if userId == contactId {
@@ -396,20 +395,20 @@ func (u *contactService) CancelBlackContact(userId string, contactId string) err
 		myContact, err := txRepos.Contact.FindByUserIdAndContactId(userId, contactId, contact_type_enum.USER)
 		if err != nil {
 			if errorx.IsNotFound(err) {
-				return errorx.New(errorx.CodeNotFound, "联系人关系不存在")
+				return errorx.New(errorx.CodeNotFound, "联系关系不存在")
 			}
 			zap.L().Error("Find black contact error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		if myContact.Status != contact_status_enum.BLACK {
-			return errorx.New(errorx.CodeInvalidParam, "未拉黑该联系人，无需解除拉黑")
+			return errorx.New(errorx.CodeInvalidParam, "未拉黑该联系，无需解除拉黑")
 		}
 
 		// 2.2 校验被拉黑者的状态
 		theirContact, err := txRepos.Contact.FindByUserIdAndContactId(contactId, userId, contact_type_enum.USER)
 		if err != nil {
 			if errorx.IsNotFound(err) {
-				return errorx.New(errorx.CodeNotFound, "对方联系人关系不存在")
+				return errorx.New(errorx.CodeNotFound, "对方联系关系不存在")
 			}
 			zap.L().Error("Find be-black contact error", zap.Error(err))
 			return errorx.ErrServerBusy

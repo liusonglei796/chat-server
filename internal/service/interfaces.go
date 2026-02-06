@@ -83,8 +83,8 @@ type GroupService interface {
 	RemoveGroupMembers(operatorId string, req group.RemoveGroupMembersRequest) error
 }
 
-// ContactService 联系人业务接口
-// 处理好友关系、联系人管理等功能
+// ContactService 联系业务接口
+// 处理好友关系、联系管理等功能
 type ContactService interface {
 	// GetUserList 获取好友列表（分页）
 	GetUserList(userId string, page, pageSize int) ([]userrsp.MyUserListRespond, int64, error)
@@ -95,9 +95,9 @@ type ContactService interface {
 	GetFriendInfo(userId, friendId string) (contactrsp.FriendInfoRespond, error)
 	// GetGroupDetail 获取群聊详情 (userId 必须是群成员)
 	GetGroupDetail(userId, groupId string) (contactrsp.GroupDetailRespond, error)
-	// DeleteContact 删除联系人
+	// DeleteContact 删除联系
 	DeleteContact(userId, contactId string) error
-	// BlackContact 拉黑联系人
+	// BlackContact 拉黑联系
 	BlackContact(userId, contactId string) error
 	// CancelBlackContact 取消拉黑
 	CancelBlackContact(userId, contactId string) error

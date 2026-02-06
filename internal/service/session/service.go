@@ -22,20 +22,23 @@ import (
 	"kama_chat_server/pkg/enum/group_info/group_status_enum"
 	"kama_chat_server/pkg/enum/user_info/user_status_enum"
 	"kama_chat_server/pkg/errorx"
+	cacheutil "kama_chat_server/pkg/util/cache"
 )
 
 // sessionService 会话业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖
 type sessionService struct {
-	repos *mysql.Repositories
-	cache myredis.AsyncCacheService
+	repos       *mysql.Repositories
+	cache       myredis.AsyncCacheService
+	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
 }
 
 // NewSessionService 构造函数，注入所有依赖
 func NewSessionService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *sessionService {
 	return &sessionService{
-		repos: repos,
-		cache: cacheService,
+		repos:       repos,
+		cache:       cacheService,
+		cacheHelper: cacheutil.NewHelper(cacheService),
 	}
 }
 
@@ -206,10 +209,10 @@ func (s *sessionService) clearSessionCacheForUser(userId string) {
 
 // CheckOpenSessionAllowed 检查是否允许发起会话
 func (s *sessionService) CheckOpenSessionAllowed(sendId, receiveId string) (bool, error) {
-	// 1. 检查联系人关系状态 (保持数据库查询，确保实时性)
+	// 1. 检查联系关系状态 (保持数据库查询，确保实时性)
 	contact, err := s.repos.Contact.FindByUserIdAndContactId(sendId, receiveId, contact_type_enum.USER)
 	if err != nil {
-		zap.L().Error("查询联系人关系失败",
+		zap.L().Error("查询联系关系失败",
 			zap.String("send_id", sendId),
 			zap.String("receive_id", receiveId),
 			zap.Error(err),
@@ -235,7 +238,7 @@ func (s *sessionService) CheckOpenSessionAllowed(sendId, receiveId string) (bool
 	return true, nil
 }
 
-// checkTargetStatusWithCache 检查目标(用户或群组)状态，优先查缓存
+// checkTargetStatusWithCache 检查目标(用户或群组)状态，使用 cacheHelper
 func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 	if len(targetId) == 0 {
 		return errorx.New(errorx.CodeInvalidParam, "目标ID为空")
@@ -244,26 +247,32 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 	// 处理用户
 	if targetId[0] == 'U' {
 		key := "user_info_" + targetId
-		// 1. 尝试从 Redis 获取
-		if val, err := s.cache.Get(context.Background(), key); err == nil && val != "" {
-			var userRsp user.GetUserInfoRespond
-			if err := json.Unmarshal([]byte(val), &userRsp); err == nil {
-				if userRsp.Status == user_status_enum.DISABLE {
-					return errorx.New(errorx.CodeInvalidParam, "对方已被禁用，无法发起会话")
-				}
-				return nil // 缓存命中且状态正常
-			}
-		}
+		var userRsp user.GetUserInfoRespond
 
-		// 2. 缓存未命中，查库
-		user, err := s.repos.User.FindByUuid(targetId)
+		err := s.cacheHelper.GetOrLoad(
+			context.Background(),
+			key,
+			func() (interface{}, error) {
+				u, err := s.repos.User.FindByUuid(targetId)
+				if err != nil {
+					if errorx.IsNotFound(err) {
+						return nil, errorx.New(errorx.CodeUserNotExist, "对方用户不存在")
+					}
+					return nil, errorx.ErrServerBusy
+				}
+				return user.GetUserInfoRespond{
+					Uuid:   u.Uuid,
+					Status: u.Status,
+				}, nil
+			},
+			cacheutil.RandomizedTTL(30*time.Minute), // 数据 TTL
+			5*time.Minute, // 空值 TTL
+			&userRsp,
+		)
 		if err != nil {
-			if errorx.GetCode(err) == errorx.CodeNotFound {
-				return errorx.New(errorx.CodeUserNotExist, "对方用户不存在")
-			}
-			return errorx.ErrServerBusy
+			return err
 		}
-		if user.Status == user_status_enum.DISABLE {
+		if userRsp.Status == user_status_enum.DISABLE {
 			return errorx.New(errorx.CodeInvalidParam, "对方已被禁用，无法发起会话")
 		}
 		return nil
@@ -272,32 +281,38 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 	// 处理群组
 	if targetId[0] == 'G' {
 		key := "group_info_" + targetId
-		// 1. 尝试从 Redis 获取
-		if val, err := s.cache.Get(context.Background(), key); err == nil && val != "" {
-			var groupRsp group.GetGroupInfoRespond
-			if err := json.Unmarshal([]byte(val), &groupRsp); err == nil {
-				if groupRsp.Status == group_status_enum.DISABLE {
-					return errorx.New(errorx.CodeInvalidParam, "对方群组已被禁用，无法发起会话")
-				}
-				return nil // 缓存命中且状态正常
-			}
-		}
+		var groupRsp group.GetGroupInfoRespond
 
-		// 2. 缓存未命中，查库
-		group, err := s.repos.Group.FindByUuid(targetId)
+		err := s.cacheHelper.GetOrLoad(
+			context.Background(),
+			key,
+			func() (interface{}, error) {
+				g, err := s.repos.Group.FindByUuid(targetId)
+				if err != nil {
+					if errorx.IsNotFound(err) {
+						return nil, errorx.New(errorx.CodeNotFound, "对方群组不存在")
+					}
+					return nil, errorx.ErrServerBusy
+				}
+				return group.GetGroupInfoRespond{
+					Uuid:   g.Uuid,
+					Status: g.Status,
+				}, nil
+			},
+			cacheutil.RandomizedTTL(30*time.Minute), // 数据 TTL
+			5*time.Minute, // 空值 TTL
+			&groupRsp,
+		)
 		if err != nil {
-			if errorx.GetCode(err) == errorx.CodeNotFound {
-				return errorx.New(errorx.CodeNotFound, "对方群组不存在")
-			}
-			return errorx.ErrServerBusy
+			return err
 		}
-		if group.Status == group_status_enum.DISABLE {
+		if groupRsp.Status == group_status_enum.DISABLE {
 			return errorx.New(errorx.CodeInvalidParam, "对方群组已被禁用，无法发起会话")
 		}
 		return nil
 	}
 
-	// 未知类型，保守起见放行或报错？这里假设ID格式正确，或者报错
+	// 未知类型
 	return errorx.New(errorx.CodeInvalidParam, "无效的目标ID格式")
 }
 
@@ -422,47 +437,7 @@ func (s *sessionService) GetGroupSessionList(ownerId string, page, pageSize int)
 
 // DeleteSession 删除会话
 func (s *sessionService) DeleteSession(ownerId, sessionId string) error {
-	// 校验 session 是否属于 ownerId (防止越权删除)
-	// FindByUuid 只能查到 session 记录，但我们需要校验 send_id == ownerId
-	// 这里我们假设 session 表的主键 uuid 是全局唯一的，
-	// 我们可以查出来校验 SendId，或者直接用 Where(uuid, send_id).Delete
-
-	// 为了确保安全，先查一下
-	// 注意：SessionRepository.FindBySendIdAndReceiveId 不是查ById
-	// 我们需要一个 FindBySessionId 或者直接执行带条件的删除
-
-	// 既然 SoftDeleteByUuids 只接受 uuid list，我们可以在 repo 层加一个带 ownerId 的删除，或者先查后删。
-	// 鉴于 SoftDeleteByUuids 比较通用，我们先查。
-	// 但 SessionRepository 似乎没有 FindByUuid。
-	// 回头看 CreateSession，Session ID 是 create时生成的。
-	// 现有的 SoftDeleteByUuids 只是 Delete(Session{}, uuids)
-
-	// 让我们尝试尽量利用现有 repo 接口。
-	// 我们可以遍历 owner的所有session来看看有没有这个 sessionId? 不 太慢。
-	// 我们应该给 SessionRepository 加一个 FindByUuid 或者 DeleteByUuidAndOwner
-	// 但现在只能用 SoftDeleteByUuids。
-
-	// 既然是 Service 层修复，最简单的改法是先查 Owner 的 Session 列表里有没有这个？
-	// 或者... 等等，Session 表结构里 SendId 就是 Owner。
-	// 所以只要确保这个 Session 的 SendId == ownerId。
-
-	// 由于 repo 接口有限，这里先不做严格校验（需要改 Repo 接口），
-	// 或者我们可以用 SessionRepository.FindBySendId(ownerId) 拿到所有，然后在内存里匹配。
-	// 但如果 Session 很多会有性能问题。
-
-	// 鉴于时间，我们先遵循"最小改动"，如果 SessionRepository 没有 FindByUuid，
-	// 我们暂时不做校验，或者必须加 FindByUuid。
-	// 但 SessionRepository 没有 FindByUuid。
-
-	// 让我们看看 DeleteSession 在 Handler 里的调用。
-	// 它是 Delete /session/delete?sessionId=xxx
-
-	// 如果无法校验，那就是 IDOR。必须修复。
-	// 方案：让 RemoveGroupMembers 那种方式，DeleteByUuids 是通用的。
-	// 我们需要一个 CheckSessionOwner(sessionId, ownerId) 或者 DeleteOwnedSession(sessionId, ownerId)。
-
-	// 临时方案：遍历 FindBySendId 的结果 (通常用户 Session 不会太多，几百个顶天了)
-	// 虽然不优雅，但无需改 Repo。
+	// 1. 权限校验: 遍历用户的会话列表，确认 sessionId 属于 ownerId
 	sessions, err := s.repos.Session.FindBySendId(ownerId)
 	if err != nil {
 		zap.L().Error("Find user sessions error", zap.Error(err))
@@ -479,6 +454,7 @@ func (s *sessionService) DeleteSession(ownerId, sessionId string) error {
 		return errorx.New(errorx.CodeForbidden, "无权删除该会话或会话不存在")
 	}
 
+	// 2. 软删除会话
 	if err := s.repos.Session.SoftDeleteByUuids([]string{sessionId}); err != nil {
 		zap.L().Error("删除会话失败",
 			zap.String("owner_id", ownerId),
@@ -488,7 +464,7 @@ func (s *sessionService) DeleteSession(ownerId, sessionId string) error {
 		return errorx.ErrServerBusy
 	}
 
-	// 异步清理缓存
+	// 3. 异步清理缓存
 	s.cache.SubmitTask(func() {
 		s.clearSessionCacheForUser(ownerId)
 	})

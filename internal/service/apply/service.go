@@ -25,7 +25,7 @@ import (
 // applyService 申请业务逻辑实现
 // 设计原则说明：
 //  1. 读操作（如获取申请列表）：采用【直接查询数据库】模式。
-//     原因：申请/审批流程对数据一致性要求极高（防脏读、防重复），且相比消息/联系人列表，其访问频率较低，直查DB可确保逻辑安全且性能可控。
+//     原因：申请/审批流程对数据一致性要求极高（防脏读、防重复），且相比消息/联系列表，其访问频率较低，直查DB可确保逻辑安全且性能可控。
 //  2. 写操作（如发起/通过申请）：采用【写库成功后删除缓存】模式。
 //     原因：作为数据生产者，在变更状态后主动失效下游服务（如ContactService）的缓存，保证系统数据的最终一致性。
 type applyService struct {
@@ -71,7 +71,7 @@ func (u *applyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 	}
 
 	// 4. 检查是否已经是好友
-	// 查询联系人表，确认双方是否已经存在正常的好友关系
+	// 查询联系表，确认双方是否已经存在正常的好友关系
 	// 避免重复添加好友，防止产生脏数据和冗余记录
 	relation, err := u.repos.Contact.FindByUserIdAndContactId(userId, req.FriendId, contact_type_enum.USER)
 	// 如果查询成功且关系存在，并且状态为正常，则提示已经是好友
@@ -91,7 +91,7 @@ func (u *applyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 				Uuid:        fmt.Sprintf("A%s", snowflake.GenerateIDString()), // 生成唯一的申请记录UUID
 				ApplicantId: userId,                                           // 设置申请人ID
 				TargetId:    req.FriendId,                                     // 设置目标用户ID
-				ContactType: contact_type_enum.USER,                           // 设置联系人类型为用户
+				ContactType: contact_type_enum.USER,                           // 设置联系类型为用户
 				Status:      contact_apply_status_enum.PENDING,                // 初始状态为待处理
 				Message:     req.Message,                                      // 设置申请附带的留言信息
 				LastApplyAt: time.Now(),                                       // 设置申请时间为当前时间
@@ -167,7 +167,7 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 	}
 
 	// 4. 检查是否已经是群成员
-	// 查询联系人表（群组也作为一种联系人类型），确认是否已经在群中
+	// 查询联系表（群组也作为一种联系类型），确认是否已经在群中
 	// 防止重复加群
 	relation, err := u.repos.Contact.FindByUserIdAndContactId(userId, req.GroupId, contact_type_enum.GROUP)
 	if err != nil {
@@ -211,7 +211,7 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 		// 使用事务保证入群操作的原子性：
 		// 1. 创建群成员记录
 		// 2. 增加群成员计数
-		// 3. 创建联系人记录 (User -> Group)
+		// 3. 创建联系记录 (User -> Group)
 		// 4. 清理旧的申请记录（如果有）
 		err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 			// 创建群成员对象，Role默认为1（普通成员）
@@ -232,14 +232,14 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 				return errorx.ErrServerBusy
 			}
 
-			// 创建用户的联系人记录（将群组作为联系人）
+			// 创建用户的联系记录（将群组作为联系）
 			newContact := model.Contact{
 				UserId:      userId,
 				ContactId:   req.GroupId,
 				ContactType: contact_type_enum.GROUP,
 				Status:      contact_status_enum.NORMAL,
 			}
-			// 保存联系人记录
+			// 保存联系记录
 			if err := txRepos.Contact.CreateContact(&newContact); err != nil {
 				zap.L().Error("service error", zap.Error(err))
 				return errorx.ErrServerBusy
@@ -259,7 +259,7 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 		}
 
 		// 8. 异步更新缓存
-		// 删除相关会话缓存、联系人列表缓存、群组信息缓存，确保数据一致性
+		// 删除相关会话缓存、联系列表缓存、群组信息缓存，确保数据一致性
 		// 客户端下次请求时将重新加载最新数据
 		u.cache.SubmitTask(func() {
 			_ = u.cache.DeleteByPattern(context.Background(), "group_session_list_"+userId+"*")
@@ -496,7 +496,7 @@ func (u *applyService) PassFriendApply(userId string, applicantId string) error 
 	}
 
 	// 2. 开启事务
-	// 建立好友关系涉及多张表的更新（更新申请状态、双方各创建一条联系人记录）
+	// 建立好友关系涉及多张表的更新（更新申请状态、双方各创建一条联系记录）
 	// 使用事务保证操作的原子性，要么全部成功，要么全部回滚
 	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 3. 查询申请人信息并校验状态
@@ -552,7 +552,7 @@ func (u *applyService) PassFriendApply(userId string, applicantId string) error 
 	}
 
 	// 6. 异步清除缓存
-	// 异步清除双方的联系人列表缓存，确保双方下次请求联系人列表时能获取到最新的好友关系
+	// 异步清除双方的联系列表缓存，确保双方下次请求联系列表时能获取到最新的好友关系
 	u.cache.SubmitTask(func() {
 		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+userId)
 		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+applicantId)
@@ -592,7 +592,7 @@ func (u *applyService) PassGroupApply(operatorId, groupId, applicantId string) e
 	}
 
 	// 3. 开启事务
-	// 保证入群操作（更新申请、添加成员、增加计数、添加联系人）的原子性
+	// 保证入群操作（更新申请、添加成员、增加计数、添加联系）的原子性
 	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 3.1 获取并校验群组信息
 		group, err := txRepos.Group.FindByUuid(groupId)
@@ -614,8 +614,8 @@ func (u *applyService) PassGroupApply(operatorId, groupId, applicantId string) e
 			return errorx.ErrServerBusy
 		}
 
-		// 3.3 创建联系人关系 (User -> Group)
-		// 即使是群组，在联系人表中也有一条记录
+		// 3.3 创建联系关系 (User -> Group)
+		// 即使是群组，在联系表中也有一条记录
 		newContact := model.Contact{
 			UserId:      applicantId,
 			ContactId:   groupId,
@@ -653,7 +653,7 @@ func (u *applyService) PassGroupApply(operatorId, groupId, applicantId string) e
 	}
 
 	// 4. 异步更新缓存
-	// 删除用户的群会话缓存、联系人列表缓存
+	// 删除用户的群会话缓存、联系列表缓存
 	// 以及群组信息和成员列表缓存，确保所有相关方都能获取最新数据
 	u.cache.SubmitTask(func() {
 		_ = u.cache.DeleteByPattern(context.Background(), "group_session_list_"+applicantId+"*")

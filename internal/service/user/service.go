@@ -308,7 +308,12 @@ func (u *userInfoService) UpdateUserInfo(userId string, updateReq userreq.Update
 
 	// 异步清理缓存
 	u.cache.SubmitTask(func() {
+		// 清理完整用户信息缓存
 		if err := u.cache.Delete(context.Background(), "user_info_"+userId); err != nil {
+			zap.L().Error("service error", zap.Error(err))
+		}
+		// 清理公开用户信息缓存（其他用户查看时使用）
+		if err := u.cache.Delete(context.Background(), "public_user_info_"+userId); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 		}
 	})
