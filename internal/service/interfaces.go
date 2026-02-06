@@ -135,7 +135,7 @@ type ApplyService interface {
 // 处理消息历史记录和文件上传等功能
 type MessageService interface {
 	// GetMessageList 获取两个用户之间的聊天记录 (requesterId 用于权限校验)
-	GetMessageList(requesterId, partnerId string, page, pageSize int) ([]messagersp.GetMessageListRespond, error)
+	GetMessageList(requesterId, partnerId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error)
 	// GetGroupMessageList 获取群聊消息记录（分页）(userId 必须是群成员)
 	GetGroupMessageList(userId, groupId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error)
 	// UploadAvatar 上传头像，返回新文件名

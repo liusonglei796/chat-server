@@ -48,6 +48,9 @@ type MsgConsumer struct {
 	// Logout 客户端登出通道，当连接断开时写入此通道
 	Logout chan *UserConn
 
+	// closeOnce 确保 channel 只被关闭一次，防止 double-close panic
+	closeOnce sync.Once
+
 	// 依赖注入字段（遵循依赖倒置原则）
 	kafkaClient     *KafkaClient
 	messageRepo     mysql.MessageRepository
@@ -97,9 +100,11 @@ func (k *MsgConsumer) Start() {
 		if r := recover(); r != nil {
 			zap.L().Error(fmt.Sprintf("kafka server panic: %v", r))
 		}
-		// 关闭通道
-		close(k.Login)
-		close(k.Logout)
+		// 通过 sync.Once 关闭通道，防止 double-close panic
+		k.closeOnce.Do(func() {
+			close(k.Login)
+			close(k.Logout)
+		})
 	}()
 
 	// 启动一个 Goroutine 专门负责从 Kafka 读取消息
@@ -179,10 +184,12 @@ func (k *MsgConsumer) Start() {
 	}
 }
 
-// Close 关闭服务通道
+// Close 关闭服务通道（通过 sync.Once 确保只执行一次）
 func (k *MsgConsumer) Close() {
-	close(k.Login)
-	close(k.Logout)
+	k.closeOnce.Do(func() {
+		close(k.Login)
+		close(k.Logout)
+	})
 }
 
 // SendClientToLogin 将客户端发送到登录通道
@@ -455,7 +462,12 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 	// 通过注入的缓存服务异步更新缓存
 	if k.cacheService != nil {
 		k.cacheService.SubmitTask(func() {
-			key := "message_list_" + message.SendId + "_" + message.ReceiveId
+			// 确保缓存 Key 中 ID 顺序与 GetMessageList 查询一致（较小的ID在前）
+			id1, id2 := message.SendId, message.ReceiveId
+			if id1 > id2 {
+				id1, id2 = id2, id1
+			}
+			key := "message_list_" + id1 + "_" + id2
 			rspString, err := k.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
 				var list []messagersp.GetMessageListRespond
@@ -546,23 +558,5 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 				}
 			}
 		})
-	}
-}
-
-// updateRedisGroup 更新群组聊天记录的缓存
-func (k *MsgConsumer) updateRedisGroup(message model.Message, rsp messagersp.GetMessageListRespond) {
-	if k.cacheService == nil {
-		return
-	}
-	key := "group_messagelist_" + message.ReceiveId
-	rspString, err := k.cacheService.GetOrError(context.Background(), key)
-	if err == nil {
-		var list []messagersp.GetMessageListRespond
-		if err := json.Unmarshal([]byte(rspString), &list); err == nil {
-			list = append(list, rsp)
-			if rspByte, err := json.Marshal(list); err == nil {
-				_ = k.cacheService.Set(context.Background(), key, string(rspByte), time.Minute*constants.REDIS_TIMEOUT)
-			}
-		}
 	}
 }

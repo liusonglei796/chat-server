@@ -273,7 +273,7 @@ func (u *contactService) GetGroupDetail(userId, groupId string) (contact.GroupDe
 	}, nil
 }
 
-// DeleteContact 删除联系（单向删除，仅从我的列表中移除对方）
+// DeleteContact 删除联系（双向删除，同时从双方列表中移除对方）
 func (u *contactService) DeleteContact(userId, contactId string) error {
 	// 1. 参数校验
 	if userId == contactId {
@@ -290,16 +290,26 @@ func (u *contactService) DeleteContact(userId, contactId string) error {
 		return errorx.New(errorx.CodeForbidden, "你们还不是好友")
 	}
 
-	// 3. 使用事务确保操作原子性
+	// 3. 使用事务确保双向删除的原子性
 	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
+		// 删除我方好友关系 (Me -> Friend)
 		if err := txRepos.Contact.SoftDelete(userId, contactId, contact_type_enum.USER); err != nil {
-			zap.L().Error("Delete contact relation error", zap.Error(err))
+			zap.L().Error("Delete my contact relation error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		// Apply 删除失败只记录日志，不影响主流程
+		// 删除对方好友关系 (Friend -> Me)
+		if err := txRepos.Contact.SoftDelete(contactId, userId, contact_type_enum.USER); err != nil {
+			zap.L().Error("Delete their contact relation error", zap.Error(err))
+			return errorx.ErrServerBusy
+		}
+
+		// 双向删除申请记录（非关键，失败仅记录日志）
 		if err := txRepos.Apply.SoftDelete(userId, contactId); err != nil {
 			zap.L().Warn("Delete apply record error (non-critical)", zap.Error(err))
+		}
+		if err := txRepos.Apply.SoftDelete(contactId, userId); err != nil {
+			zap.L().Warn("Delete reverse apply record error (non-critical)", zap.Error(err))
 		}
 
 		return nil
@@ -310,9 +320,12 @@ func (u *contactService) DeleteContact(userId, contactId string) error {
 		return errorx.ErrServerBusy
 	}
 
+	// 4. 异步清理双方缓存
 	u.cache.SubmitTask(func() {
 		_ = u.cache.RemoveFromSet(context.Background(), "contact_relation:user:"+userId, contactId)
+		_ = u.cache.RemoveFromSet(context.Background(), "contact_relation:user:"+contactId, userId)
 		_ = u.cache.DeleteByPattern(context.Background(), "direct_session_list_"+userId)
+		_ = u.cache.DeleteByPattern(context.Background(), "direct_session_list_"+contactId)
 	})
 
 	return nil

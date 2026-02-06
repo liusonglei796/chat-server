@@ -39,21 +39,31 @@ func (r *messageRepository) FindByUserIds(userOneId, userTwoId string) ([]model.
 // userOneId, userTwoId: 两个用户的 UUID
 // page: 页码（从1开始）
 // pageSize: 每页数量
-// 返回: 消息列表和错误
-func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, page, pageSize int) ([]model.Message, error) {
+// 返回: 消息列表、总数和错误
+func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, page, pageSize int) ([]model.Message, int64, error) {
 	var messages []model.Message
+	var total int64
+
+	condition := "(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)"
+
+	// 统计总数
+	if err := r.db.Model(&model.Message{}).Where(condition,
+		userOneId, userTwoId, userTwoId, userOneId).Count(&total).Error; err != nil {
+		return nil, 0, errorx.WrapDBErrorf(err, "统计私聊消息数量 user1=%s user2=%s", userOneId, userTwoId)
+	}
+
 	// 计算偏移量
 	offset := (page - 1) * pageSize
 	// 使用 OR 条件查找双向消息，按时间倒序排列（最新的在前）
-	if err := r.db.Where("(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)",
+	if err := r.db.Where(condition,
 		userOneId, userTwoId, userTwoId, userOneId).
 		Order("created_at DESC").
 		Offset(offset).
 		Limit(pageSize).
 		Find(&messages).Error; err != nil {
-		return nil, errorx.WrapDBErrorf(err, "查询消息 user1=%s user2=%s", userOneId, userTwoId)
+		return nil, 0, errorx.WrapDBErrorf(err, "查询消息 user1=%s user2=%s", userOneId, userTwoId)
 	}
-	return messages, nil
+	return messages, total, nil
 }
 
 // FindByGroupIdPaged 根据群组ID分页查找群聊消息

@@ -209,23 +209,46 @@ func (s *sessionService) clearSessionCacheForUser(userId string) {
 
 // CheckOpenSessionAllowed 检查是否允许发起会话
 func (s *sessionService) CheckOpenSessionAllowed(sendId, receiveId string) (bool, error) {
-	// 1. 检查联系关系状态 (保持数据库查询，确保实时性)
-	contact, err := s.repos.Contact.FindByUserIdAndContactId(sendId, receiveId, contact_type_enum.USER)
-	if err != nil {
-		zap.L().Error("查询联系关系失败",
-			zap.String("send_id", sendId),
-			zap.String("receive_id", receiveId),
-			zap.Error(err),
-		)
-		return false, errorx.ErrServerBusy
-	}
-	if contact.Status == contact_status_enum.BE_BLACK {
-		return false, errorx.New(errorx.CodeInvalidParam, "已被对方拉黑，无法发起会话")
-	} else if contact.Status == contact_status_enum.BLACK {
-		return false, errorx.New(errorx.CodeInvalidParam, "已拉黑对方，先解除拉黑状态才能发起会话")
+	if len(receiveId) == 0 {
+		return false, errorx.New(errorx.CodeInvalidParam, "接收方ID不能为空")
 	}
 
-	// 2. 检查接收方(用户或群组)是否可用 (使用缓存优化)
+	// 根据接收方类型执行不同的校验逻辑
+	if receiveId[0] == 'U' {
+		// 用户会话：检查联系关系状态
+		contact, err := s.repos.Contact.FindByUserIdAndContactId(sendId, receiveId, contact_type_enum.USER)
+		if err != nil {
+			zap.L().Error("查询联系关系失败",
+				zap.String("send_id", sendId),
+				zap.String("receive_id", receiveId),
+				zap.Error(err),
+			)
+			return false, errorx.ErrServerBusy
+		}
+		if contact.Status == contact_status_enum.BE_BLACK {
+			return false, errorx.New(errorx.CodeInvalidParam, "已被对方拉黑，无法发起会话")
+		} else if contact.Status == contact_status_enum.BLACK {
+			return false, errorx.New(errorx.CodeInvalidParam, "已拉黑对方，先解除拉黑状态才能发起会话")
+		}
+	} else if receiveId[0] == 'G' {
+		// 群组会话：检查群成员身份
+		_, err := s.repos.GroupMember.FindByGroupAndUser(receiveId, sendId)
+		if err != nil {
+			if errorx.IsNotFound(err) {
+				return false, errorx.New(errorx.CodeForbidden, "你不是该群成员，无法发起会话")
+			}
+			zap.L().Error("查询群成员关系失败",
+				zap.String("send_id", sendId),
+				zap.String("receive_id", receiveId),
+				zap.Error(err),
+			)
+			return false, errorx.ErrServerBusy
+		}
+	} else {
+		return false, errorx.New(errorx.CodeInvalidParam, "无效的接收方ID格式")
+	}
+
+	// 检查接收方(用户或群组)是否可用 (使用缓存优化)
 	if err := s.checkTargetStatusWithCache(receiveId); err != nil {
 		zap.L().Warn("接收方状态不可用",
 			zap.String("send_id", sendId),
@@ -353,7 +376,7 @@ func (s *sessionService) OpenSession(sendId string, req sessionreq.OpenSessionRe
 	return session.Uuid, nil
 }
 
-// GetUserSessionList 获取用户会话列表（分页）
+// GetUserSessionList 获取用户单聊会话列表（分页）
 func (s *sessionService) GetUserSessionList(ownerId string, page, pageSize int) ([]sessionrsp.UserSessionListRespond, int64, error) {
 	// 设置默认分页参数
 	if page < 1 {
@@ -363,8 +386,8 @@ func (s *sessionService) GetUserSessionList(ownerId string, page, pageSize int) 
 		pageSize = 20
 	}
 
-	// 直接查库（分页场景不利用缓存，因为缓存 key 需要包含分页参数）
-	sessionList, total, err := s.repos.Session.FindBySendIdPaged(ownerId, page, pageSize)
+	// 直接在数据库层按类型过滤，确保 total 准确
+	sessionList, total, err := s.repos.Session.FindBySendIdAndTypePaged(ownerId, "U", page, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -372,23 +395,20 @@ func (s *sessionService) GetUserSessionList(ownerId string, page, pageSize int) 
 
 	sessionListRsp := make([]sessionrsp.UserSessionListRespond, 0, len(sessionList))
 	for i := 0; i < len(sessionList); i++ {
-		// 只筛选私聊会话（接收者以 'U' 开头）
-		if len(sessionList[i].ReceiveId) > 0 && sessionList[i].ReceiveId[0] == 'U' {
-			var lastMessageTime string
-			if sessionList[i].LastMessageAt.Valid {
-				lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
-			}
-
-			sessionListRsp = append(sessionListRsp, sessionrsp.UserSessionListRespond{
-				SessionId:       sessionList[i].Uuid,
-				Avatar:          sessionList[i].Avatar,
-				UserId:          sessionList[i].ReceiveId,
-				Username:        sessionList[i].ReceiveName,
-				LastMessage:     sessionList[i].LastMessage,
-				LastMessageTime: lastMessageTime,
-				LastMessageType: sessionList[i].LastMessageType,
-			})
+		var lastMessageTime string
+		if sessionList[i].LastMessageAt.Valid {
+			lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
 		}
+
+		sessionListRsp = append(sessionListRsp, sessionrsp.UserSessionListRespond{
+			SessionId:       sessionList[i].Uuid,
+			Avatar:          sessionList[i].Avatar,
+			UserId:          sessionList[i].ReceiveId,
+			Username:        sessionList[i].ReceiveName,
+			LastMessage:     sessionList[i].LastMessage,
+			LastMessageTime: lastMessageTime,
+			LastMessageType: sessionList[i].LastMessageType,
+		})
 	}
 
 	return sessionListRsp, total, nil
@@ -404,8 +424,8 @@ func (s *sessionService) GetGroupSessionList(ownerId string, page, pageSize int)
 		pageSize = 20
 	}
 
-	// 直接查库（分页场景不利用缓存）
-	sessionList, total, err := s.repos.Session.FindBySendIdPaged(ownerId, page, pageSize)
+	// 直接在数据库层按类型过滤，确保 total 准确
+	sessionList, total, err := s.repos.Session.FindBySendIdAndTypePaged(ownerId, "G", page, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -413,23 +433,20 @@ func (s *sessionService) GetGroupSessionList(ownerId string, page, pageSize int)
 
 	sessionListRsp := make([]sessionrsp.GroupSessionListRespond, 0, len(sessionList))
 	for i := 0; i < len(sessionList); i++ {
-		// 只筛选群聊会话（接收者以 'G' 开头）
-		if len(sessionList[i].ReceiveId) > 0 && sessionList[i].ReceiveId[0] == 'G' {
-			var lastMessageTime string
-			if sessionList[i].LastMessageAt.Valid {
-				lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
-			}
-
-			sessionListRsp = append(sessionListRsp, sessionrsp.GroupSessionListRespond{
-				SessionId:       sessionList[i].Uuid,
-				Avatar:          sessionList[i].Avatar,
-				GroupId:         sessionList[i].ReceiveId,
-				GroupName:       sessionList[i].ReceiveName,
-				LastMessage:     sessionList[i].LastMessage,
-				LastMessageTime: lastMessageTime,
-				LastMessageType: sessionList[i].LastMessageType,
-			})
+		var lastMessageTime string
+		if sessionList[i].LastMessageAt.Valid {
+			lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
 		}
+
+		sessionListRsp = append(sessionListRsp, sessionrsp.GroupSessionListRespond{
+			SessionId:       sessionList[i].Uuid,
+			Avatar:          sessionList[i].Avatar,
+			GroupId:         sessionList[i].ReceiveId,
+			GroupName:       sessionList[i].ReceiveName,
+			LastMessage:     sessionList[i].LastMessage,
+			LastMessageTime: lastMessageTime,
+			LastMessageType: sessionList[i].LastMessageType,
+		})
 	}
 
 	return sessionListRsp, total, nil
@@ -437,21 +454,17 @@ func (s *sessionService) GetGroupSessionList(ownerId string, page, pageSize int)
 
 // DeleteSession 删除会话
 func (s *sessionService) DeleteSession(ownerId, sessionId string) error {
-	// 1. 权限校验: 遍历用户的会话列表，确认 sessionId 属于 ownerId
-	sessions, err := s.repos.Session.FindBySendId(ownerId)
+	// 1. 权限校验: 直接按 UUID 查询会话，验证归属关系
+	session, err := s.repos.Session.FindByUuid(sessionId)
 	if err != nil {
-		zap.L().Error("Find user sessions error", zap.Error(err))
+		if errorx.IsNotFound(err) {
+			return errorx.New(errorx.CodeNotFound, "会话不存在")
+		}
+		zap.L().Error("查询会话失败", zap.String("session_id", sessionId), zap.Error(err))
 		return errorx.ErrServerBusy
 	}
-	isOwner := false
-	for _, sess := range sessions {
-		if sess.Uuid == sessionId {
-			isOwner = true
-			break
-		}
-	}
-	if !isOwner {
-		return errorx.New(errorx.CodeForbidden, "无权删除该会话或会话不存在")
+	if session.SendId != ownerId {
+		return errorx.New(errorx.CodeForbidden, "无权删除该会话")
 	}
 
 	// 2. 软删除会话

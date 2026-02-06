@@ -67,6 +67,16 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
+		// 异步清除用户信息缓存，确保状态变更即时生效
+		s.cache.SubmitTask(func() {
+			var patterns []string
+			for _, uuid := range req.UserUUIDs {
+				patterns = append(patterns, "user_info_"+uuid)
+			}
+			if err := s.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
+				zap.L().Error("批量清除用户缓存失败", zap.Error(err))
+			}
+		})
 
 	case "disable":
 		

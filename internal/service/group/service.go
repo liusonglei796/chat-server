@@ -312,13 +312,18 @@ func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
 // LeaveGroup 退群
 func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 	// 校验是否是群成员
-	_, err := g.repos.GroupMember.FindByGroupAndUser(groupId, userId)
+	member, err := g.repos.GroupMember.FindByGroupAndUser(groupId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
 		}
 		zap.L().Error("Check group membership error", zap.Error(err))
 		return errorx.ErrServerBusy
+	}
+
+	// 群主不能直接退群，必须先转让群主或解散群聊
+	if member.Role == 3 {
+		return errorx.New(errorx.CodeInvalidParam, "群主不能退群，请先转让群主或解散群聊")
 	}
 
 	err = g.repos.Transaction(func(txRepos *mysql.Repositories) error {

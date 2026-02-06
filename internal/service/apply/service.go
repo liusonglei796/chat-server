@@ -52,6 +52,11 @@ func (u *applyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 		return errorx.New(errorx.CodeInvalidParam, "好友ID不能为空")
 	}
 
+	// 校验不能添加自己为好友
+	if userId == req.FriendId {
+		return errorx.New(errorx.CodeInvalidParam, "不能添加自己为好友")
+	}
+
 	// 2. 检查目标用户是否存在
 	// 调用用户仓库查找目标用户信息，防止向不存在的用户发送申请
 	user, err := u.repos.User.FindByUuid(req.FriendId)
@@ -495,6 +500,11 @@ func (u *applyService) PassFriendApply(userId string, applicantId string) error 
 		return errorx.ErrServerBusy
 	}
 
+	// 1.1 校验申请状态：仅允许处理待审核的申请
+	if apply.Status != contact_apply_status_enum.PENDING {
+		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+	}
+
 	// 2. 开启事务
 	// 建立好友关系涉及多张表的更新（更新申请状态、双方各创建一条联系记录）
 	// 使用事务保证操作的原子性，要么全部成功，要么全部回滚
@@ -591,6 +601,11 @@ func (u *applyService) PassGroupApply(operatorId, groupId, applicantId string) e
 		return errorx.ErrServerBusy
 	}
 
+	// 2.1 校验申请状态：仅允许处理待审核的申请
+	if apply.Status != contact_apply_status_enum.PENDING {
+		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+	}
+
 	// 3. 开启事务
 	// 保证入群操作（更新申请、添加成员、增加计数、添加联系）的原子性
 	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
@@ -675,6 +690,10 @@ func (u *applyService) RefuseFriendApply(userId string, applicantId string) erro
 		zap.L().Error("Find friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
+	// 1.1 校验申请状态：仅允许处理待审核的申请
+	if apply.Status != contact_apply_status_enum.PENDING {
+		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+	}
 	// 2. 更新状态为 REFUSE
 	apply.Status = contact_apply_status_enum.REFUSE
 	if err := u.repos.Apply.Update(apply); err != nil {
@@ -712,6 +731,11 @@ func (u *applyService) RefuseGroupApply(operatorId, groupId, applicantId string)
 		return errorx.ErrServerBusy
 	}
 
+	// 2.1 校验申请状态：仅允许处理待审核的申请
+	if apply.Status != contact_apply_status_enum.PENDING {
+		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+	}
+
 	// 3. 更新状态为 REFUSE
 	apply.Status = contact_apply_status_enum.REFUSE
 	if err := u.repos.Apply.Update(apply); err != nil {
@@ -733,6 +757,11 @@ func (u *applyService) BlackFriendApply(userId string, applicantId string) error
 		}
 		zap.L().Error("Find friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
+	}
+
+	// 1.1 校验申请状态：仅允许对待审核的申请执行拉黑
+	if apply.Status != contact_apply_status_enum.PENDING {
+		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
 	// 2. 更新状态为 BLACK
@@ -772,6 +801,11 @@ func (u *applyService) BlackGroupApply(operatorId, groupId, applicantId string) 
 		}
 		zap.L().Error("Find group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
+	}
+
+	// 2.1 校验申请状态：仅允许对待审核的申请执行拉黑
+	if apply.Status != contact_apply_status_enum.PENDING {
+		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
 	// 3. 更新状态为 BLACK

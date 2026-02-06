@@ -65,11 +65,6 @@ func (u *userInfoService) checkEmailValid(email string) bool {
 	return match
 }
 
-// checkUserIsAdminOrNot 检验用户是否为管理员
-func (u *userInfoService) checkUserIsAdminOrNot(user model.UserInfo) int8 {
-	return user.IsAdmin
-}
-
 // Login 登录
 func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespond, error) {
 	password := loginReq.Password
@@ -84,6 +79,11 @@ func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespo
 	}
 	if !user.CheckPassword(password) {
 		return nil, errorx.New(errorx.CodeInvalidPassword, "密码不正确，请重试")
+	}
+
+	// 检查用户状态是否被禁用
+	if user.Status == user_status_enum.DISABLE {
+		return nil, errorx.New(errorx.CodeForbidden, "该账号已被禁用，请联系管理员")
 	}
 
 	// 踢掉旧设备（如果在线）
@@ -154,6 +154,11 @@ func (u *userInfoService) SmsLogin(req auth.SmsLoginRequest) (*userrsp.LoginResp
 	if err := u.cache.Delete(context.Background(), key); err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
+	}
+
+	// 检查用户状态是否被禁用
+	if user.Status == user_status_enum.DISABLE {
+		return nil, errorx.New(errorx.CodeForbidden, "该账号已被禁用，请联系管理员")
 	}
 
 	// 踢掉旧设备（如果在线）
@@ -248,7 +253,7 @@ func (u *userInfoService) Register(registerReq auth.RegisterRequest) (*userrsp.R
 	newUser.Nickname = registerReq.Nickname
 	newUser.Avatar = "https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"
 	newUser.CreatedAt = time.Now()
-	newUser.IsAdmin = u.checkUserIsAdminOrNot(newUser)
+	newUser.IsAdmin = 0 // 新注册用户默认非管理员
 	newUser.Status = user_status_enum.NORMAL
 
 	err = u.repos.User.CreateUser(&newUser)
@@ -277,6 +282,7 @@ func (u *userInfoService) Register(registerReq auth.RegisterRequest) (*userrsp.R
 
 // UpdateUserInfo 修改用户信息
 // UpdateUserInfo 修改用户信息 (userId 从 JWT 获取，只能改自己)
+// 使用指针类型区分"未传字段"(nil=不更新)和"清空字段"(""=置空)
 func (u *userInfoService) UpdateUserInfo(userId string, updateReq userreq.UpdateUserInfoRequest) error {
 	user, err := u.repos.User.FindByUuid(userId)
 	if err != nil {
@@ -286,20 +292,20 @@ func (u *userInfoService) UpdateUserInfo(userId string, updateReq userreq.Update
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
-	if updateReq.Email != "" {
-		user.Email = updateReq.Email
+	if updateReq.Email != nil {
+		user.Email = *updateReq.Email
 	}
-	if updateReq.Nickname != "" {
-		user.Nickname = updateReq.Nickname
+	if updateReq.Nickname != nil {
+		user.Nickname = *updateReq.Nickname
 	}
-	if updateReq.Birthday != "" {
-		user.Birthday = updateReq.Birthday
+	if updateReq.Birthday != nil {
+		user.Birthday = *updateReq.Birthday
 	}
-	if updateReq.Signature != "" {
-		user.Signature = updateReq.Signature
+	if updateReq.Signature != nil {
+		user.Signature = *updateReq.Signature
 	}
-	if updateReq.Avatar != "" {
-		user.Avatar = updateReq.Avatar
+	if updateReq.Avatar != nil {
+		user.Avatar = *updateReq.Avatar
 	}
 	if err := u.repos.User.UpdateUserInfo(user); err != nil {
 		zap.L().Error("service error", zap.Error(err))

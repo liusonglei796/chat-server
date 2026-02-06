@@ -20,6 +20,15 @@ func NewSessionRepository(db *gorm.DB) *sessionRepository {
 	return &sessionRepository{db: db}
 }
 
+// FindByUuid 根据会话UUID查找会话
+func (r *sessionRepository) FindByUuid(uuid string) (*model.Session, error) {
+	var session model.Session
+	if err := r.db.Where("uuid = ?", uuid).First(&session).Error; err != nil {
+		return nil, errorx.WrapDBErrorf(err, "查询会话 uuid=%s", uuid)
+	}
+	return &session, nil
+}
+
 // FindBySendIdAndReceiveId 根据发送者和接收者查找会话
 // 用于查找两个实体之间是否已存在会话
 func (r *sessionRepository) FindBySendIdAndReceiveId(sendId, receiveId string) (*model.Session, error) {
@@ -61,6 +70,31 @@ func (r *sessionRepository) FindBySendIdPaged(sendId string, page, pageSize int)
 		Limit(pageSize).
 		Find(&sessions).Error; err != nil {
 		return nil, 0, errorx.WrapDBErrorf(err, "分页查询会话 send_id=%s", sendId)
+	}
+	return sessions, total, nil
+}
+
+// FindBySendIdAndTypePaged 根据发送者ID和接收者类型前缀分页查找会话
+// receiveIdPrefix: "U" 表示私聊会话，"G" 表示群聊会话
+func (r *sessionRepository) FindBySendIdAndTypePaged(sendId string, receiveIdPrefix string, page, pageSize int) ([]model.Session, int64, error) {
+	var sessions []model.Session
+	var total int64
+
+	condition := r.db.Model(&model.Session{}).Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%")
+
+	// 统计总数
+	if err := condition.Count(&total).Error; err != nil {
+		return nil, 0, errorx.WrapDBErrorf(err, "统计会话数量 send_id=%s type=%s", sendId, receiveIdPrefix)
+	}
+
+	// 分页查询
+	offset := (page - 1) * pageSize
+	if err := r.db.Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%").
+		Order("last_message_at DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&sessions).Error; err != nil {
+		return nil, 0, errorx.WrapDBErrorf(err, "分页查询会话 send_id=%s type=%s", sendId, receiveIdPrefix)
 	}
 	return sessions, total, nil
 }

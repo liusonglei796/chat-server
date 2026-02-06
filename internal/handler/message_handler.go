@@ -48,12 +48,17 @@ func (h *MessageHandler) GetMessageList(c *gin.Context) {
 		req.PageSize = 20
 	}
 
-	data, err := h.messageSvc.GetMessageList(userId.(string), req.PartnerId, req.Page, req.PageSize)
+	data, total, err := h.messageSvc.GetMessageList(userId.(string), req.PartnerId, req.Page, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, data)
+	HandleSuccess(c, map[string]interface{}{
+		"list":      data,
+		"total":     total,
+		"page":      req.Page,
+		"page_size": req.PageSize,
+	})
 }
 
 // GetGroupMessageList 获取群聊消息记录

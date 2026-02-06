@@ -150,13 +150,35 @@ func NewClientInit(c *gin.Context, clientId string, broker MessageBroker) {
 func ClientLogout(clientId string, broker MessageBroker) error {
 	client := broker.GetClient(clientId)
 	if client != nil {
+		// 1. 先从管理表中注销，防止新消息写入 SendBack
 		broker.UnregisterClient(client)
+
+		// 2. 关闭 SendBack 通道，让 Write goroutine 优雅退出
+		//    使用 recover 防止重复关闭 panic
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					zap.L().Warn("SendBack channel already closed", zap.Any("recover", r))
+				}
+			}()
+			close(client.SendBack)
+		}()
+
+		// 3. 关闭 SendTo 通道
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					zap.L().Warn("SendTo channel already closed", zap.Any("recover", r))
+				}
+			}()
+			close(client.SendTo)
+		}()
+
+		// 4. 最后关闭 WebSocket 连接，让 Read goroutine 退出
 		if err := client.Conn.Close(); err != nil {
-			zap.L().Error("service error", zap.Error(err))
+			zap.L().Error("关闭 WebSocket 连接失败", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
-		close(client.SendTo)
-		close(client.SendBack)
 	}
 	return nil
 }

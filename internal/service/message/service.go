@@ -36,19 +36,37 @@ func NewMessageService(repos *mysql.Repositories, cacheService myredis.AsyncCach
 }
 
 // GetMessageList 获取聊天记录（分页）
-func (m *messageService) GetMessageList(requesterId, partnerId string, page, pageSize int) ([]messagersp.GetMessageListRespond, error) {
+func (m *messageService) GetMessageList(requesterId, partnerId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error) {
+	// 参数校验
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	// 权限校验: 必须是好友关系才能查看聊天记录
+	isFriend, err := m.repos.Contact.IsFriend(requesterId, partnerId)
+	if err != nil {
+		zap.L().Error("check friend relationship error", zap.Error(err))
+		return nil, 0, errorx.ErrServerBusy
+	}
+	if !isFriend {
+		return nil, 0, errorx.New(errorx.CodeForbidden, "你们不是好友，无法查看聊天记录")
+	}
+
 	userOneId := requesterId
 
-	// 确保 ID 顺序一致，保证缓存 Key 唯一
+	// 确保 ID 顺序一致，保证查询结果稳定
 	if userOneId > partnerId {
 		userOneId, partnerId = partnerId, userOneId
 	}
 
 	// 查数据库（带分页）
-	messageList, err := m.repos.Message.FindByUserIdsPaged(userOneId, partnerId, page, pageSize)
+	messageList, total, err := m.repos.Message.FindByUserIdsPaged(userOneId, partnerId, page, pageSize)
 	if err != nil {
 		zap.L().Error("find messages by user ids error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, 0, errorx.ErrServerBusy
 	}
 
 	rspList := make([]messagersp.GetMessageListRespond, 0, len(messageList))
@@ -68,7 +86,7 @@ func (m *messageService) GetMessageList(requesterId, partnerId string, page, pag
 		})
 	}
 
-	return rspList, nil
+	return rspList, total, nil
 }
 
 // GetGroupMessageList 获取群聊消息记录（分页）
