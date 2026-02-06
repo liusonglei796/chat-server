@@ -1,15 +1,16 @@
 package group
 
-// PublicGroupInfoRespond 公开群组信息响应（非群成员查询时返回）
+// PublicGroupInfoRespond 公开群组信息响应
 // 使用位置:
-//   - internal/service/group/service.go: GetPublicGroupInfo
+//   - internal/service/group/service.go: GetGroupDetail
 //
-// 不包含敏感字段: status, is_deleted
+// 返回群组的基本公开信息
 type PublicGroupInfoRespond struct {
-	Uuid      string `json:"uuid"`
-	Name      string `json:"name"`
-	Notice    string `json:"notice"`
-	Avatar    string `json:"avatar"`
-	MemberCnt int    `json:"member_cnt"`
-	AddMode   int8   `json:"add_mode"`
+	GroupId     string `json:"group_id"`
+	GroupName   string `json:"group_name"`
+	GroupAvatar string `json:"group_avatar"`
+	GroupNotice string `json:"group_notice"`
+	MemberCnt   int    `json:"member_cnt"`
+	OwnerId     string `json:"owner_id"`
+	AddMode     int8   `json:"add_mode"`
 }

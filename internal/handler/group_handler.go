@@ -240,3 +240,28 @@ func (h *GroupHandler) RemoveGroupMembers(c *gin.Context) {
 	}
 	HandleSuccess(c, nil)
 }
+
+// GetGroupDetail 获取群聊详细信息
+// GET /groups/detail?group_id=xxx
+// 查询参数: group.GetGroupInfoRequest
+// 响应: grouprsp.PublicGroupInfoRespond
+// 安全: 从JWT上下文获取当前用户ID，Service层校验群成员身份
+func (h *GroupHandler) GetGroupDetail(c *gin.Context) {
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
+	var req group.GetGroupInfoRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+	data, err := h.groupSvc.GetGroupDetail(userId.(string), req.GroupId)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, data)
+}

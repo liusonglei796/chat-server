@@ -9,7 +9,8 @@ import (
 	myredis "kama_chat_server/internal/dao/redis"
 	adminreq "kama_chat_server/internal/dto/request/admin"
 	adminrsp "kama_chat_server/internal/dto/respond/admin"
-	"kama_chat_server/pkg/enum/user_info/user_status_enum"
+	"kama_chat_server/pkg/constants"
+	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
 )
 
@@ -63,7 +64,7 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 
 	switch req.Action {
 	case "enable":
-		if err := s.repos.User.UpdateUserStatusByUuids(req.UserUUIDs, user_status_enum.NORMAL); err != nil {
+		if err := s.repos.User.UpdateUserStatusByUuids(req.UserUUIDs, user_status.NORMAL); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -71,7 +72,7 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 		s.cache.SubmitTask(func() {
 			var patterns []string
 			for _, uuid := range req.UserUUIDs {
-				patterns = append(patterns, "user_info_"+uuid)
+				patterns = append(patterns, constants.CacheKeyUserInfo+uuid)
 			}
 			if err := s.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
 				zap.L().Error("批量清除用户缓存失败", zap.Error(err))
@@ -81,7 +82,7 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 	case "disable":
 		
 		err := s.repos.Transaction(func(txRepos *mysql.Repositories) error {
-			if err := txRepos.User.UpdateUserStatusByUuids(req.UserUUIDs, user_status_enum.DISABLE); err != nil {
+			if err := txRepos.User.UpdateUserStatusByUuids(req.UserUUIDs, user_status.DISABLE); err != nil {
 				zap.L().Error("Batch disable users error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
@@ -100,9 +101,9 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 			var patterns []string
 			for _, uuid := range req.UserUUIDs {
 				patterns = append(patterns,
-					"user_info_"+uuid,
-					"direct_session_list_"+uuid+"*",
-					"group_session_list_"+uuid+"*",
+					constants.CacheKeyUserInfo+uuid,
+					constants.CacheKeySessionDirect+uuid+"*",
+					constants.CacheKeySessionGroup+uuid+"*",
 				)
 			}
 			if err := s.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
@@ -121,8 +122,8 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 				zap.L().Error("Batch delete sessions error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
-			if err := txRepos.Contact.SoftDeleteByUsers(req.UserUUIDs); err != nil {
-				zap.L().Error("Batch delete contacts error", zap.Error(err))
+			if err := txRepos.Friendship.SoftDeleteByUsers(req.UserUUIDs); err != nil {
+				zap.L().Error("Batch delete friendships error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
 			if err := txRepos.Apply.SoftDeleteByUsers(req.UserUUIDs); err != nil {
@@ -140,10 +141,10 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 			var patterns []string
 			for _, uuid := range req.UserUUIDs {
 				patterns = append(patterns,
-					"user_info_"+uuid,
-					"direct_session_list_"+uuid+"*",
-					"group_session_list_"+uuid+"*",
-					"contact_relation:user:"+uuid+"*",
+					constants.CacheKeyUserInfo+uuid,
+					constants.CacheKeySessionDirect+uuid+"*",
+					constants.CacheKeySessionGroup+uuid+"*",
+					constants.CacheKeyFriendRelUser+uuid+"*",
 				)
 			}
 			if err := s.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
@@ -174,7 +175,7 @@ func (s *userAdminService) SetAdmin(userUUIDs []string, isAdmin int8) error {
 	s.cache.SubmitTask(func() {
 		var patterns []string
 		for _, uuid := range userUUIDs {
-			patterns = append(patterns, "user_info_"+uuid)
+			patterns = append(patterns, constants.CacheKeyUserInfo+uuid)
 		}
 		if err := s.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
 			zap.L().Error("批量清除用户缓存失败", zap.Error(err))
