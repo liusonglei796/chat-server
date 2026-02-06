@@ -17,7 +17,7 @@ import (
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
-	"kama_chat_server/pkg/enum/user_info/user_status_enum"
+	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
 	cacheutil "kama_chat_server/pkg/util/cache"
 	"kama_chat_server/pkg/util/jwt"
@@ -65,33 +65,20 @@ func (u *userInfoService) checkEmailValid(email string) bool {
 	return match
 }
 
-// Login 登录
-func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespond, error) {
-	password := loginReq.Password
-	var user *model.UserInfo
-	user, err := u.repos.User.FindByTelephone(loginReq.Telephone)
-	if err != nil {
-		if errorx.GetCode(err) == errorx.CodeNotFound {
-			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在，请注册")
-		}
-		zap.L().Error("service error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
-	if !user.CheckPassword(password) {
-		return nil, errorx.New(errorx.CodeInvalidPassword, "密码不正确，请重试")
-	}
-
-	// 检查用户状态是否被禁用
-	if user.Status == user_status_enum.DISABLE {
+// buildLoginResponse 构建登录/短信登录的公共响应
+// 包含：状态检查 → 踢旧设备 → 生成双 Token → 存 Redis → 构建响应
+func (u *userInfoService) buildLoginResponse(user *model.UserInfo) (*userrsp.LoginRespond, error) {
+	// 1. 检查用户状态
+	if user.Status == user_status.DISABLE {
 		return nil, errorx.New(errorx.CodeForbidden, "该账号已被禁用，请联系管理员")
 	}
 
-	// 踢掉旧设备（如果在线）
+	// 2. 踢掉旧设备（如果在线）
 	if u.kickClient != nil {
 		u.kickClient(user.Uuid, "您的账号已在其他设备登录")
 	}
 
-	// 生成双 Token (传入 isAdmin 用于 JWT Claims)
+	// 3. 生成双 Token (传入 isAdmin 用于 JWT Claims)
 	accessToken, err := jwt.GenerateAccessToken(user.Uuid, user.IsAdmin == 1)
 	if err != nil {
 		zap.L().Error("生成 Access Token 失败", zap.Error(err))
@@ -104,13 +91,14 @@ func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespo
 		return nil, errorx.ErrServerBusy
 	}
 
-	// 将 Refresh Token ID 存入缓存，实现单点互踢
-	redisKey := "user_token:" + user.Uuid
+	// 4. 将 Refresh Token ID 存入缓存，实现单点互踢
+	redisKey := constants.CacheKeyUserToken + user.Uuid
 	if err := u.cache.Set(context.Background(), redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
 		zap.L().Error("存储 Token ID 到缓存失败", zap.Error(err))
 		// 不阻塞登录流程，仅记录日志
 	}
 
+	// 5. 构建响应
 	loginRsp := &userrsp.LoginRespond{
 		Uuid:         user.Uuid,
 		Telephone:    user.Telephone,
@@ -131,6 +119,23 @@ func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespo
 	return loginRsp, nil
 }
 
+// Login 登录
+func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespond, error) {
+	user, err := u.repos.User.FindByTelephone(loginReq.Telephone)
+	if err != nil {
+		if errorx.GetCode(err) == errorx.CodeNotFound {
+			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在，请注册")
+		}
+		zap.L().Error("service error", zap.Error(err))
+		return nil, errorx.ErrServerBusy
+	}
+	if !user.CheckPassword(loginReq.Password) {
+		return nil, errorx.New(errorx.CodeInvalidPassword, "密码不正确，请重试")
+	}
+
+	return u.buildLoginResponse(user)
+}
+
 // SmsLogin 验证码登录
 func (u *userInfoService) SmsLogin(req auth.SmsLoginRequest) (*userrsp.LoginRespond, error) {
 	user, err := u.repos.User.FindByTelephone(req.Telephone)
@@ -142,7 +147,8 @@ func (u *userInfoService) SmsLogin(req auth.SmsLoginRequest) (*userrsp.LoginResp
 		return nil, errorx.ErrServerBusy
 	}
 
-	key := "auth_code_" + req.Telephone
+	// 校验短信验证码
+	key := constants.CacheKeyAuthCode + req.Telephone
 	code, err := u.cache.Get(context.Background(), key)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
@@ -156,53 +162,7 @@ func (u *userInfoService) SmsLogin(req auth.SmsLoginRequest) (*userrsp.LoginResp
 		return nil, errorx.ErrServerBusy
 	}
 
-	// 检查用户状态是否被禁用
-	if user.Status == user_status_enum.DISABLE {
-		return nil, errorx.New(errorx.CodeForbidden, "该账号已被禁用，请联系管理员")
-	}
-
-	// 踢掉旧设备（如果在线）
-	if u.kickClient != nil {
-		u.kickClient(user.Uuid, "您的账号已在其他设备登录")
-	}
-
-	// 生成双 Token (传入 isAdmin 用于 JWT Claims)
-	accessToken, err := jwt.GenerateAccessToken(user.Uuid, user.IsAdmin == 1)
-	if err != nil {
-		zap.L().Error("生成 Access Token 失败", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
-
-	refreshToken, tokenID, err := jwt.GenerateRefreshToken(user.Uuid)
-	if err != nil {
-		zap.L().Error("生成 Refresh Token 失败", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
-
-	// 将 Refresh Token ID 存入缓存，实现单点互踢
-	redisKey := "user_token:" + user.Uuid
-	if err := u.cache.Set(context.Background(), redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
-		zap.L().Error("存储 Token ID 到缓存失败", zap.Error(err))
-	}
-
-	loginRsp := &userrsp.LoginRespond{
-		Uuid:         user.Uuid,
-		Telephone:    user.Telephone,
-		Nickname:     user.Nickname,
-		Email:        user.Email,
-		Avatar:       user.Avatar,
-		Gender:       user.Gender,
-		Birthday:     user.Birthday,
-		Signature:    user.Signature,
-		IsAdmin:      user.IsAdmin,
-		Status:       user.Status,
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-	}
-	year, month, day := user.CreatedAt.Date()
-	loginRsp.CreatedAt = fmt.Sprintf("%d.%d.%d", year, month, day)
-
-	return loginRsp, nil
+	return u.buildLoginResponse(user)
 }
 
 // SendSmsCode 发送短信验证码 - 验证码登录
@@ -227,7 +187,7 @@ func (u *userInfoService) checkTelephoneExist(telephone string) error {
 
 // Register 注册
 func (u *userInfoService) Register(registerReq auth.RegisterRequest) (*userrsp.RegisterRespond, error) {
-	key := "auth_code_" + registerReq.Telephone
+	key := constants.CacheKeyAuthCode + registerReq.Telephone
 	code, err := u.cache.Get(context.Background(), key)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
@@ -254,7 +214,7 @@ func (u *userInfoService) Register(registerReq auth.RegisterRequest) (*userrsp.R
 	newUser.Avatar = "https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"
 	newUser.CreatedAt = time.Now()
 	newUser.IsAdmin = 0 // 新注册用户默认非管理员
-	newUser.Status = user_status_enum.NORMAL
+	newUser.Status = user_status.NORMAL
 
 	err = u.repos.User.CreateUser(&newUser)
 	if err != nil {
@@ -312,15 +272,30 @@ func (u *userInfoService) UpdateUserInfo(userId string, updateReq userreq.Update
 		return errorx.ErrServerBusy
 	}
 
-	// 异步清理缓存
-	u.cache.SubmitTask(func() {
-		// 清理完整用户信息缓存
-		if err := u.cache.Delete(context.Background(), "user_info_"+userId); err != nil {
-			zap.L().Error("service error", zap.Error(err))
+	// 同步更新 Session 表冗余字段（昵称/头像变更时保持一致性）
+	sessionUpdates := make(map[string]interface{})
+	if updateReq.Nickname != nil {
+		sessionUpdates["receive_name"] = *updateReq.Nickname
+	}
+	if updateReq.Avatar != nil {
+		sessionUpdates["avatar"] = *updateReq.Avatar
+	}
+	if len(sessionUpdates) > 0 {
+		if err := u.repos.Session.UpdateByReceiveId(userId, sessionUpdates); err != nil {
+			zap.L().Error("同步 Session 冗余字段失败", zap.String("userId", userId), zap.Error(err))
+			// 不阻塞主流程，仅记录日志
 		}
-		// 清理公开用户信息缓存（其他用户查看时使用）
-		if err := u.cache.Delete(context.Background(), "public_user_info_"+userId); err != nil {
-			zap.L().Error("service error", zap.Error(err))
+	}
+
+	// 异步清理缓存（含空值标记，防止空值缓存残留导致数据不一致）
+	u.cache.SubmitTask(func() {
+		// 清理完整用户信息缓存 + 空值标记
+		if err := u.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyUserInfo+userId); err != nil {
+			zap.L().Error("清理用户信息缓存失败", zap.Error(err))
+		}
+		// 清理公开用户信息缓存 + 空值标记
+		if err := u.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyUserPublicInfo+userId); err != nil {
+			zap.L().Error("清理公开用户信息缓存失败", zap.Error(err))
 		}
 	})
 
@@ -335,7 +310,7 @@ func (u *userInfoService) GetUserInfo(requesterId, targetId string) (*userrsp.Ge
 		return nil, errorx.New(errorx.CodeForbidden, "无权查看他人详细信息")
 	}
 
-	key := "user_info_" + targetId
+	key := constants.CacheKeyUserInfo + targetId
 	var rsp userrsp.GetUserInfoRespond
 
 	err := u.cacheHelper.GetOrLoad(
@@ -376,7 +351,7 @@ func (u *userInfoService) GetUserInfo(requesterId, targetId string) (*userrsp.Ge
 // GetPublicUserInfo 获取用户公开信息（查看他人）
 // 使用 Cache-Aside 模式 + singleflight 防止缓存击穿
 func (u *userInfoService) GetPublicUserInfo(targetId string) (*userrsp.PublicUserInfoRespond, error) {
-	key := "public_user_info_" + targetId
+	key := constants.CacheKeyUserPublicInfo + targetId
 	var rsp userrsp.PublicUserInfoRespond
 
 	err := u.cacheHelper.GetOrLoad(

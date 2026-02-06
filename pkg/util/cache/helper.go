@@ -115,6 +115,8 @@ func (h *Helper) GetOrLoad(
 }
 
 // InvalidateWithNull 删除缓存并清除空值标记
+// 当数据发生变更时，必须同时清除数据缓存和空值标记，
+// 否则空值标记残留会导致已存在的数据仍被当作"不存在"返回
 func (h *Helper) InvalidateWithNull(ctx context.Context, key string) error {
 	nullKey := key + ":null"
 	if err := h.cache.Delete(ctx, key); err != nil {

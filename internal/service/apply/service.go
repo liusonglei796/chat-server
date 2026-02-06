@@ -13,13 +13,15 @@ import (
 	applyrsp "kama_chat_server/internal/dto/respond/apply"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
-	"kama_chat_server/pkg/enum/contact/contact_status_enum"
-	"kama_chat_server/pkg/enum/contact/contact_type_enum"
-	"kama_chat_server/pkg/enum/contact_apply/contact_apply_status_enum"
-	"kama_chat_server/pkg/enum/group_info/add_mode_enum"
-	"kama_chat_server/pkg/enum/group_info/group_status_enum"
-	"kama_chat_server/pkg/enum/user_info/user_status_enum"
+	"kama_chat_server/pkg/enum/apply/apply_status"
+	"kama_chat_server/pkg/enum/apply/apply_type"
+	"kama_chat_server/pkg/enum/friendship/friendship_status"
+	"kama_chat_server/pkg/enum/group/add_mode"
+	"kama_chat_server/pkg/enum/group/group_status"
+	"kama_chat_server/pkg/enum/user/user_status"
+	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
+	cacheutil "kama_chat_server/pkg/util/cache"
 )
 
 // applyService 申请业务逻辑实现
@@ -29,15 +31,17 @@ import (
 //  2. 写操作（如发起/通过申请）：采用【写库成功后删除缓存】模式。
 //     原因：作为数据生产者，在变更状态后主动失效下游服务（如ContactService）的缓存，保证系统数据的最终一致性。
 type applyService struct {
-	repos *mysql.Repositories
-	cache myredis.AsyncCacheService
+	repos       *mysql.Repositories
+	cache       myredis.AsyncCacheService
+	cacheHelper *cacheutil.Helper
 }
 
 // NewApplyService 构造函数
 func NewApplyService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *applyService {
 	return &applyService{
-		repos: repos,
-		cache: cacheService,
+		repos:       repos,
+		cache:       cacheService,
+		cacheHelper: cacheutil.NewHelper(cacheService),
 	}
 }
 
@@ -71,16 +75,16 @@ func (u *applyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 
 	// 3. 检查目标用户状态
 	// 检查目标用户账号状态是否为禁用，防止与已被封禁或注销的用户建立关系
-	if user.Status == user_status_enum.DISABLE {
+	if user.Status == user_status.DISABLE {
 		return errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
 	}
 
 	// 4. 检查是否已经是好友
 	// 查询联系表，确认双方是否已经存在正常的好友关系
 	// 避免重复添加好友，防止产生脏数据和冗余记录
-	relation, err := u.repos.Contact.FindByUserIdAndContactId(userId, req.FriendId, contact_type_enum.USER)
+	relation, err := u.repos.Friendship.FindByUserIdAndFriendId(userId, req.FriendId)
 	// 如果查询成功且关系存在，并且状态为正常，则提示已经是好友
-	if err == nil && relation != nil && relation.Status == contact_status_enum.NORMAL {
+	if err == nil && relation != nil && relation.Status == friendship_status.NORMAL {
 		return errorx.New(errorx.CodeInvalidParam, "你们已经是好友")
 	}
 
@@ -96,8 +100,8 @@ func (u *applyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 				Uuid:        fmt.Sprintf("A%s", snowflake.GenerateIDString()), // 生成唯一的申请记录UUID
 				ApplicantId: userId,                                           // 设置申请人ID
 				TargetId:    req.FriendId,                                     // 设置目标用户ID
-				ContactType: contact_type_enum.USER,                           // 设置联系类型为用户
-				Status:      contact_apply_status_enum.PENDING,                // 初始状态为待处理
+				ContactType: apply_type.USER,                           // 设置联系类型为用户
+				Status:      apply_status.PENDING,                // 初始状态为待处理
 				Message:     req.Message,                                      // 设置申请附带的留言信息
 				LastApplyAt: time.Now(),                                       // 设置申请时间为当前时间
 			}
@@ -118,7 +122,7 @@ func (u *applyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 	// 6. 黑名单检查
 	// 如果已存在的申请记录状态为 BLACK，说明对方已将申请人拉黑
 	// 直接返回错误，防止被拉黑用户持续骚扰
-	if apply.Status == contact_apply_status_enum.BLACK {
+	if apply.Status == apply_status.BLACK {
 		return errorx.New(errorx.CodeInvalidParam, "对方已将你拉黑，无法发送申请")
 	}
 
@@ -127,7 +131,7 @@ func (u *applyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 	// 更新申请时间为当前时间
 	apply.LastApplyAt = time.Now()
 	// 重置申请状态为待处理（PENDING），以便对方重新审核
-	apply.Status = contact_apply_status_enum.PENDING
+	apply.Status = apply_status.PENDING
 	// 更新最新的留言信息
 	apply.Message = req.Message
 
@@ -167,25 +171,22 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 	}
 	// 3. 检查群组状态
 	// 防止加入已被封禁或解散的群组
-	if group.Status == group_status_enum.DISABLE {
+	if group.Status == group_status.DISABLE {
 		return errorx.New(errorx.CodeInvalidParam, "该群聊已被禁用")
 	}
 
 	// 4. 检查是否已经是群成员
-	// 查询联系表（群组也作为一种联系类型），确认是否已经在群中
+	// 通过 GroupMember 表查询，确认是否已经在群中
 	// 防止重复加群
-	relation, err := u.repos.Contact.FindByUserIdAndContactId(userId, req.GroupId, contact_type_enum.GROUP)
+	_, err = u.repos.GroupMember.FindByGroupAndUser(req.GroupId, userId)
 	if err != nil {
-		// 如果查询出错且不是未找到错误，记录日志并返回
 		if !errorx.IsNotFound(err) {
-			zap.L().Error("Find contact relation error", zap.Error(err))
+			zap.L().Error("Find group member error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
-		// 如果是未找到，说明还不是成员，relation置为nil
-		relation = nil
-	}
-	// 如果关系存在且状态正常，说明已经是群成员
-	if relation != nil && relation.Status == contact_status_enum.NORMAL {
+		// 未找到记录，说明还不是成员，继续处理
+	} else {
+		// 找到记录，说明已经是群成员
 		return errorx.New(errorx.CodeInvalidParam, "你已在该群中")
 	}
 
@@ -206,18 +207,17 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 	// 6. 黑名单检查
 	// 无论为何种加群模式（包括免审核），如果处于黑名单中，都必须拒绝
 	// 防止黑名单用户通过直接入群模式绕过限制
-	if apply != nil && apply.Status == contact_apply_status_enum.BLACK {
+	if apply != nil && apply.Status == apply_status.BLACK {
 		return errorx.New(errorx.CodeInvalidParam, "该群已将你拉黑，无法发送申请")
 	}
 
 	// 7. 处理免审核入群逻辑
 	// 如果群组设置了免审核模式 (DIRECT)，则直接处理入群逻辑
-	if group.AddMode == add_mode_enum.DIRECT {
+	if group.AddMode == add_mode.DIRECT {
 		// 使用事务保证入群操作的原子性：
 		// 1. 创建群成员记录
 		// 2. 增加群成员计数
-		// 3. 创建联系记录 (User -> Group)
-		// 4. 清理旧的申请记录（如果有）
+		// 3. 清理旧的申请记录（如果有）
 		err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 			// 创建群成员对象，Role默认为1（普通成员）
 			member := model.GroupMember{
@@ -237,16 +237,16 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 				return errorx.ErrServerBusy
 			}
 
-			// 创建用户的联系记录（将群组作为联系）
-			newContact := model.Contact{
-				UserId:      userId,
-				ContactId:   req.GroupId,
-				ContactType: contact_type_enum.GROUP,
-				Status:      contact_status_enum.NORMAL,
+			// 创建群聊会话（入群时自动创建，方便用户在会话列表中看到该群）
+			session := model.Session{
+				Uuid:        "S" + snowflake.GenerateIDString(),
+				SendId:      userId,
+				ReceiveId:   req.GroupId,
+				ReceiveName: group.Name,
+				Avatar:      group.Avatar,
 			}
-			// 保存联系记录
-			if err := txRepos.Contact.CreateContact(&newContact); err != nil {
-				zap.L().Error("service error", zap.Error(err))
+			if err := txRepos.Session.CreateSession(&session); err != nil {
+				zap.L().Error("创建入群会话失败", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
 
@@ -264,13 +264,11 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 		}
 
 		// 8. 异步更新缓存
-		// 删除相关会话缓存、联系列表缓存、群组信息缓存，确保数据一致性
-		// 客户端下次请求时将重新加载最新数据
+		// 删除相关会话缓存、群组信息缓存，确保数据一致性
 		u.cache.SubmitTask(func() {
-			_ = u.cache.DeleteByPattern(context.Background(), "group_session_list_"+userId+"*")
-			_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+userId+"*")
-			_ = u.cache.Delete(context.Background(), "group_info_"+req.GroupId)
-			_ = u.cache.Delete(context.Background(), "group_memberlist_"+req.GroupId)
+			_ = u.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionGroup+userId+"*")
+			_ = u.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+req.GroupId)
+			_ = u.cache.Delete(context.Background(), constants.CacheKeyGroupMembers+req.GroupId)
 		})
 
 		return nil
@@ -284,8 +282,8 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 			Uuid:        fmt.Sprintf("A%s", snowflake.GenerateIDString()),
 			ApplicantId: userId,
 			TargetId:    req.GroupId,
-			ContactType: contact_type_enum.GROUP,
-			Status:      contact_apply_status_enum.PENDING, // 初始状态为待处理
+			ContactType: apply_type.GROUP,
+			Status:      apply_status.PENDING, // 初始状态为待处理
 			Message:     req.Message,
 			LastApplyAt: time.Now(),
 		}
@@ -297,7 +295,7 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 	} else {
 		// 情况B：存在旧申请，更新其状态和信息
 		apply.LastApplyAt = time.Now()
-		apply.Status = contact_apply_status_enum.PENDING // 重置为待处理
+		apply.Status = apply_status.PENDING // 重置为待处理
 		apply.Message = req.Message
 		// 更新旧申请
 		if err := u.repos.Apply.Update(apply); err != nil {
@@ -501,7 +499,7 @@ func (u *applyService) PassFriendApply(userId string, applicantId string) error 
 	}
 
 	// 1.1 校验申请状态：仅允许处理待审核的申请
-	if apply.Status != contact_apply_status_enum.PENDING {
+	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
@@ -517,13 +515,13 @@ func (u *applyService) PassFriendApply(userId string, applicantId string) error 
 		}
 		// 再次检查用户状态：虽然申请时已校验，但用户可能在申请后、审批前被禁用
 		// 防止审批通过时的竞态条件（Race Condition），确保不与禁用用户建立关系
-		if user.Status == user_status_enum.DISABLE {
+		if user.Status == user_status.DISABLE {
 			return errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
 		}
 
 		// 4. 更新申请状态
 		// 将申请状态更新为已同意（AGREE）
-		apply.Status = contact_apply_status_enum.AGREE
+		apply.Status = apply_status.AGREE
 		if err := txRepos.Apply.Update(apply); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -531,25 +529,23 @@ func (u *applyService) PassFriendApply(userId string, applicantId string) error 
 
 		// 5. 建立双向好友关系
 		// 5.1 创建我方好友关系 (Me -> Friend)
-		newContact := model.Contact{
-			UserId:      userId,
-			ContactId:   applicantId,
-			ContactType: contact_type_enum.USER,
-			Status:      contact_status_enum.NORMAL,
+		newFriendship := model.Friendship{
+			UserId:   userId,
+			FriendId: applicantId,
+			Status:   friendship_status.NORMAL,
 		}
-		if err := txRepos.Contact.CreateContact(&newContact); err != nil {
+		if err := txRepos.Friendship.CreateFriendship(&newFriendship); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		// 5.2 创建对方好友关系 (Friend -> Me) - 双向好友
-		anotherContact := model.Contact{
-			UserId:      applicantId,
-			ContactId:   userId,
-			ContactType: contact_type_enum.USER,
-			Status:      contact_status_enum.NORMAL,
+		anotherFriendship := model.Friendship{
+			UserId:   applicantId,
+			FriendId: userId,
+			Status:   friendship_status.NORMAL,
 		}
-		if err := txRepos.Contact.CreateContact(&anotherContact); err != nil {
+		if err := txRepos.Friendship.CreateFriendship(&anotherFriendship); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -564,8 +560,8 @@ func (u *applyService) PassFriendApply(userId string, applicantId string) error 
 	// 6. 异步清除缓存
 	// 异步清除双方的联系列表缓存，确保双方下次请求联系列表时能获取到最新的好友关系
 	u.cache.SubmitTask(func() {
-		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+userId)
-		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:user:"+applicantId)
+		_ = u.cache.DeleteByPattern(context.Background(), constants.CacheKeyFriendRelUser+userId+"*")
+		_ = u.cache.DeleteByPattern(context.Background(), constants.CacheKeyFriendRelUser+applicantId+"*")
 	})
 
 	return nil
@@ -602,7 +598,7 @@ func (u *applyService) PassGroupApply(operatorId, groupId, applicantId string) e
 	}
 
 	// 2.1 校验申请状态：仅允许处理待审核的申请
-	if apply.Status != contact_apply_status_enum.PENDING {
+	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
@@ -617,32 +613,19 @@ func (u *applyService) PassGroupApply(operatorId, groupId, applicantId string) e
 		}
 		// 再次检查群聊状态：虽然申请时已校验，但群聊可能在申请后、审批前被禁用
 		// 防止审批通过时的竞态条件
-		if group.Status == group_status_enum.DISABLE {
+		if group.Status == group_status.DISABLE {
 			return errorx.New(errorx.CodeInvalidParam, "该群聊已被禁用")
 		}
 
 		// 3.2 更新申请状态为 AGREED
-		apply.Status = contact_apply_status_enum.AGREE
+		apply.Status = apply_status.AGREE
 
 		if err := txRepos.Apply.Update(apply); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		// 3.3 创建联系关系 (User -> Group)
-		// 即使是群组，在联系表中也有一条记录
-		newContact := model.Contact{
-			UserId:      applicantId,
-			ContactId:   groupId,
-			ContactType: contact_type_enum.GROUP,
-			Status:      contact_status_enum.NORMAL,
-		}
-		if err := txRepos.Contact.CreateContact(&newContact); err != nil {
-			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
-
-		// 3.4 创建群成员记录
+		// 3.3 创建群成员记录
 		// Role默认为1（普通成员）
 		newMember := model.GroupMember{
 			GroupUuid: groupId,
@@ -654,9 +637,22 @@ func (u *applyService) PassGroupApply(operatorId, groupId, applicantId string) e
 			return errorx.ErrServerBusy
 		}
 
-		// 3.5 增加群成员计数
+		// 3.4 增加群成员计数
 		if err := txRepos.Group.IncrementMemberCount(groupId); err != nil {
 			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
+		}
+
+		// 3.5 创建群聊会话（入群时自动创建）
+		session := model.Session{
+			Uuid:        "S" + snowflake.GenerateIDString(),
+			SendId:      applicantId,
+			ReceiveId:   groupId,
+			ReceiveName: group.Name,
+			Avatar:      group.Avatar,
+		}
+		if err := txRepos.Session.CreateSession(&session); err != nil {
+			zap.L().Error("创建入群会话失败", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		return nil
@@ -668,13 +664,11 @@ func (u *applyService) PassGroupApply(operatorId, groupId, applicantId string) e
 	}
 
 	// 4. 异步更新缓存
-	// 删除用户的群会话缓存、联系列表缓存
-	// 以及群组信息和成员列表缓存，确保所有相关方都能获取最新数据
+	// 删除用户的群会话缓存、群组信息和成员列表缓存
 	u.cache.SubmitTask(func() {
-		_ = u.cache.DeleteByPattern(context.Background(), "group_session_list_"+applicantId+"*")
-		_ = u.cache.DeleteByPattern(context.Background(), "contact_relation:group:"+applicantId+"*")
-		_ = u.cache.Delete(context.Background(), "group_info_"+groupId)
-		_ = u.cache.Delete(context.Background(), "group_memberlist_"+groupId)
+		_ = u.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionGroup+applicantId+"*")
+		_ = u.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+groupId)
+		_ = u.cache.Delete(context.Background(), constants.CacheKeyGroupMembers+groupId)
 	})
 
 	return nil
@@ -691,11 +685,11 @@ func (u *applyService) RefuseFriendApply(userId string, applicantId string) erro
 		return errorx.ErrServerBusy
 	}
 	// 1.1 校验申请状态：仅允许处理待审核的申请
-	if apply.Status != contact_apply_status_enum.PENDING {
+	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 	// 2. 更新状态为 REFUSE
-	apply.Status = contact_apply_status_enum.REFUSE
+	apply.Status = apply_status.REFUSE
 	if err := u.repos.Apply.Update(apply); err != nil {
 		zap.L().Error("Update friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -732,12 +726,12 @@ func (u *applyService) RefuseGroupApply(operatorId, groupId, applicantId string)
 	}
 
 	// 2.1 校验申请状态：仅允许处理待审核的申请
-	if apply.Status != contact_apply_status_enum.PENDING {
+	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
 	// 3. 更新状态为 REFUSE
-	apply.Status = contact_apply_status_enum.REFUSE
+	apply.Status = apply_status.REFUSE
 	if err := u.repos.Apply.Update(apply); err != nil {
 		zap.L().Error("Update group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -760,13 +754,13 @@ func (u *applyService) BlackFriendApply(userId string, applicantId string) error
 	}
 
 	// 1.1 校验申请状态：仅允许对待审核的申请执行拉黑
-	if apply.Status != contact_apply_status_enum.PENDING {
+	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
 	// 2. 更新状态为 BLACK
 	// 拉黑后，对方将无法再次发送申请（ApplyFriend会在检查黑名单时拦截）
-	apply.Status = contact_apply_status_enum.BLACK
+	apply.Status = apply_status.BLACK
 	if err := u.repos.Apply.Update(apply); err != nil {
 		zap.L().Error("Update friend apply status error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -804,13 +798,13 @@ func (u *applyService) BlackGroupApply(operatorId, groupId, applicantId string) 
 	}
 
 	// 2.1 校验申请状态：仅允许对待审核的申请执行拉黑
-	if apply.Status != contact_apply_status_enum.PENDING {
+	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
 	// 3. 更新状态为 BLACK
 	// 拉黑后，对方将无法再次申请入群
-	apply.Status = contact_apply_status_enum.BLACK
+	apply.Status = apply_status.BLACK
 	if err := u.repos.Apply.Update(apply); err != nil {
 		zap.L().Error("Update group apply status error", zap.Error(err))
 		return errorx.ErrServerBusy

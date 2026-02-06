@@ -17,10 +17,9 @@ import (
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
-	"kama_chat_server/pkg/enum/contact/contact_status_enum"
-	"kama_chat_server/pkg/enum/contact/contact_type_enum"
-	"kama_chat_server/pkg/enum/group_info/group_status_enum"
-	"kama_chat_server/pkg/enum/user_info/user_status_enum"
+	"kama_chat_server/pkg/enum/friendship/friendship_status"
+	"kama_chat_server/pkg/enum/group/group_status"
+	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
 	cacheutil "kama_chat_server/pkg/util/cache"
 )
@@ -111,7 +110,7 @@ func (s *sessionService) CreateSession(sendId, receiveId string) (string, error)
 			)
 			return "", errorx.ErrServerBusy
 		}
-		if receiveUser.Status == user_status_enum.DISABLE {
+		if receiveUser.Status == user_status.DISABLE {
 			zap.L().Warn("接收用户已被禁用",
 				zap.String("send_id", sendId),
 				zap.String("receive_id", receiveId),
@@ -119,7 +118,7 @@ func (s *sessionService) CreateSession(sendId, receiveId string) (string, error)
 			return "", errorx.New(errorx.CodeInvalidParam, "该用户被禁用了")
 		}
 		// 验证好友关系 (必须是好友才能发起会话)
-		isFriend, err := s.repos.Contact.IsFriend(sendId, receiveId)
+		isFriend, err := s.repos.Friendship.IsFriend(sendId, receiveId)
 		if err != nil {
 			zap.L().Error("Check friend relationship error", zap.Error(err))
 			return "", errorx.ErrServerBusy
@@ -149,7 +148,7 @@ func (s *sessionService) CreateSession(sendId, receiveId string) (string, error)
 			)
 			return "", errorx.ErrServerBusy
 		}
-		if receiveGroup.Status == group_status_enum.DISABLE {
+		if receiveGroup.Status == group_status.DISABLE {
 			zap.L().Warn("接收群组已被禁用",
 				zap.String("send_id", sendId),
 				zap.String("receive_id", receiveId),
@@ -162,7 +161,7 @@ func (s *sessionService) CreateSession(sendId, receiveId string) (string, error)
 			if errorx.IsNotFound(errMember) {
 				return "", errorx.New(errorx.CodeForbidden, "你不是该群成员")
 			}
-			zap.L().Error("Check group membership error", zap.Error(err))
+			zap.L().Error("Check group membership error", zap.Error(errMember))
 			return "", errorx.ErrServerBusy
 		}
 		session.ReceiveName = receiveGroup.Name
@@ -196,13 +195,10 @@ func (s *sessionService) CreateSession(sendId, receiveId string) (string, error)
 
 // clearSessionCacheForUser 清理用户的会话缓存
 func (s *sessionService) clearSessionCacheForUser(userId string) {
-	if err := s.cache.DeleteByPattern(context.Background(), "group_session_list_"+userId+"*"); err != nil {
+	if err := s.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionGroup+userId+"*"); err != nil {
 		zap.L().Error("清除群会话列表缓存失败", zap.Error(err))
 	}
-	if err := s.cache.DeleteByPattern(context.Background(), "session_list_"+userId+"*"); err != nil {
-		zap.L().Error("清除会话列表缓存失败", zap.Error(err))
-	}
-	if err := s.cache.DeleteByPattern(context.Background(), "direct_session_list_"+userId+"*"); err != nil {
+	if err := s.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionDirect+userId+"*"); err != nil {
 		zap.L().Error("清除私聊会话列表缓存失败", zap.Error(err))
 	}
 }
@@ -215,19 +211,22 @@ func (s *sessionService) CheckOpenSessionAllowed(sendId, receiveId string) (bool
 
 	// 根据接收方类型执行不同的校验逻辑
 	if receiveId[0] == 'U' {
-		// 用户会话：检查联系关系状态
-		contact, err := s.repos.Contact.FindByUserIdAndContactId(sendId, receiveId, contact_type_enum.USER)
+		// 用户会话：检查好友关系状态
+		friendship, err := s.repos.Friendship.FindByUserIdAndFriendId(sendId, receiveId)
 		if err != nil {
-			zap.L().Error("查询联系关系失败",
+			if errorx.IsNotFound(err) {
+				return false, errorx.New(errorx.CodeForbidden, "你们还不是好友，无法发起会话")
+			}
+			zap.L().Error("查询好友关系失败",
 				zap.String("send_id", sendId),
 				zap.String("receive_id", receiveId),
 				zap.Error(err),
 			)
 			return false, errorx.ErrServerBusy
 		}
-		if contact.Status == contact_status_enum.BE_BLACK {
+		if friendship.Status == friendship_status.BE_BLACK {
 			return false, errorx.New(errorx.CodeInvalidParam, "已被对方拉黑，无法发起会话")
-		} else if contact.Status == contact_status_enum.BLACK {
+		} else if friendship.Status == friendship_status.BLACK {
 			return false, errorx.New(errorx.CodeInvalidParam, "已拉黑对方，先解除拉黑状态才能发起会话")
 		}
 	} else if receiveId[0] == 'G' {
@@ -269,7 +268,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 
 	// 处理用户
 	if targetId[0] == 'U' {
-		key := "user_info_" + targetId
+		key := constants.CacheKeyUserInfo + targetId
 		var userRsp user.GetUserInfoRespond
 
 		err := s.cacheHelper.GetOrLoad(
@@ -295,7 +294,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 		if err != nil {
 			return err
 		}
-		if userRsp.Status == user_status_enum.DISABLE {
+		if userRsp.Status == user_status.DISABLE {
 			return errorx.New(errorx.CodeInvalidParam, "对方已被禁用，无法发起会话")
 		}
 		return nil
@@ -303,7 +302,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 
 	// 处理群组
 	if targetId[0] == 'G' {
-		key := "group_info_" + targetId
+		key := constants.CacheKeyGroupInfo + targetId
 		var groupRsp group.GetGroupInfoRespond
 
 		err := s.cacheHelper.GetOrLoad(
@@ -329,7 +328,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 		if err != nil {
 			return err
 		}
-		if groupRsp.Status == group_status_enum.DISABLE {
+		if groupRsp.Status == group_status.DISABLE {
 			return errorx.New(errorx.CodeInvalidParam, "对方群组已被禁用，无法发起会话")
 		}
 		return nil
@@ -342,7 +341,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 // OpenSession 打开会话
 // sendId: 从 JWT 上下文获取的当前用户 ID，防止 IDOR 攻击
 func (s *sessionService) OpenSession(sendId string, req sessionreq.OpenSessionRequest) (string, error) {
-	cacheKey := "session_" + sendId + "_" + req.ReceiveId
+	cacheKey := constants.CacheKeySessionOpen + sendId + "_" + req.ReceiveId
 
 	// 1. 查缓存
 	rspString, err := s.cache.Get(context.Background(), cacheKey)
