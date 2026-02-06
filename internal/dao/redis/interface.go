@@ -30,6 +30,13 @@ type CacheService interface {
 	// DeleteByPatterns 批量删除多个模式匹配的键
 	DeleteByPatterns(ctx context.Context, patterns []string) error
 
+	// ==================== 计数器操作 ====================
+
+	// Incr 原子递增，返回递增后的值
+	Incr(ctx context.Context, key string) (int64, error)
+	// Expire 设置键过期时间
+	Expire(ctx context.Context, key string, ttl time.Duration) error
+
 	// ==================== Set 集合操作 ====================
 
 	// AddToSet 向集合添加成员

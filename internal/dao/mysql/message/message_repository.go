@@ -21,20 +21,6 @@ func NewMessageRepository(db *gorm.DB) *messageRepository {
 	return &messageRepository{db: db}
 }
 
-// FindByUserIds 根据两个用户ID查找私聊消息（双向）
-// 查找 A->B 和 B->A 的所有消息
-// userOneId, userTwoId: 两个用户的 UUID
-// 返回: 消息列表和错误
-func (r *messageRepository) FindByUserIds(userOneId, userTwoId string) ([]model.Message, error) {
-	var messages []model.Message
-	// 使用 OR 条件查找双向消息
-	if err := r.db.Where("(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)",
-		userOneId, userTwoId, userTwoId, userOneId).Order("created_at ASC").Find(&messages).Error; err != nil {
-		return nil, errorx.WrapDBErrorf(err, "查询消息 user1=%s user2=%s", userOneId, userTwoId)
-	}
-	return messages, nil
-}
-
 // FindByUserIdsPaged 根据两个用户ID查找私聊消息（分页）
 // userOneId, userTwoId: 两个用户的 UUID
 // page: 页码（从1开始）
@@ -111,31 +97,4 @@ func (r *messageRepository) Create(message *model.Message) error {
 		return errorx.WrapDBError(err, "创建消息")
 	}
 	return nil
-}
-
-// FindLastMessageByUserIds 获取两人之间最后一条消息
-func (r *messageRepository) FindLastMessageByUserIds(userOneId, userTwoId string) (*model.Message, error) {
-	var message model.Message
-	if err := r.db.Where("(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)",
-		userOneId, userTwoId, userTwoId, userOneId).
-		Order("created_at DESC").First(&message).Error; err != nil {
-		if errorx.IsNotFound(err) {
-			return nil, nil // 没有消息，返回 nil 而不是错误
-		}
-		return nil, errorx.WrapDBErrorf(err, "查询私聊最后消息 failed")
-	}
-	return &message, nil
-}
-
-// FindLastMessageByGroupId 获取群组最后一条消息
-func (r *messageRepository) FindLastMessageByGroupId(groupId string) (*model.Message, error) {
-	var message model.Message
-	if err := r.db.Where("receive_id = ?", groupId).
-		Order("created_at DESC").First(&message).Error; err != nil {
-		if errorx.IsNotFound(err) {
-			return nil, nil // 没有消息
-		}
-		return nil, errorx.WrapDBErrorf(err, "查询群聊最后消息 failed")
-	}
-	return &message, nil
 }

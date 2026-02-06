@@ -47,19 +47,6 @@ func (r *userRepository) FindByTelephone(telephone string) (*model.UserInfo, err
 	return &user, nil
 }
 
-// FindAllExcept 查找除指定用户外的所有用户
-// 用于获取用户列表（排除当前用户自己）
-// excludeUuid: 要排除的用户 UUID
-// 返回: 用户列表和错误
-func (r *userRepository) FindAllExcept(excludeUuid string) ([]model.UserInfo, error) {
-	var users []model.UserInfo
-	// Unscoped: 包含软删除的记录（如果需要排除软删除，去掉 Unscoped）
-	if err := r.db.Unscoped().Where("uuid != ?", excludeUuid).Find(&users).Error; err != nil {
-		return nil, errorx.WrapDBError(err, "查询用户列表")
-	}
-	return users, nil
-}
-
 // FindByUuids 批量根据 UUID 查找用户
 // 用于批量获取用户信息
 // uuids: UUID 列表

@@ -55,17 +55,6 @@ func (r *groupRepository) FindByOwnerIdPaged(ownerId string, page, pageSize int)
 	return groups, total, nil
 }
 
-// FindAll [管理员] 查找所有群组（包含软删除的）
-// 用于管理员查看全部群组
-func (r *groupRepository) FindAll() ([]model.GroupInfo, error) {
-	var groups []model.GroupInfo
-	// Unscoped: 包含软删除的记录
-	if err := r.db.Unscoped().Find(&groups).Error; err != nil {
-		return nil, errorx.WrapDBError(err, "查询所有群组")
-	}
-	return groups, nil
-}
-
 // GetGroupList [管理员] 分页查找群组（包含软删除的）
 // page: 页码（从1开始）
 // pageSize: 每页数量

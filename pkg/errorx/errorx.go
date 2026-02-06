@@ -104,19 +104,6 @@ func GetCode(err error) int {
 	return CodeServerBusy // 默认返回服务繁忙
 }
 
-// Ensure 将任意错误规范化为 CodeError
-// 如果已经是 CodeError，原样返回；否则返回 ErrServerBusy
-func Ensure(err error) error {
-	if err == nil {
-		return nil
-	}
-	var codeErr *CodeError
-	if errors.As(err, &codeErr) {
-		return err
-	}
-	return ErrServerBusy
-}
-
 // 业务状态码常量定义
 const (
 	CodeSuccess         = 1000 // 成功
@@ -128,8 +115,9 @@ const (
 	CodeUnauthorized    = 1006 // 未授权/认证失败
 	CodeForbidden       = 1007 // 无权限/禁止访问
 	CodeNotFound        = 1008 // 资源不存在
-	CodeDBError         = 1010 // 数据库错误
-	CodeCacheError      = 1011 // 缓存错误
+	CodeDBError          = 1010 // 数据库错误
+	CodeCacheError       = 1011 // 缓存错误
+	CodeTooManyRequests  = 1012 // 请求过于频繁（限流）
 )
 
 // 预定义常用错误实例

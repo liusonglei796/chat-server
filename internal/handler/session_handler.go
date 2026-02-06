@@ -3,7 +3,7 @@
 package handler
 
 import (
-	"kama_chat_server/internal/dto/request/contact"
+	"kama_chat_server/internal/dto/request/friendship"
 	"kama_chat_server/internal/dto/request/session"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/pkg/errorx"
@@ -144,7 +144,7 @@ func (h *SessionHandler) DeleteSession(c *gin.Context) {
 		return
 	}
 
-	var req contact.BatchDeleteRequest
+	var req friendship.BatchDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return

@@ -6,24 +6,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterPublicUserRoutes 注册用户公开路由（无需认证）
-// 用于登录、注册等
-func (rt *Router) RegisterPublicUserRoutes(rg *gin.RouterGroup) {
-	rg.POST("/login", rt.handlers.User.Login)                  // 密码登录
-	rg.POST("/register", rt.handlers.User.Register)            // 用户注册
-	rg.POST("/user/smsLogin", rt.handlers.User.SmsLogin)       // 短信验证码登录
-	rg.POST("/user/sendSmsCode", rt.handlers.User.SendSmsCode) // 发送短信验证码
-}
-
 // RegisterUserRoutes 注册用户相关路由（需要认证）
-// 包括用户信息管理、管理员功能等
+// 包括用户信息管理
 func (rt *Router) RegisterUserRoutes(rg *gin.RouterGroup) {
 	userGroup := rg.Group("/user")
 	{
-		userGroup.POST("/wsLogout", rt.handlers.Ws.WsLogoutHandler)             // WebSocket 登出
-		userGroup.POST("/updateUserInfo", rt.handlers.User.UpdateUserInfo)      // 更新用户信息
-		userGroup.GET("/getUserInfo", rt.handlers.User.GetUserInfo)             // 获取当前用户详情
-		userGroup.GET("/getPublicUserInfo", rt.handlers.User.GetPublicUserInfo) // 获取他人公开信息
-
+		userGroup.PUT("/info", rt.handlers.User.UpdateUserInfo)         // 更新用户信息
+		userGroup.GET("/info", rt.handlers.User.GetUserInfo)            // 获取当前用户详情
+		userGroup.GET("/public-info", rt.handlers.User.GetPublicUserInfo) // 获取他人公开信息
 	}
 }

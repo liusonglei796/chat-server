@@ -7,6 +7,7 @@ import (
 
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
+	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
 )
 
@@ -32,7 +33,7 @@ func NewAuthService(cache myredis.CacheService, userRepo mysql.UserRepository) *
 // tokenID: 需要验证的 Token ID
 // 返回: 是否有效, 错误信息
 func (s *Service) ValidateTokenID(userID, tokenID string) (bool, error) {
-	redisKey := "user_token:" + userID
+	redisKey := constants.CacheKeyUserToken + userID
 	validTokenID, err := s.cache.Get(context.Background(), redisKey)
 	if err != nil {
 		return false, err

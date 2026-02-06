@@ -15,14 +15,23 @@ import (
 	"context"
 	"encoding/json"
 	"kama_chat_server/pkg/constants"
-	"kama_chat_server/pkg/enum/message/message_status_enum"
-	"kama_chat_server/pkg/errorx"
-	"log"
+	"kama_chat_server/pkg/enum/message/message_status"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
+)
+
+const (
+	// pongWait 等待客户端 pong 响应的超时时间
+	pongWait = 60 * time.Second
+	// pingPeriod 发送 ping 的间隔（必须小于 pongWait）
+	pingPeriod = (pongWait * 9) / 10
+	// writeWait 写操作的超时时间
+	writeWait = 10 * time.Second
 )
 
 // MessageBack 用于向 WebSocket 客户端推送消息
@@ -38,13 +47,14 @@ type MessageBack struct {
 // UserConn 表示一个 WebSocket 客户端连接
 // 代表的是你的后端服务器和用户浏览器之间的一条那根网线。
 //
-//	有了 WebSocket： 用户 B 和服务器之间建立了一根“长管子”。服务器一旦收到 A 发给 B 的消息，不需要等 B 询问，直接顺着这根管子把消息“推”到 B 的屏幕上。
+//	有了 WebSocket： 用户 B 和服务器之间建立了一根"长管子"。服务器一旦收到 A 发给 B 的消息，不需要等 B 询问，直接顺着这根管子把消息"推"到 B 的屏幕上。
 type UserConn struct {
-	Conn     *websocket.Conn
-	Uuid     string
-	SendTo   chan []byte       // 缓冲通道（Channel 模式备用）
-	SendBack chan *MessageBack // 给前端
-	broker   MessageBroker     // 注入的消息代理
+	Conn        *websocket.Conn
+	Uuid        string
+	SendTo      chan []byte       // 缓冲通道（Channel 模式备用）
+	SendBack    chan *MessageBack // 给前端
+	broker      MessageBroker     // 注入的消息代理
+	cleanupOnce sync.Once         // 确保 cleanup 只执行一次（Read 退出 和 ClientLogout 可能并发触发）
 }
 
 //  gorilla/websocket 默认的安全机制会拦截跨域请求。
@@ -59,28 +69,87 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-var ctx = context.Background()
-
 // Read 从 WebSocket 读取消息
 // 安全: 服务端会用连接时认证的用户 ID 覆盖消息中的 SendId，防止 IDOR 攻击
+// 退出时通过 defer 执行 cleanup：注销客户端 → 关闭通道 → 关闭连接
 func (c *UserConn) Read() {
-	zap.L().Info("ws read goroutine start")
+	// cleanup: Read 退出时必须释放资源，防止内存泄漏和幽灵连接
+	defer c.cleanup()
+
+	// 设置心跳：初始读超时 + pong 回调续期
+	_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.Conn.SetPongHandler(func(string) error {
+		_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	zap.L().Info("ws read goroutine start", zap.String("userId", c.Uuid))
 	for {
 		_, jsonMessage, err := c.Conn.ReadMessage()
 		if err != nil {
-			zap.L().Error("service error", zap.Error(err))
+			// 正常关闭（客户端主动断开）不记录 Error 级别日志
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				zap.L().Error("ws read error", zap.String("userId", c.Uuid), zap.Error(err))
+			} else {
+				zap.L().Info("ws connection closed", zap.String("userId", c.Uuid), zap.Error(err))
+			}
 			return
 		}
-		log.Println("接受到消息为: ", string(jsonMessage))
+
+		zap.L().Debug("ws received message", zap.String("userId", c.Uuid), zap.String("message", string(jsonMessage)))
 
 		// 安全: 注入真实的用户 ID，覆盖客户端传入的 send_id（防止 IDOR）
 		securedMessage := injectRealSenderId(jsonMessage, c.Uuid)
 
 		// 通过接口发布消息，不关心具体实现
-		if err := c.broker.Publish(ctx, securedMessage); err != nil {
-			zap.L().Error("service error", zap.Error(err))
+		if err := c.broker.Publish(context.Background(), securedMessage); err != nil {
+			zap.L().Error("publish message error", zap.String("userId", c.Uuid), zap.Error(err))
 		}
 	}
+}
+
+// cleanup 释放 UserConn 占用的资源（通过 sync.Once 确保只执行一次）
+// 调用顺序：注销客户端 → 安全关闭通道 → 关闭 WebSocket 连接
+func (c *UserConn) cleanup() {
+	c.cleanupOnce.Do(func() {
+		zap.L().Info("ws cleanup start", zap.String("userId", c.Uuid))
+
+		// 1. 从 broker 注销，防止新消息写入 SendBack
+		c.broker.UnregisterClient(c)
+
+		// 2. 安全关闭 SendBack 通道（让 Write goroutine 退出 range 循环）
+		safeCloseMessageBackChan(c.SendBack)
+
+		// 3. 安全关闭 SendTo 通道
+		safeCloseBytesChan(c.SendTo)
+
+		// 4. 关闭 WebSocket 连接
+		if err := c.Conn.Close(); err != nil {
+			zap.L().Warn("ws close connection error", zap.String("userId", c.Uuid), zap.Error(err))
+		}
+
+		zap.L().Info("ws cleanup done", zap.String("userId", c.Uuid))
+	})
+}
+
+// safeCloseMessageBackChan 安全关闭 *MessageBack 通道，防止 double-close panic
+func safeCloseMessageBackChan(ch chan *MessageBack) {
+	defer func() {
+		if r := recover(); r != nil {
+			zap.L().Warn("SendBack channel already closed", zap.Any("recover", r))
+		}
+	}()
+	close(ch)
+}
+
+// safeCloseBytesChan 安全关闭 []byte 通道，防止 double-close panic
+func safeCloseBytesChan(ch chan []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			zap.L().Warn("SendTo channel already closed", zap.Any("recover", r))
+		}
+	}()
+	close(ch)
 }
 
 // injectRealSenderId 将真实的用户 ID 注入消息，覆盖客户端传入的 send_id
@@ -104,20 +173,43 @@ func injectRealSenderId(jsonMessage []byte, realUserId string) []byte {
 	return securedMessage
 }
 
-// Write 从 SendBack 通道读取消息并发送给 WebSocket
+// Write 从 SendBack 通道读取消息并发送给 WebSocket 客户端
+// 同时定期发送 Ping 帧维持心跳，检测静默断连的客户端
 func (c *UserConn) Write() {
-	zap.L().Info("ws write goroutine start")
-	//只要传送带上有消息，我就拿出来发送；如果没有消息，我就在这里等着。
-	for messageBack := range c.SendBack {
-		err := c.Conn.WriteMessage(websocket.TextMessage, messageBack.Message)
-		if err != nil {
-			zap.L().Error("service error", zap.Error(err))
-			return
-		}
-		// 通过 Repository 接口更新消息状态（遵循依赖倒置原则）
-		if repo := c.broker.GetMessageRepo(); repo != nil {
-			if err := repo.UpdateStatus(messageBack.Uuid, message_status_enum.Sent); err != nil {
-				zap.L().Error("更新消息状态失败", zap.Error(err))
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+
+	zap.L().Info("ws write goroutine start", zap.String("userId", c.Uuid))
+	for {
+		select {
+		case messageBack, ok := <-c.SendBack:
+			if !ok {
+				// SendBack 通道已关闭（由 cleanup 触发），发送 Close 帧后退出
+				_ = c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+				_ = c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				zap.L().Info("ws write goroutine exit: SendBack closed", zap.String("userId", c.Uuid))
+				return
+			}
+
+			_ = c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.Conn.WriteMessage(websocket.TextMessage, messageBack.Message); err != nil {
+				zap.L().Error("ws write error", zap.String("userId", c.Uuid), zap.Error(err))
+				return
+			}
+
+			// 通过 Repository 接口更新消息状态（遵循依赖倒置原则）
+			if repo := c.broker.GetMessageRepo(); repo != nil {
+				if err := repo.UpdateStatus(messageBack.Uuid, message_status.Sent); err != nil {
+					zap.L().Error("更新消息状态失败", zap.Error(err))
+				}
+			}
+
+		case <-ticker.C:
+			// 定期发送 Ping 帧，检测客户端是否还在线
+			_ = c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				zap.L().Info("ws ping failed, closing", zap.String("userId", c.Uuid), zap.Error(err))
+				return
 			}
 		}
 	}
@@ -146,39 +238,11 @@ func NewClientInit(c *gin.Context, clientId string, broker MessageBroker) {
 }
 
 // ClientLogout 当接受到前端有登出消息时，会调用该函数
-// broker: 消息代理实例，通过依赖注入传入
+// 通过 cleanup 统一释放资源（sync.Once 保证幂等）
 func ClientLogout(clientId string, broker MessageBroker) error {
 	client := broker.GetClient(clientId)
 	if client != nil {
-		// 1. 先从管理表中注销，防止新消息写入 SendBack
-		broker.UnregisterClient(client)
-
-		// 2. 关闭 SendBack 通道，让 Write goroutine 优雅退出
-		//    使用 recover 防止重复关闭 panic
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					zap.L().Warn("SendBack channel already closed", zap.Any("recover", r))
-				}
-			}()
-			close(client.SendBack)
-		}()
-
-		// 3. 关闭 SendTo 通道
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					zap.L().Warn("SendTo channel already closed", zap.Any("recover", r))
-				}
-			}()
-			close(client.SendTo)
-		}()
-
-		// 4. 最后关闭 WebSocket 连接，让 Read goroutine 退出
-		if err := client.Conn.Close(); err != nil {
-			zap.L().Error("关闭 WebSocket 连接失败", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
+		client.cleanup()
 	}
 	return nil
 }

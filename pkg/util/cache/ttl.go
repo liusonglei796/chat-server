@@ -26,18 +26,3 @@ func RandomizedTTL(baseTTL time.Duration) time.Duration {
 	jitter := time.Duration(rand.Int63n(jitterRange*2) - jitterRange)
 	return baseTTL + jitter
 }
-
-// TTLWithJitter 返回带自定义抖动百分比的过期时间
-// baseTTL: 基础过期时间
-// jitterPercent: 抖动百分比 (例如 10 表示 ±10%)
-func TTLWithJitter(baseTTL time.Duration, jitterPercent int) time.Duration {
-	if baseTTL <= 0 || jitterPercent <= 0 {
-		return baseTTL
-	}
-	jitterRange := int64(baseTTL) * int64(jitterPercent) / 100
-	if jitterRange == 0 {
-		return baseTTL
-	}
-	jitter := time.Duration(rand.Int63n(jitterRange*2) - jitterRange)
-	return baseTTL + jitter
-}

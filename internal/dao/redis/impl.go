@@ -165,6 +165,25 @@ func (r *RedisCache) DeleteByPatterns(ctx context.Context, patterns []string) er
 	return nil
 }
 
+// ==================== 计数器操作 ====================
+
+// Incr 原子递增键的值，返回递增后的值
+func (r *RedisCache) Incr(ctx context.Context, key string) (int64, error) {
+	val, err := r.client.Incr(ctx, key).Result()
+	if err != nil {
+		return 0, errorx.Wrapf(err, errorx.CodeCacheError, "redis incr key %s", key)
+	}
+	return val, nil
+}
+
+// Expire 设置键过期时间
+func (r *RedisCache) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	if err := r.client.Expire(ctx, key, ttl).Err(); err != nil {
+		return errorx.Wrapf(err, errorx.CodeCacheError, "redis expire key %s", key)
+	}
+	return nil
+}
+
 // ==================== Set 集合操作 ====================
 
 // AddToSet 向集合添加成员

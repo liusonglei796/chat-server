@@ -27,9 +27,8 @@ import (
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
-	"kama_chat_server/pkg/enum/message/message_status_enum"
-	"kama_chat_server/pkg/enum/message/message_type_enum"
-	"log"
+	"kama_chat_server/pkg/enum/message/message_status"
+	"kama_chat_server/pkg/enum/message/message_type"
 	"os"
 	"sync"
 	"time"
@@ -54,30 +53,35 @@ type MsgConsumer struct {
 	// 依赖注入字段（遵循依赖倒置原则）
 	kafkaClient     *KafkaClient
 	messageRepo     mysql.MessageRepository
+	friendshipRepo  mysql.FriendshipRepository  // 用于消息权限校验（好友关系 + 拉黑检查）
 	groupMemberRepo mysql.GroupMemberRepository
+	sessionRepo     mysql.SessionRepository     // 用于更新会话最后消息
 	cacheService    myredis.AsyncCacheService
-}
 
-// kafkaQuit 用于接收系统信号以优雅退出（目前逻辑中使用较少）
-var kafkaQuit = make(chan os.Signal, 1)
+	// quit 用于接收退出信号以优雅关闭消费循环
+	quit chan os.Signal
+}
 
 // NewMsgConsumer 创建 KafkaBroker 实例（依赖注入）
 func NewMsgConsumer(
 	kafkaClient *KafkaClient,
 	messageRepo mysql.MessageRepository,
+	friendshipRepo mysql.FriendshipRepository,
 	groupMemberRepo mysql.GroupMemberRepository,
+	sessionRepo mysql.SessionRepository,
 	cacheService myredis.AsyncCacheService,
 ) *MsgConsumer {
 	return &MsgConsumer{
 		// sync.Map 零值即可用，无需显式初始化
-		// 初始化登录通道
-		Login: make(chan *UserConn),
-		// 初始化登出通道
+		Login:           make(chan *UserConn),
 		Logout:          make(chan *UserConn),
 		kafkaClient:     kafkaClient,
 		messageRepo:     messageRepo,
+		friendshipRepo:  friendshipRepo,
 		groupMemberRepo: groupMemberRepo,
+		sessionRepo:     sessionRepo,
 		cacheService:    cacheService,
+		quit:            make(chan os.Signal, 1),
 	}
 }
 
@@ -120,14 +124,18 @@ func (k *MsgConsumer) Start() {
 			// 从 Kafka 读取一条消息
 			//  // 3. 阻塞读取：这里会卡住，直到 Kafka 集群里有新消息
 			// k.kafkaClient.Consumer 就是 kafka_client.go 里初始化的那个 Reader 对象
-			kafkaMessage, err := k.kafkaClient.Consumer.ReadMessage(ctx)
+			kafkaMessage, err := k.kafkaClient.Consumer.ReadMessage(context.Background())
 			if err != nil {
 				zap.L().Error("service error", zap.Error(err))
 				continue // 读取失败，重试
 			}
 			// 记录详细的 Kafka 消息元数据（调试用）
-			log.Printf("topic=%s, partition=%d, offset=%d, key=%s, value=%s", kafkaMessage.Topic, kafkaMessage.Partition, kafkaMessage.Offset, kafkaMessage.Key, kafkaMessage.Value)
-			zap.L().Info(fmt.Sprintf("topic=%s, partition=%d, offset=%d, key=%s, value=%s", kafkaMessage.Topic, kafkaMessage.Partition, kafkaMessage.Offset, kafkaMessage.Key, kafkaMessage.Value))
+			zap.L().Debug("kafka message received",
+				zap.String("topic", kafkaMessage.Topic),
+				zap.Int("partition", kafkaMessage.Partition),
+				zap.Int64("offset", kafkaMessage.Offset),
+				zap.ByteString("key", kafkaMessage.Key),
+				zap.ByteString("value", kafkaMessage.Value))
 
 			// 获取消息体
 			data := kafkaMessage.Value
@@ -137,17 +145,17 @@ func (k *MsgConsumer) Start() {
 				zap.L().Error("service error", zap.Error(err))
 				continue // 反序列化失败，直接跳过
 			}
-			log.Println("原消息为：", data, "反序列化后为：", chatMessageReq)
+			zap.L().Debug("kafka message deserialized", zap.String("type", fmt.Sprintf("%d", chatMessageReq.Type)), zap.String("sendId", chatMessageReq.SendId))
 
 			// 根据消息类型分发处理逻辑
 			switch chatMessageReq.Type {
-			case message_type_enum.Text:
+			case message_type.Text:
 				// 处理文本消息
 				k.handleTextMessage(chatMessageReq)
-			case message_type_enum.File:
+			case message_type.File:
 				// 处理文件消息
 				k.handleFileMessage(chatMessageReq)
-			case message_type_enum.AudioOrVideo:
+			case message_type.AudioOrVideo:
 				// 处理音视频消息
 				k.handleAVMessage(chatMessageReq)
 			}
@@ -178,7 +186,7 @@ func (k *MsgConsumer) Start() {
 				zap.L().Error("service error", zap.Error(err))
 			}
 		// 处理系统退出信号（如果启用）
-		case <-kafkaQuit:
+		case <-k.quit:
 			return
 		}
 	}
@@ -238,7 +246,7 @@ func (k *MsgConsumer) KickClient(userId string, reason string) {
 
 	// 1. 构造下线通知消息
 	kickMsg := map[string]interface{}{
-		"type":    message_type_enum.KickNotification,
+		"type":    message_type.KickNotification,
 		"message": reason,
 	}
 	jsonMsg, err := json.Marshal(kickMsg)
@@ -247,18 +255,78 @@ func (k *MsgConsumer) KickClient(userId string, reason string) {
 		return
 	}
 
-	// 2. 推送给客户端
+	// 2. 推送给客户端（尝试发送，失败也不影响后续 cleanup）
 	if err := client.Conn.WriteMessage(websocket.TextMessage, jsonMsg); err != nil {
-		zap.L().Error("发送踢人消息失败", zap.Error(err))
+		zap.L().Warn("发送踢人消息失败", zap.Error(err))
 	}
 
-	// 3. 注销客户端并关闭连接
-	k.UnregisterClient(client)
-	if err := client.Conn.Close(); err != nil {
-		zap.L().Error("关闭连接失败", zap.Error(err))
-	}
+	// 3. 通过 cleanup 统一释放资源（sync.Once 保证幂等）
+	client.cleanup()
 
 	zap.L().Info("用户已被踢下线", zap.String("userId", userId), zap.String("reason", reason))
+}
+
+// checkSendPermission 校验发送者是否有权向目标发消息
+// 私聊: 检查好友关系（IsFriend 同时包含拉黑状态检查）
+// 群聊: 检查群成员身份
+// 返回 nil 表示允许，返回 error 表示拒绝（error.Error() 包含拒绝原因）
+func (k *MsgConsumer) checkSendPermission(sendId, receiveId string) error {
+	if len(receiveId) == 0 {
+		return fmt.Errorf("接收者ID不能为空")
+	}
+
+	if receiveId[0] == 'U' {
+		// 私聊：校验好友关系（IsFriend 要求双向 status=NORMAL，拉黑后自动失败）
+		if k.friendshipRepo != nil {
+			isFriend, err := k.friendshipRepo.IsFriend(sendId, receiveId)
+			if err != nil {
+				zap.L().Error("检查好友关系失败", zap.String("sendId", sendId), zap.String("receiveId", receiveId), zap.Error(err))
+				return fmt.Errorf("权限校验失败")
+			}
+			if !isFriend {
+				return fmt.Errorf("你们还不是好友，无法发送消息")
+			}
+		}
+	} else if receiveId[0] == 'G' {
+		// 群聊：校验群成员身份
+		if k.groupMemberRepo != nil {
+			_, err := k.groupMemberRepo.FindByGroupAndUser(receiveId, sendId)
+			if err != nil {
+				return fmt.Errorf("你不是该群成员，无法发送消息")
+			}
+		}
+	}
+
+	return nil
+}
+
+// sendPermissionError 向发送者推送权限拒绝消息
+func (k *MsgConsumer) sendPermissionError(sendId, reason string) {
+	errMsg := map[string]interface{}{
+		"type":    "error",
+		"message": reason,
+	}
+	jsonMsg, err := json.Marshal(errMsg)
+	if err != nil {
+		return
+	}
+	if value, ok := k.Clients.Load(sendId); ok {
+		client := value.(*UserConn)
+		trySendBack(client, &MessageBack{Message: jsonMsg, Uuid: ""})
+	}
+}
+
+// trySendBack 非阻塞地向客户端 SendBack 通道写入消息
+// 如果通道已满，丢弃消息并记录告警日志，防止阻塞 Kafka 消费者
+func trySendBack(client *UserConn, msg *MessageBack) {
+	select {
+	case client.SendBack <- msg:
+		// 成功发送
+	default:
+		zap.L().Warn("SendBack channel full, message dropped",
+			zap.String("userId", client.Uuid),
+			zap.String("msgUuid", msg.Uuid))
+	}
 }
 
 // handleTextMessage 处理文本消息
@@ -267,6 +335,13 @@ func (k *MsgConsumer) KickClient(userId string, reason string) {
 // 3. 根据接收者类型 (User/Group) 路由消息
 // 4. 更新 Redis 缓存
 func (k *MsgConsumer) handleTextMessage(req message.ChatMessageRequest) {
+	// 权限校验：检查发送者是否有权向目标发消息
+	if err := k.checkSendPermission(req.SendId, req.ReceiveId); err != nil {
+		zap.L().Warn("消息权限校验失败", zap.String("sendId", req.SendId), zap.String("receiveId", req.ReceiveId), zap.String("reason", err.Error()))
+		k.sendPermissionError(req.SendId, err.Error())
+		return
+	}
+
 	// 构建数据库模型
 	message := model.Message{
 		Uuid:       "M" + snowflake.GenerateIDString(),
@@ -281,7 +356,7 @@ func (k *MsgConsumer) handleTextMessage(req message.ChatMessageRequest) {
 		FileSize:   "0B",
 		FileType:   "",
 		FileName:   "",
-		Status:     message_status_enum.Unsent,
+		Status:     message_status.Unsent,
 		AVdata:     "",
 	}
 	// 规范化头像路径
@@ -292,6 +367,15 @@ func (k *MsgConsumer) handleTextMessage(req message.ChatMessageRequest) {
 		if err := k.messageRepo.Create(&message); err != nil {
 			zap.L().Error("创建消息失败", zap.Error(err))
 		}
+	}
+
+	// 异步更新会话最后消息（用于会话列表排序和摘要显示）
+	if k.sessionRepo != nil {
+		go func() {
+			if err := k.sessionRepo.UpdateLastMessage(message.SendId, message.ReceiveId, message.Content, message.Type, message.CreatedAt); err != nil {
+				zap.L().Error("更新会话最后消息失败", zap.Error(err))
+			}
+		}()
 	}
 
 	// 路由分发
@@ -305,6 +389,13 @@ func (k *MsgConsumer) handleTextMessage(req message.ChatMessageRequest) {
 // handleFileMessage 处理文件消息
 // 逻辑与文本消息类似，区别在于 Content 为空，Url 字段存储文件链接
 func (k *MsgConsumer) handleFileMessage(req message.ChatMessageRequest) {
+	// 权限校验：检查发送者是否有权向目标发消息
+	if err := k.checkSendPermission(req.SendId, req.ReceiveId); err != nil {
+		zap.L().Warn("文件消息权限校验失败", zap.String("sendId", req.SendId), zap.String("receiveId", req.ReceiveId), zap.String("reason", err.Error()))
+		k.sendPermissionError(req.SendId, err.Error())
+		return
+	}
+
 	// 构建数据库模型
 	message := model.Message{
 		Uuid:       "M" + snowflake.GenerateIDString(),
@@ -319,7 +410,7 @@ func (k *MsgConsumer) handleFileMessage(req message.ChatMessageRequest) {
 		FileSize:   req.FileSize,
 		FileType:   req.FileType,
 		FileName:   req.FileName,
-		Status:     message_status_enum.Unsent,
+		Status:     message_status.Unsent,
 		AVdata:     "",
 	}
 	// 规范化头像路径
@@ -330,6 +421,16 @@ func (k *MsgConsumer) handleFileMessage(req message.ChatMessageRequest) {
 		if err := k.messageRepo.Create(&message); err != nil {
 			zap.L().Error("创建文件消息失败", zap.Error(err))
 		}
+	}
+
+	// 异步更新会话最后消息（文件消息显示文件名作为摘要）
+	if k.sessionRepo != nil {
+		content := "[文件] " + req.FileName
+		go func() {
+			if err := k.sessionRepo.UpdateLastMessage(message.SendId, message.ReceiveId, content, message.Type, message.CreatedAt); err != nil {
+				zap.L().Error("更新会话最后消息失败", zap.Error(err))
+			}
+		}()
 	}
 
 	// 路由分发
@@ -344,6 +445,13 @@ func (k *MsgConsumer) handleFileMessage(req message.ChatMessageRequest) {
 // 信令消息（如 start_call）用于 WebRTC 连接建立
 // 大部分信令只需透传，特定关键信令（如 PROXY 类型中的 start_call 等）会持久化到数据库
 func (k *MsgConsumer) handleAVMessage(req message.ChatMessageRequest) {
+	// 权限校验：检查发送者是否有权向目标发消息
+	if err := k.checkSendPermission(req.SendId, req.ReceiveId); err != nil {
+		zap.L().Warn("AV消息权限校验失败", zap.String("sendId", req.SendId), zap.String("receiveId", req.ReceiveId), zap.String("reason", err.Error()))
+		k.sendPermissionError(req.SendId, err.Error())
+		return
+	}
+
 	var avData message.AVData
 	if err := json.Unmarshal([]byte(req.AVdata), &avData); err != nil {
 		zap.L().Error("service error", zap.Error(err))
@@ -364,7 +472,7 @@ func (k *MsgConsumer) handleAVMessage(req message.ChatMessageRequest) {
 		FileSize:   "",
 		FileType:   "",
 		FileName:   "",
-		Status:     message_status_enum.Unsent,
+		Status:     message_status.Unsent,
 		AVdata:     req.AVdata,
 	}
 
@@ -399,17 +507,17 @@ func (k *MsgConsumer) handleAVMessage(req message.ChatMessageRequest) {
 		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
 		}
-		log.Println("返回的消息为：", messageRsp)
+		zap.L().Debug("AV message response", zap.String("sendId", messageRsp.SendId), zap.String("receiveId", messageRsp.ReceiveId))
 
 		messageBack := &MessageBack{
 			Message: jsonMessage,
 			Uuid:    message.Uuid,
 		}
 
-		// 推送给接收者 (sync.Map 自动处理并发安全)
+		// 推送给接收者 (sync.Map 自动处理并发安全，非阻塞写入)
 		if value, ok := k.Clients.Load(message.ReceiveId); ok {
 			receiveClient := value.(*UserConn)
-			receiveClient.SendBack <- messageBack
+			trySendBack(receiveClient, messageBack)
 		}
 	}
 }
@@ -440,23 +548,23 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 		zap.L().Error("service error", zap.Error(err))
 	}
 
-	log.Println("返回的消息为：", messageRsp, "序列化后为：", jsonMessage)
+	zap.L().Debug("message response built", zap.String("sendId", message.SendId), zap.String("receiveId", message.ReceiveId))
 
 	messageBack := &MessageBack{
 		Message: jsonMessage,
 		Uuid:    message.Uuid,
 	}
 
-	// 消息投递 (sync.Map 自动处理并发安全)
+	// 消息投递 (sync.Map 自动处理并发安全，非阻塞写入)
 	// 给接收者发
 	if value, ok := k.Clients.Load(message.ReceiveId); ok {
 		receiveClient := value.(*UserConn)
-		receiveClient.SendBack <- messageBack
+		trySendBack(receiveClient, messageBack)
 	}
 	// 给发送者回显
 	if value, ok := k.Clients.Load(message.SendId); ok {
 		sendClient := value.(*UserConn)
-		sendClient.SendBack <- messageBack
+		trySendBack(sendClient, messageBack)
 	}
 
 	// 通过注入的缓存服务异步更新缓存
@@ -467,7 +575,7 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 			if id1 > id2 {
 				id1, id2 = id2, id1
 			}
-			key := "message_list_" + id1 + "_" + id2
+			key := constants.CacheKeyMessageList + id1 + "_" + id2
 			rspString, err := k.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
 				var list []messagersp.GetMessageListRespond
@@ -509,36 +617,32 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 		zap.L().Error("service error", zap.Error(err))
 	}
 
-	log.Println("返回的消息为：", messageRsp, "序列化后为：", jsonMessage)
+	zap.L().Debug("message response built", zap.String("sendId", message.SendId), zap.String("receiveId", message.ReceiveId))
 
 	messageBack := &MessageBack{
 		Message: jsonMessage,
 		Uuid:    message.Uuid,
 	}
 
-	// 通过 Repository 接口查群成员
+	// 通过缓存优先获取群成员 ID 列表，减少 DB 查询
 	var groupMembers []model.GroupMember
 	if k.groupMemberRepo != nil {
-		var err error
-		groupMembers, err = k.groupMemberRepo.FindByGroupUuid(message.ReceiveId)
-		if err != nil {
-			zap.L().Error("查询群成员失败", zap.Error(err))
-		}
+		groupMembers = k.getGroupMembersCached(message.ReceiveId)
 	}
 
-	// 分发消息 (sync.Map 自动处理并发安全)
+	// 分发消息 (sync.Map 自动处理并发安全，非阻塞写入)
 	for _, gm := range groupMembers {
 		if gm.UserUuid != message.SendId {
 			// 推送给其他成员
 			if value, ok := k.Clients.Load(gm.UserUuid); ok {
 				receiveClient := value.(*UserConn)
-				receiveClient.SendBack <- messageBack
+				trySendBack(receiveClient, messageBack)
 			}
 		} else {
 			// 回显给自己
 			if value, ok := k.Clients.Load(message.SendId); ok {
 				sendClient := value.(*UserConn)
-				sendClient.SendBack <- messageBack
+				trySendBack(sendClient, messageBack)
 			}
 		}
 	}
@@ -546,7 +650,7 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 	// 通过注入的缓存服务异步更新缓存
 	if k.cacheService != nil {
 		k.cacheService.SubmitTask(func() {
-			key := "group_messagelist_" + message.ReceiveId
+			key := constants.CacheKeyGroupMessageList + message.ReceiveId
 			rspString, err := k.cacheService.GetOrError(context.Background(), key)
 			if err == nil {
 				var list []messagersp.GetMessageListRespond
@@ -559,4 +663,45 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 			}
 		})
 	}
+}
+
+// getGroupMembersCached 优先从 Redis 缓存获取群成员列表，miss 时查 DB 并回写缓存
+// 使用 JSON 字符串存储在普通 key 中（支持 TTL），避免每条消息都查 DB
+func (k *MsgConsumer) getGroupMembersCached(groupId string) []model.GroupMember {
+	cacheKey := constants.CacheKeyGroupMemberIDs + groupId
+
+	// 1. 优先从缓存读取
+	if k.cacheService != nil {
+		cached, err := k.cacheService.GetOrError(context.Background(), cacheKey)
+		if err == nil && cached != "" {
+			var memberIds []string
+			if err := json.Unmarshal([]byte(cached), &memberIds); err == nil {
+				members := make([]model.GroupMember, len(memberIds))
+				for i, id := range memberIds {
+					members[i] = model.GroupMember{UserUuid: id}
+				}
+				return members
+			}
+		}
+	}
+
+	// 2. 缓存未命中，查 DB
+	groupMembers, err := k.groupMemberRepo.FindByGroupUuid(groupId)
+	if err != nil {
+		zap.L().Error("查询群成员失败", zap.Error(err))
+		return nil
+	}
+
+	// 3. 回写缓存（仅存储成员 ID 列表，TTL 5 分钟）
+	if k.cacheService != nil && len(groupMembers) > 0 {
+		memberIds := make([]string, len(groupMembers))
+		for i, gm := range groupMembers {
+			memberIds[i] = gm.UserUuid
+		}
+		if data, err := json.Marshal(memberIds); err == nil {
+			_ = k.cacheService.Set(context.Background(), cacheKey, string(data), 5*time.Minute)
+		}
+	}
+
+	return groupMembers
 }

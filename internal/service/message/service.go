@@ -46,7 +46,7 @@ func (m *messageService) GetMessageList(requesterId, partnerId string, page, pag
 	}
 
 	// 权限校验: 必须是好友关系才能查看聊天记录
-	isFriend, err := m.repos.Contact.IsFriend(requesterId, partnerId)
+	isFriend, err := m.repos.Friendship.IsFriend(requesterId, partnerId)
 	if err != nil {
 		zap.L().Error("check friend relationship error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -141,7 +141,7 @@ func (m *messageService) GetGroupMessageList(userId, groupId string, page, pageS
 func (m *messageService) UploadAvatar(c *gin.Context) (string, error) {
 	if err := c.Request.ParseMultipartForm(constants.FILE_MAX_SIZE); err != nil {
 		zap.L().Error("parse multipart form error", zap.Error(err))
-		return "", errorx.ErrServerBusy
+		return "", errorx.New(errorx.CodeInvalidParam, "文件过大，请上传小于 30MB 的文件")
 	}
 	mForm := c.Request.MultipartForm
 	if len(mForm.File) == 0 {
@@ -151,6 +151,10 @@ func (m *messageService) UploadAvatar(c *gin.Context) (string, error) {
 	// 遍历所有文件，但既然是上传头像，通常只取第一个
 	for _, headers := range mForm.File {
 		for _, fileHeader := range headers {
+			// 头像大小校验（5 MB）
+			if fileHeader.Size > constants.AVATAR_MAX_SIZE {
+				return "", errorx.New(errorx.CodeInvalidParam, "头像文件过大，最大支持 5MB")
+			}
 			// 限制为图片类型的 MIME
 			filename, err := m.saveFile(fileHeader, config.GetConfig().StaticAvatarPath, "image/jpeg", "image/png", "image/gif")
 			if err != nil {
@@ -172,7 +176,7 @@ func (m *messageService) UploadAvatar(c *gin.Context) (string, error) {
 func (m *messageService) UploadFile(c *gin.Context) ([]string, error) {
 	if err := c.Request.ParseMultipartForm(constants.FILE_MAX_SIZE); err != nil {
 		zap.L().Error("parse multipart form error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, errorx.New(errorx.CodeInvalidParam, "文件过大，请上传小于 30MB 的文件")
 	}
 
 	var uploadedFiles []string
@@ -181,6 +185,15 @@ func (m *messageService) UploadFile(c *gin.Context) ([]string, error) {
 
 	for _, headers := range mForm.File {
 		for _, fileHeader := range headers {
+			// 单文件大小校验（30 MB）
+			if fileHeader.Size > constants.UPLOAD_FILE_MAX_SIZE {
+				// 回滚已上传的文件
+				for _, f := range uploadedFiles {
+					_ = os.Remove(filepath.Join(dstDir, f))
+				}
+				return nil, errorx.New(errorx.CodeInvalidParam, "单个文件过大，最大支持 30MB")
+			}
+
 			// 上传普通文件不限制 MIME，或者可以根据需求添加限制
 			filename, err := m.saveFile(fileHeader, dstDir)
 			if err != nil {

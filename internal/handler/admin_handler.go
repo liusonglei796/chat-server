@@ -3,7 +3,7 @@ package handler
 import (
 	"github.com/gin-gonic/gin"
 
-	"kama_chat_server/internal/dto/request/contact"
+	"kama_chat_server/internal/dto/request/friendship"
 	adminreq "kama_chat_server/internal/dto/request/admin"
 	"kama_chat_server/internal/service"
 )
@@ -100,7 +100,7 @@ func (h *AdminHandler) GetGroupInfoList(c *gin.Context) {
 // POST /admin/group/delete
 // 请求: contact.BatchDeleteRequest
 func (h *AdminHandler) DeleteGroups(c *gin.Context) {
-	var req contact.BatchDeleteRequest
+	var req friendship.BatchDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleError(c, err)
 		return

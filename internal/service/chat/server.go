@@ -62,8 +62,14 @@ type ChatServer struct {
 	// messageRepo 消息 Repository
 	messageRepo mysql.MessageRepository
 
+	// friendshipRepo 好友关系 Repository（用于消息权限校验）
+	friendshipRepo mysql.FriendshipRepository
+
 	// groupMemberRepo 群成员 Repository
 	groupMemberRepo mysql.GroupMemberRepository
+
+	// sessionRepo 会话 Repository（用于更新最后消息）
+	sessionRepo mysql.SessionRepository
 
 	// cacheService 缓存服务
 	cacheService myredis.AsyncCacheService
@@ -72,7 +78,9 @@ type ChatServer struct {
 // ChatServerConfig 聊天服务器配置
 type ChatServerConfig struct {
 	MessageRepo     mysql.MessageRepository
+	FriendshipRepo  mysql.FriendshipRepository
 	GroupMemberRepo mysql.GroupMemberRepository
+	SessionRepo     mysql.SessionRepository
 	CacheService    myredis.AsyncCacheService
 }
 
@@ -80,13 +88,15 @@ type ChatServerConfig struct {
 func NewChatServer(cfg ChatServerConfig) *ChatServer {
 	cs := &ChatServer{
 		messageRepo:     cfg.MessageRepo,
+		friendshipRepo:  cfg.FriendshipRepo,
 		groupMemberRepo: cfg.GroupMemberRepo,
+		sessionRepo:     cfg.SessionRepo,
 		cacheService:    cfg.CacheService,
 	}
 
 	// 初始化 Kafka 客户端和消费者
 	cs.KafkaClient = NewKafkaClient()
-	cs.Broker = NewMsgConsumer(cs.KafkaClient, cs.messageRepo, cs.groupMemberRepo, cs.cacheService)
+	cs.Broker = NewMsgConsumer(cs.KafkaClient, cs.messageRepo, cs.friendshipRepo, cs.groupMemberRepo, cs.sessionRepo, cs.cacheService)
 
 	return cs
 }

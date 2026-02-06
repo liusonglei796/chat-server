@@ -10,11 +10,11 @@ import (
 
 // RegisterAdminRoutes 注册管理员相关路由（需要认证 + 管理员权限）
 // 这些接口只能由管理员调用
-// 安全: 除了 JWT 认证外，还会校验 is_admin（纯 JWT Claims 方案，无需查库）
+// 安全: JWT Claims 快速拒绝 + 可选的实时查库校验（防止权限撤销后仍可访问）
 func (rt *Router) RegisterAdminRoutes(rg *gin.RouterGroup) {
 	adminGroup := rg.Group("/admin")
-	// 应用管理员权限校验中间件（纯 JWT Claims 方案）
-	adminGroup.Use(middleware.AdminAuth())
+	// 应用管理员权限校验中间件（双重校验：JWT Claims + 实时查库）
+	adminGroup.Use(middleware.AdminAuth(rt.adminChecker))
 	{
 		// ===== 用户管理 =====
 		userAdminGroup := adminGroup.Group("/user")

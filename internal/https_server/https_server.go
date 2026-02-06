@@ -3,10 +3,12 @@
 package https_server
 
 import (
-	"kama_chat_server/internal/config"                // 配置管理
-	"kama_chat_server/internal/handler"               // Handler 聚合对象
-	"kama_chat_server/internal/infrastructure/logger" // 自定义日志中间件
-	"kama_chat_server/internal/router"                // 路由注册
+	"kama_chat_server/internal/config"                    // 配置管理
+	myredis "kama_chat_server/internal/dao/redis"         // Redis 缓存接口
+	"kama_chat_server/internal/handler"                   // Handler 聚合对象
+	"kama_chat_server/internal/infrastructure/logger"     // 自定义日志中间件
+	"kama_chat_server/internal/infrastructure/middleware" // 中间件
+	"kama_chat_server/internal/router"                    // 路由注册
 
 	"github.com/gin-contrib/cors" // CORS 跨域中间件
 	"github.com/gin-gonic/gin"    // Gin Web 框架
@@ -14,6 +16,8 @@ import (
 
 // Init 初始化 HTTP/HTTPS 服务器并返回 Gin 引擎实例
 // handlers: 通过依赖注入传入的 handler 聚合对象（已包含预构造的中间件）
+// adminChecker: 可选的管理员权限实时校验回调（查库验证权限未被撤销）
+// cache: Redis 缓存服务，供限流等中间件使用
 // 配置顺序：
 //  1. 创建 Gin 引擎（空白，不含默认中间件）
 //  2. 注册日志和恢复中间件
@@ -22,7 +26,7 @@ import (
 //  5. 注册业务路由
 //
 // 返回: 配置完成的 Gin 引擎实例
-func Init(handlers *handler.Handlers) *gin.Engine {
+func Init(handlers *handler.Handlers, adminChecker middleware.AdminAuthChecker, cache myredis.CacheService) *gin.Engine {
 	// 创建空白 Gin 引擎（不使用 gin.Default() 以便完全控制中间件）
 	engine := gin.New()
 
@@ -52,7 +56,7 @@ func Init(handlers *handler.Handlers) *gin.Engine {
 	engine.Static("/static/files", config.GetConfig().StaticFilePath)
 
 	// 创建路由管理器并注册所有业务路由
-	rt := router.NewRouter(handlers)
+	rt := router.NewRouter(handlers, adminChecker, cache)
 	rt.RegisterRoutes(engine)
 
 	return engine
