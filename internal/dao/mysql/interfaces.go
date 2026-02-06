@@ -40,8 +40,12 @@ type UserRepository interface {
 type GroupRepository interface {
 	// FindByUuid 根据 UUID 查找群组
 	FindByUuid(uuid string) (*model.GroupInfo, error)
-	// FindByOwnerId 根据群主 ID 查找群组
-	FindByOwnerId(ownerId string) ([]model.GroupInfo, error)
+	// FindByOwnerIdPaged 根据群主 ID 分页查找群组
+	// ownerId: 群主用户UUID
+	// page: 页码（从1开始）
+	// pageSize: 每页数量
+	// 返回: 群组列表、总数、错误
+	FindByOwnerIdPaged(ownerId string, page, pageSize int) ([]model.GroupInfo, int64, error)
 	// FindAll [管理员] 查找所有群组
 	FindAll() ([]model.GroupInfo, error)
 	// FindByUuids 批量根据 UUID 查找群组
@@ -129,8 +133,12 @@ type MessageRepository interface {
 type ApplyRepository interface {
 	// FindByApplicantIdAndTargetId 根据申请人和目标查找申请
 	FindByApplicantIdAndTargetId(applicantId, targetId string) (*model.Apply, error)
-	// FindByTargetIdPending 查找目标用户的待处理申请
-	FindByTargetIdPending(targetId string) ([]model.Apply, error)
+	// FindByTargetIdPendingPaged 分页查找目标用户的待处理申请
+	// targetId: 目标用户/群组 UUID
+	// page: 页码（从1开始）
+	// pageSize: 每页数量
+	// 返回: 申请列表、总数、错误
+	FindByTargetIdPendingPaged(targetId string, page, pageSize int) ([]model.Apply, int64, error)
 	// CreateApply 创建新申请
 	CreateApply(apply *model.Apply) error
 	// Update 更新申请信息

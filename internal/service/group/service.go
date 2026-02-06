@@ -122,36 +122,24 @@ func (g *groupInfoService) LoadMyGroup(userId string, page, pageSize int) ([]gro
 		pageSize = 20
 	}
 
-	// 1. 获取所有关联群组
-	allGroups, err := g.getGroupsByUserId(userId)
+	// 数据库分页查询我创建的群组
+	groups, total, err := g.repos.Group.FindByOwnerIdPaged(userId, page, pageSize)
 	if err != nil {
-		return nil, 0, err
+		zap.L().Error("Find my groups by owner id error", zap.Error(err))
+		return nil, 0, errorx.ErrServerBusy
 	}
 
-	// 2. 过滤出我创建的群组
-	myGroups := make([]grouprsp.MyGroupListRespond, 0)
-	for _, grp := range allGroups {
-		if grp.OwnerId == userId {
-			myGroups = append(myGroups, grouprsp.MyGroupListRespond{
-				GroupId:   grp.Uuid,
-				GroupName: grp.Name,
-				Avatar:    grp.Avatar,
-			})
-		}
+	// 构建响应
+	myGroups := make([]grouprsp.MyGroupListRespond, 0, len(groups))
+	for _, grp := range groups {
+		myGroups = append(myGroups, grouprsp.MyGroupListRespond{
+			GroupId:   grp.Uuid,
+			GroupName: grp.Name,
+			Avatar:    grp.Avatar,
+		})
 	}
 
-	// 3. 内存分页
-	total := int64(len(myGroups))
-	start := (page - 1) * pageSize
-	end := start + pageSize
-	if start >= len(myGroups) {
-		return []grouprsp.MyGroupListRespond{}, total, nil
-	}
-	if end > len(myGroups) {
-		end = len(myGroups)
-	}
-
-	return myGroups[start:end], total, nil
+	return myGroups, total, nil
 }
 
 // GetJoinedGroups 获取我加入的群组（包含自己创建的）

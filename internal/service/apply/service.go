@@ -311,24 +311,7 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 // pageSize: 每页数量
 // 返回: 分页好友申请列表响应对象
 func (u *applyService) GetFriendApplyList(userId string, page, pageSize int) (*applyrsp.PagedFriendApplyListRespond, error) {
-	// 1. 查询待处理的申请记录
-	// 查询指向当前用户（作为目标）的所有待处理（PENDING）申请
-	applyList, err := u.repos.Apply.FindByTargetIdPending(userId)
-	if err != nil {
-		zap.L().Error("Find pending applies error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
-	total := int64(len(applyList))
-	// 如果没有申请，直接返回空切片
-	if total == 0 {
-		return &applyrsp.PagedFriendApplyListRespond{
-			Total: 0,
-			List:  []applyrsp.FriendApplyListRespond{},
-		}, nil
-	}
-
-	// 2. 分页处理
-	// 设置默认分页参数
+	// 1. 设置默认分页参数
 	if page < 1 {
 		page = 1
 	}
@@ -339,23 +322,25 @@ func (u *applyService) GetFriendApplyList(userId string, page, pageSize int) (*a
 		pageSize = 100
 	}
 
-	// 计算分页范围
-	start := (page - 1) * pageSize
-	end := start + pageSize
-	if start >= len(applyList) {
+	// 2. 数据库分页查询待处理的申请记录
+	applyList, total, err := u.repos.Apply.FindByTargetIdPendingPaged(userId, page, pageSize)
+	if err != nil {
+		zap.L().Error("Find pending applies error", zap.Error(err))
+		return nil, errorx.ErrServerBusy
+	}
+
+	// 如果没有申请，直接返回空切片
+	if total == 0 || len(applyList) == 0 {
 		return &applyrsp.PagedFriendApplyListRespond{
 			Total: total,
 			List:  []applyrsp.FriendApplyListRespond{},
 		}, nil
 	}
-	if end > len(applyList) {
-		end = len(applyList)
-	}
 
 	// 3. 收集当前页申请人ID
-	userUuids := make([]string, 0, end-start)
-	for i := start; i < end; i++ {
-		userUuids = append(userUuids, applyList[i].ApplicantId)
+	userUuids := make([]string, 0, len(applyList))
+	for _, apply := range applyList {
+		userUuids = append(userUuids, apply.ApplicantId)
 	}
 
 	// 4. 批量查询申请人信息
@@ -375,9 +360,8 @@ func (u *applyService) GetFriendApplyList(userId string, page, pageSize int) (*a
 	}
 
 	// 6. 组装响应数据
-	rsp := make([]applyrsp.FriendApplyListRespond, 0, end-start)
-	for i := start; i < end; i++ {
-		apply := applyList[i]
+	rsp := make([]applyrsp.FriendApplyListRespond, 0, len(applyList))
+	for _, apply := range applyList {
 		// 从Map中获取申请人详细信息
 		user, ok := userMap[apply.ApplicantId]
 		if !ok {
@@ -427,23 +411,7 @@ func (u *applyService) GetGroupApplyList(userId, groupId string, page, pageSize 
 		return nil, errorx.New(errorx.CodeForbidden, "你没有查看申请列表的权限")
 	}
 
-	// 2. 查询待处理的入群申请
-	// 查询指向该群组的所有待处理（PENDING）申请
-	applyList, err := u.repos.Apply.FindByTargetIdPending(groupId)
-	if err != nil {
-		zap.L().Error("Find group pending applies error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
-	total := int64(len(applyList))
-	if total == 0 {
-		return &applyrsp.PagedGroupApplyListRespond{
-			Total: 0,
-			List:  []applyrsp.GroupApplyListRespond{},
-		}, nil
-	}
-
-	// 3. 分页处理
-	// 设置默认分页参数
+	// 2. 设置默认分页参数
 	if page < 1 {
 		page = 1
 	}
@@ -454,23 +422,24 @@ func (u *applyService) GetGroupApplyList(userId, groupId string, page, pageSize 
 		pageSize = 100
 	}
 
-	// 计算分页范围
-	start := (page - 1) * pageSize
-	end := start + pageSize
-	if start >= len(applyList) {
+	// 3. 数据库分页查询待处理的入群申请
+	applyList, total, err := u.repos.Apply.FindByTargetIdPendingPaged(groupId, page, pageSize)
+	if err != nil {
+		zap.L().Error("Find group pending applies error", zap.Error(err))
+		return nil, errorx.ErrServerBusy
+	}
+
+	if total == 0 || len(applyList) == 0 {
 		return &applyrsp.PagedGroupApplyListRespond{
 			Total: total,
 			List:  []applyrsp.GroupApplyListRespond{},
 		}, nil
 	}
-	if end > len(applyList) {
-		end = len(applyList)
-	}
 
 	// 4. 收集当前页申请人ID
-	userUuids := make([]string, 0, end-start)
-	for i := start; i < end; i++ {
-		userUuids = append(userUuids, applyList[i].ApplicantId)
+	userUuids := make([]string, 0, len(applyList))
+	for _, apply := range applyList {
+		userUuids = append(userUuids, apply.ApplicantId)
 	}
 
 	// 5. 批量查询申请人信息
@@ -487,9 +456,8 @@ func (u *applyService) GetGroupApplyList(userId, groupId string, page, pageSize 
 	}
 
 	// 7. 组装响应数据
-	rsp := make([]applyrsp.GroupApplyListRespond, 0, end-start)
-	for i := start; i < end; i++ {
-		apply := applyList[i]
+	rsp := make([]applyrsp.GroupApplyListRespond, 0, len(applyList))
+	for _, apply := range applyList {
 		user, ok := userMap[apply.ApplicantId]
 		if !ok {
 			continue

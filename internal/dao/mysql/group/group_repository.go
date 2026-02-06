@@ -28,13 +28,31 @@ func (r *groupRepository) FindByUuid(uuid string) (*model.GroupInfo, error) {
 	return &group, nil
 }
 
-// FindByOwnerId 根据群主ID查找其创建的所有群组
-func (r *groupRepository) FindByOwnerId(ownerId string) ([]model.GroupInfo, error) {
+// FindByOwnerIdPaged 根据群主ID分页查找其创建的群组
+// ownerId: 群主用户UUID
+// page: 页码（从1开始）
+// pageSize: 每页数量
+// 返回: 群组列表、总数、错误
+func (r *groupRepository) FindByOwnerIdPaged(ownerId string, page, pageSize int) ([]model.GroupInfo, int64, error) {
 	var groups []model.GroupInfo
-	if err := r.db.Where("owner_id = ?", ownerId).Find(&groups).Error; err != nil {
-		return nil, errorx.WrapDBErrorf(err, "查询群组 owner_id=%s", ownerId)
+	var total int64
+
+	// 先统计总数
+	if err := r.db.Model(&model.GroupInfo{}).Where("owner_id = ?", ownerId).Count(&total).Error; err != nil {
+		return nil, 0, errorx.WrapDBErrorf(err, "统计群组数量 owner_id=%s", ownerId)
 	}
-	return groups, nil
+
+	// 计算偏移量并分页查询
+	offset := (page - 1) * pageSize
+	if err := r.db.Where("owner_id = ?", ownerId).
+		Order("created_at DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&groups).Error; err != nil {
+		return nil, 0, errorx.WrapDBErrorf(err, "分页查询群组 owner_id=%s", ownerId)
+	}
+
+	return groups, total, nil
 }
 
 // FindAll [管理员] 查找所有群组（包含软删除的）

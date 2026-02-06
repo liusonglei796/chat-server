@@ -32,16 +32,34 @@ func (r *applyRepository) FindByApplicantIdAndTargetId(applicantId, targetId str
 	return &apply, nil
 }
 
-// FindByTargetIdPending 查找目标用户的待处理申请
-// 用于获取收到的好友/入群请求列表
+// FindByTargetIdPendingPaged 分页查找目标用户的待处理申请
 // targetId: 目标用户/群组 UUID
-func (r *applyRepository) FindByTargetIdPending(targetId string) ([]model.Apply, error) {
+// page: 页码（从1开始）
+// pageSize: 每页数量
+// 返回: 申请列表、总数、错误
+func (r *applyRepository) FindByTargetIdPendingPaged(targetId string, page, pageSize int) ([]model.Apply, int64, error) {
 	var applies []model.Apply
-	// 只查询状态为 PENDING 的申请
-	if err := r.db.Where("target_id = ? AND status = ?", targetId, contact_apply_status_enum.PENDING).Find(&applies).Error; err != nil {
-		return nil, errorx.WrapDBErrorf(err, "查询待处理申请 target_id=%s", targetId)
+	var total int64
+
+	// 构建查询条件
+	query := r.db.Model(&model.Apply{}).Where("target_id = ? AND status = ?", targetId, contact_apply_status_enum.PENDING)
+
+	// 先统计总数
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, errorx.WrapDBErrorf(err, "统计待处理申请数量 target_id=%s", targetId)
 	}
-	return applies, nil
+
+	// 计算偏移量并分页查询，按申请时间倒序（最新的在前）
+	offset := (page - 1) * pageSize
+	if err := r.db.Where("target_id = ? AND status = ?", targetId, contact_apply_status_enum.PENDING).
+		Order("last_apply_at DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&applies).Error; err != nil {
+		return nil, 0, errorx.WrapDBErrorf(err, "分页查询待处理申请 target_id=%s", targetId)
+	}
+
+	return applies, total, nil
 }
 
 // CreateApply 创建新的申请记录
