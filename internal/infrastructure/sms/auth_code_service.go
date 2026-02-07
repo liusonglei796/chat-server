@@ -16,6 +16,7 @@ import (
 
 	"kama_chat_server/internal/config"
 	myredis "kama_chat_server/internal/dao/redis"
+	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/util/random"
 )
@@ -33,7 +34,7 @@ type localSmsService struct {
 }
 
 func (s *localSmsService) SendVerificationCode(telephone string) error {
-	key := "auth_code_" + telephone
+	key := constants.CacheKeyAuthCode + telephone
 	code, err := s.cache.Get(context.Background(), key)
 	if err != nil {
 		zap.L().Error("缓存频率检查异常", zap.Error(err), zap.String("phone", telephone))
@@ -120,7 +121,7 @@ func (s *aliyunSmsService) SendVerificationCode(telephone string) error {
 
 	// 2. 频率限制检查 (Throttling)
 	// 通过缓存接口查询该手机号是否已有未过期的验证码
-	key := "auth_code_" + telephone
+	key := constants.CacheKeyAuthCode + telephone
 	code, err := s.cache.Get(context.Background(), key)
 	if err != nil {
 		zap.L().Error("缓存频率检查异常", zap.Error(err), zap.String("phone", telephone))
