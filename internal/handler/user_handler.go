@@ -3,8 +3,6 @@
 package handler
 
 import (
-	"fmt"
-
 	"kama_chat_server/internal/dto/request/auth"
 	"kama_chat_server/internal/dto/request/user"
 	"kama_chat_server/internal/service"
@@ -36,7 +34,8 @@ func (h *UserHandler) Register(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	fmt.Println(req) // 调试输出，生产环境可删除
+	// 改进建议：生产环境应删除调试输出，避免敏感信息泄露
+	// fmt.Println(req) // DEBUG: 调试输出，生产环境必须删除
 
 	// 2. 调用 Service 层处理业务逻辑
 	data, err := h.userSvc.Register(req)

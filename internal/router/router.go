@@ -15,7 +15,7 @@ import (
 type Router struct {
 	handlers     *handler.Handlers
 	adminChecker middleware.AdminAuthChecker // 管理员权限实时校验回调
-	cache        myredis.CacheService       // Redis 缓存服务（限流等中间件使用）
+	cache        myredis.CacheService        // Redis 缓存服务（限流等中间件使用）
 }
 
 // NewRouter 创建路由管理器

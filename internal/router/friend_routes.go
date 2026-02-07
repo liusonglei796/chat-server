@@ -12,13 +12,13 @@ func (rt *Router) RegisterFriendRoutes(rg *gin.RouterGroup) {
 	friendGroup := rg.Group("/friends")
 	{
 		// ===== 查询 =====
-		friendGroup.GET("", rt.handlers.Friendship.GetFriendList)     // 获取好友列表
+		friendGroup.GET("", rt.handlers.Friendship.GetFriendList)      // 获取好友列表
 		friendGroup.GET("/info", rt.handlers.Friendship.GetFriendInfo) // 获取好友详情
 
 		// ===== 好友关系管理 =====
-		friendGroup.DELETE("", rt.handlers.Friendship.DeleteFriend)         // 删除好友
-		friendGroup.POST("/block", rt.handlers.Friendship.BlockFriend)      // 拉黑好友
-		friendGroup.DELETE("/block", rt.handlers.Friendship.UnblockFriend)   // 取消拉黑
+		friendGroup.DELETE("", rt.handlers.Friendship.DeleteFriend)        // 删除好友
+		friendGroup.POST("/block", rt.handlers.Friendship.BlockFriend)     // 拉黑好友
+		friendGroup.DELETE("/block", rt.handlers.Friendship.UnblockFriend) // 取消拉黑
 
 		// ===== 好友申请 =====
 		friendGroup.POST("/apply", rt.handlers.Apply.ApplyFriend)                // 申请添加好友

@@ -5,6 +5,6 @@ package group
 //
 // 说明: 仅群主或管理员可调用，支持批量移除群成员
 type RemoveGroupMembersRequest struct {
-	GroupId  string   `json:"group_id" binding:"required"`           // 群组ID
-	UuidList []string `json:"uuid_list" binding:"required,min=1"`    // 要移除的成员ID列表
+	GroupId  string   `json:"group_id" binding:"required"`        // 群组ID
+	UuidList []string `json:"uuid_list" binding:"required,min=1"` // 要移除的成员ID列表
 }

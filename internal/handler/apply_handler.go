@@ -257,5 +257,3 @@ func (h *ApplyHandler) BlackGroupApply(c *gin.Context) {
 	}
 	HandleSuccess(c, nil)
 }
-
-

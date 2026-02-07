@@ -51,12 +51,14 @@ func main() {
 	zap.L().Info("SMS Service 初始化成功")
 
 	// 7. 初始化 ChatServer（必须在 Services 之前，因为 UserService 需要 KickClient）
+	// 新增：传入 UserRepo 用于消息发送权限校验（检查用户是否被禁用）
 	chatServer := chat.NewChatServer(chat.ChatServerConfig{
 		MessageRepo:     repos.Message,
 		FriendshipRepo:  repos.Friendship,
 		GroupMemberRepo: repos.GroupMember,
 		SessionRepo:     repos.Session,
 		CacheService:    cacheService,
+		UserRepo:        repos.User, // 新增：用户仓库，用于检查用户状态
 	})
 	chatServer.InitKafka()
 	zap.L().Info("ChatServer 初始化成功")

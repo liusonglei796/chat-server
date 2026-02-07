@@ -6,6 +6,6 @@ package admin
 //
 // 说明: 仅管理员可调用，返回所有群组的分页列表
 type GetGroupInfoListRequest struct {
-	Page     int `form:"page" binding:"required,min=1"`           // 页码，从1开始
+	Page     int `form:"page" binding:"required,min=1"`              // 页码，从1开始
 	PageSize int `form:"page_size" binding:"required,min=1,max=100"` // 每页数量，最大100
 }

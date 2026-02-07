@@ -54,7 +54,7 @@ type MessageBack struct {
 type UserConn struct {
 	Conn        *websocket.Conn   // 底层 WebSocket 连接（通往用户浏览器的 TCP 管道）
 	Uuid        string            // 用户 ID（来自 JWT，可信）
-	SendBack    chan *MessageBack  // 待推送消息队列：Kafka 消费者写入 → Write goroutine 读取并推送到浏览器
+	SendBack    chan *MessageBack // 待推送消息队列：Kafka 消费者写入 → Write goroutine 读取并推送到浏览器
 	broker      MessageBroker     // 注入的消息代理（用于 Publish 上行消息、注销连接等）
 	cleanupOnce sync.Once         // 确保 cleanup 只执行一次（Read 退出和 ClientLogout 可能并发触发）
 }
@@ -74,13 +74,17 @@ var upgrader = websocket.Upgrader{
 // Read 从 WebSocket 读取消息
 // 安全: 服务端会用连接时认证的用户 ID 覆盖消息中的 SendId，防止 IDOR 攻击
 // 退出时通过 defer 执行 cleanup：注销客户端 → 关闭通道 → 关闭连接
+// 改进建议：当前只有读超时设置，建议添加整体消息处理超时控制
 func (c *UserConn) Read() {
 	// cleanup: Read 退出时必须释放资源，防止内存泄漏和幽灵连接
 	defer c.cleanup()
 
 	// 设置心跳：初始读超时 + pong 回调续期
+	// 改进建议：pongWait 定义了等待客户端 pong 响应的超时时间（60秒）
+	// 如果客户端在 60 秒内未响应 ping，连接将被断开
 	_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.Conn.SetPongHandler(func(string) error {
+		// 收到 pong 后重置读超时，保持连接活跃
 		_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})

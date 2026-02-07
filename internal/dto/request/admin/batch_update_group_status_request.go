@@ -8,6 +8,6 @@ package admin
 //   - disable: 禁用群组
 //   - delete: 删除群组
 type BatchUpdateGroupStatusRequest struct {
-	GroupUUIDs []string `json:"group_uuids" binding:"required,min=1"` // 群组ID列表
+	GroupUUIDs []string `json:"group_uuids" binding:"required,min=1"`                  // 群组ID列表
 	Action     string   `json:"action" binding:"required,oneof=enable disable delete"` // 操作类型
 }

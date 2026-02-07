@@ -22,12 +22,12 @@ type GroupApplyListRespond struct {
 
 // PagedGroupApplyListRespond 分页入群申请列表响应
 type PagedGroupApplyListRespond struct {
-	Total int64                      `json:"total"` // 总数量
-	List  []GroupApplyListRespond    `json:"list"`  // 申请列表
+	Total int64                   `json:"total"` // 总数量
+	List  []GroupApplyListRespond `json:"list"`  // 申请列表
 }
 
 // PagedFriendApplyListRespond 分页好友申请列表响应
 type PagedFriendApplyListRespond struct {
-	Total int64                       `json:"total"` // 总数量
-	List  []FriendApplyListRespond    `json:"list"`  // 申请列表
+	Total int64                    `json:"total"` // 总数量
+	List  []FriendApplyListRespond `json:"list"`  // 申请列表
 }

@@ -29,6 +29,7 @@ import (
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/message/message_status"
 	"kama_chat_server/pkg/enum/message/message_type"
+	"kama_chat_server/pkg/enum/user/user_status"
 	"os"
 	"sync"
 	"time"
@@ -53,10 +54,11 @@ type MsgConsumer struct {
 	// 依赖注入字段（遵循依赖倒置原则）
 	kafkaClient     *KafkaClient
 	messageRepo     mysql.MessageRepository
-	friendshipRepo  mysql.FriendshipRepository  // 用于消息权限校验（好友关系 + 拉黑检查）
+	friendshipRepo  mysql.FriendshipRepository // 用于消息权限校验（好友关系 + 拉黑检查）
 	groupMemberRepo mysql.GroupMemberRepository
-	sessionRepo     mysql.SessionRepository     // 用于更新会话最后消息
+	sessionRepo     mysql.SessionRepository // 用于更新会话最后消息
 	cacheService    myredis.AsyncCacheService
+	userRepo        mysql.UserRepository // 用于检查用户状态（是否被禁用）
 
 	// quit 用于接收退出信号以优雅关闭消费循环
 	quit chan os.Signal
@@ -70,6 +72,7 @@ func NewMsgConsumer(
 	groupMemberRepo mysql.GroupMemberRepository,
 	sessionRepo mysql.SessionRepository,
 	cacheService myredis.AsyncCacheService,
+	userRepo mysql.UserRepository, // 新增：用户仓库，用于检查用户状态
 ) *MsgConsumer {
 	return &MsgConsumer{
 		// sync.Map 零值即可用，无需显式初始化
@@ -81,6 +84,7 @@ func NewMsgConsumer(
 		groupMemberRepo: groupMemberRepo,
 		sessionRepo:     sessionRepo,
 		cacheService:    cacheService,
+		userRepo:        userRepo, // 新增：用户仓库
 		quit:            make(chan os.Signal, 1),
 	}
 }
@@ -267,12 +271,26 @@ func (k *MsgConsumer) KickClient(userId string, reason string) {
 }
 
 // checkSendPermission 校验发送者是否有权向目标发消息
-// 私聊: 检查好友关系（IsFriend 同时包含拉黑状态检查）
-// 群聊: 检查群成员身份
+// 1. 检查发送者状态（是否被禁用）
+// 2. 私聊: 检查好友关系（IsFriend 同时包含拉黑状态检查）
+// 3. 群聊: 检查群成员身份
 // 返回 nil 表示允许，返回 error 表示拒绝（error.Error() 包含拒绝原因）
 func (k *MsgConsumer) checkSendPermission(sendId, receiveId string) error {
 	if len(receiveId) == 0 {
 		return fmt.Errorf("接收者ID不能为空")
+	}
+
+	// 1. 检查发送者状态（严重安全漏洞修复：被禁用的用户不应能发送消息）
+	if k.userRepo != nil {
+		sender, err := k.userRepo.FindByUuid(sendId)
+		if err != nil {
+			zap.L().Error("查询发送者信息失败", zap.String("sendId", sendId), zap.Error(err))
+			return fmt.Errorf("权限校验失败")
+		}
+		if sender.Status == user_status.DISABLE {
+			zap.L().Warn("被禁用的用户尝试发送消息", zap.String("sendId", sendId))
+			return fmt.Errorf("您的账号已被禁用，无法发送消息")
+		}
 	}
 
 	if receiveId[0] == 'U' {
@@ -329,6 +347,47 @@ func trySendBack(client *UserConn, msg *MessageBack) {
 	}
 }
 
+// buildMessageFromRequest 从请求构建消息模型
+// 改进建议实现：提取公共逻辑，减少代码重复
+func (k *MsgConsumer) buildMessageFromRequest(req message.ChatMessageRequest) model.Message {
+	return model.Message{
+		Uuid:       "M" + snowflake.GenerateIDString(),
+		SessionId:  req.SessionId,
+		Type:       req.Type,
+		Content:    req.Content,
+		Url:        req.Url,
+		SendId:     req.SendId,
+		SendName:   req.SendName,
+		SendAvatar: normalizePath(req.SendAvatar), // 规范化头像路径
+		ReceiveId:  req.ReceiveId,
+		FileSize:   req.FileSize,
+		FileType:   req.FileType,
+		FileName:   req.FileName,
+		Status:     message_status.Unsent,
+		AVdata:     req.AVdata,
+	}
+}
+
+// persistMessage 持久化消息到数据库
+func (k *MsgConsumer) persistMessage(message *model.Message) {
+	if k.messageRepo != nil {
+		if err := k.messageRepo.Create(message); err != nil {
+			zap.L().Error("创建消息失败", zap.Error(err))
+		}
+	}
+}
+
+// updateSessionLastMessage 异步更新会话最后消息
+func (k *MsgConsumer) updateSessionLastMessage(message *model.Message, content string) {
+	if k.sessionRepo != nil {
+		go func() {
+			if err := k.sessionRepo.UpdateLastMessage(message.SendId, message.ReceiveId, content, message.Type, message.CreatedAt); err != nil {
+				zap.L().Error("更新会话最后消息失败", zap.Error(err))
+			}
+		}()
+	}
+}
+
 // handleTextMessage 处理文本消息
 // 1. 生成 Snowflake ID
 // 2. 将消息持久化到 MySQL
@@ -342,41 +401,20 @@ func (k *MsgConsumer) handleTextMessage(req message.ChatMessageRequest) {
 		return
 	}
 
-	// 构建数据库模型
-	message := model.Message{
-		Uuid:       "M" + snowflake.GenerateIDString(),
-		SessionId:  req.SessionId,
-		Type:       req.Type,
-		Content:    req.Content,
-		Url:        "",
-		SendId:     req.SendId,
-		SendName:   req.SendName,
-		SendAvatar: req.SendAvatar,
-		ReceiveId:  req.ReceiveId,
-		FileSize:   "0B",
-		FileType:   "",
-		FileName:   "",
-		Status:     message_status.Unsent,
-		AVdata:     "",
-	}
-	// 规范化头像路径
-	message.SendAvatar = normalizePath(message.SendAvatar)
+	// 改进建议实现：使用提取的公共函数构建消息
+	message := k.buildMessageFromRequest(req)
+	// 文本消息特有字段设置
+	message.Url = ""
+	message.FileSize = "0B"
+	message.FileType = ""
+	message.FileName = ""
+	message.AVdata = ""
 
 	// 通过 Repository 接口入库
-	if k.messageRepo != nil {
-		if err := k.messageRepo.Create(&message); err != nil {
-			zap.L().Error("创建消息失败", zap.Error(err))
-		}
-	}
+	k.persistMessage(&message)
 
 	// 异步更新会话最后消息（用于会话列表排序和摘要显示）
-	if k.sessionRepo != nil {
-		go func() {
-			if err := k.sessionRepo.UpdateLastMessage(message.SendId, message.ReceiveId, message.Content, message.Type, message.CreatedAt); err != nil {
-				zap.L().Error("更新会话最后消息失败", zap.Error(err))
-			}
-		}()
-	}
+	k.updateSessionLastMessage(&message, message.Content)
 
 	// 路由分发
 	if message.ReceiveId[0] == 'U' { // 发送给User
@@ -388,6 +426,7 @@ func (k *MsgConsumer) handleTextMessage(req message.ChatMessageRequest) {
 
 // handleFileMessage 处理文件消息
 // 逻辑与文本消息类似，区别在于 Content 为空，Url 字段存储文件链接
+// 改进建议实现：使用提取的公共函数减少代码重复
 func (k *MsgConsumer) handleFileMessage(req message.ChatMessageRequest) {
 	// 权限校验：检查发送者是否有权向目标发消息
 	if err := k.checkSendPermission(req.SendId, req.ReceiveId); err != nil {
@@ -396,47 +435,23 @@ func (k *MsgConsumer) handleFileMessage(req message.ChatMessageRequest) {
 		return
 	}
 
-	// 构建数据库模型
-	message := model.Message{
-		Uuid:       "M" + snowflake.GenerateIDString(),
-		SessionId:  req.SessionId,
-		Type:       req.Type,
-		Content:    "",
-		Url:        req.Url,
-		SendId:     req.SendId,
-		SendName:   req.SendName,
-		SendAvatar: req.SendAvatar,
-		ReceiveId:  req.ReceiveId,
-		FileSize:   req.FileSize,
-		FileType:   req.FileType,
-		FileName:   req.FileName,
-		Status:     message_status.Unsent,
-		AVdata:     "",
-	}
-	// 规范化头像路径
-	message.SendAvatar = normalizePath(message.SendAvatar)
+	// 改进建议实现：使用提取的公共函数构建消息
+	message := k.buildMessageFromRequest(req)
+	// 文件消息特有字段设置
+	message.Content = ""
+	message.AVdata = ""
 
 	// 通过 Repository 接口入库
-	if k.messageRepo != nil {
-		if err := k.messageRepo.Create(&message); err != nil {
-			zap.L().Error("创建文件消息失败", zap.Error(err))
-		}
-	}
+	k.persistMessage(&message)
 
 	// 异步更新会话最后消息（文件消息显示文件名作为摘要）
-	if k.sessionRepo != nil {
-		content := "[文件] " + req.FileName
-		go func() {
-			if err := k.sessionRepo.UpdateLastMessage(message.SendId, message.ReceiveId, content, message.Type, message.CreatedAt); err != nil {
-				zap.L().Error("更新会话最后消息失败", zap.Error(err))
-			}
-		}()
-	}
+	content := "[文件] " + req.FileName
+	k.updateSessionLastMessage(&message, content)
 
 	// 路由分发
 	if message.ReceiveId[0] == 'U' {
 		k.dispatchToUser(message, req.SendAvatar)
-	} else {
+	} else if message.ReceiveId[0] == 'G' {
 		k.dispatchToGroup(message, req.SendAvatar)
 	}
 }

@@ -73,6 +73,9 @@ type ChatServer struct {
 
 	// cacheService 缓存服务
 	cacheService myredis.AsyncCacheService
+
+	// userRepo 用户 Repository（用于检查用户状态，如是否被禁用）
+	userRepo mysql.UserRepository
 }
 
 // ChatServerConfig 聊天服务器配置
@@ -82,6 +85,7 @@ type ChatServerConfig struct {
 	GroupMemberRepo mysql.GroupMemberRepository
 	SessionRepo     mysql.SessionRepository
 	CacheService    myredis.AsyncCacheService
+	UserRepo        mysql.UserRepository // 新增：用户仓库，用于消息发送权限校验
 }
 
 // NewChatServer 创建聊天服务器实例
@@ -92,11 +96,13 @@ func NewChatServer(cfg ChatServerConfig) *ChatServer {
 		groupMemberRepo: cfg.GroupMemberRepo,
 		sessionRepo:     cfg.SessionRepo,
 		cacheService:    cfg.CacheService,
+		userRepo:        cfg.UserRepo, // 新增：用户仓库
 	}
 
 	// 初始化 Kafka 客户端和消费者
 	cs.KafkaClient = NewKafkaClient()
-	cs.Broker = NewMsgConsumer(cs.KafkaClient, cs.messageRepo, cs.friendshipRepo, cs.groupMemberRepo, cs.sessionRepo, cs.cacheService)
+	// 新增：传递 userRepo 用于消息发送权限校验（检查用户是否被禁用）
+	cs.Broker = NewMsgConsumer(cs.KafkaClient, cs.messageRepo, cs.friendshipRepo, cs.groupMemberRepo, cs.sessionRepo, cs.cacheService, cs.userRepo)
 
 	return cs
 }

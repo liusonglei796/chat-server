@@ -11,8 +11,8 @@ import (
 func (rt *Router) RegisterUserRoutes(rg *gin.RouterGroup) {
 	userGroup := rg.Group("/user")
 	{
-		userGroup.PUT("/info", rt.handlers.User.UpdateUserInfo)         // 更新用户信息
-		userGroup.GET("/info", rt.handlers.User.GetUserInfo)            // 获取当前用户详情
+		userGroup.PUT("/info", rt.handlers.User.UpdateUserInfo)           // 更新用户信息
+		userGroup.GET("/info", rt.handlers.User.GetUserInfo)              // 获取当前用户详情
 		userGroup.GET("/public-info", rt.handlers.User.GetPublicUserInfo) // 获取他人公开信息
 	}
 }

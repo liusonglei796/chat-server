@@ -3,8 +3,8 @@ package handler
 import (
 	"github.com/gin-gonic/gin"
 
-	"kama_chat_server/internal/dto/request/friendship"
 	adminreq "kama_chat_server/internal/dto/request/admin"
+	"kama_chat_server/internal/dto/request/friendship"
 	"kama_chat_server/internal/service"
 )
 

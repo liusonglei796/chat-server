@@ -13,13 +13,13 @@ import (
 	applyrsp "kama_chat_server/internal/dto/respond/apply"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
+	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/apply/apply_status"
 	"kama_chat_server/pkg/enum/apply/apply_type"
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
 	"kama_chat_server/pkg/enum/group/add_mode"
 	"kama_chat_server/pkg/enum/group/group_status"
 	"kama_chat_server/pkg/enum/user/user_status"
-	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
 	cacheutil "kama_chat_server/pkg/util/cache"
 )
@@ -100,8 +100,8 @@ func (u *applyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 				Uuid:        fmt.Sprintf("A%s", snowflake.GenerateIDString()), // 生成唯一的申请记录UUID
 				ApplicantId: userId,                                           // 设置申请人ID
 				TargetId:    req.FriendId,                                     // 设置目标用户ID
-				ContactType: apply_type.USER,                           // 设置联系类型为用户
-				Status:      apply_status.PENDING,                // 初始状态为待处理
+				ContactType: apply_type.USER,                                  // 设置联系类型为用户
+				Status:      apply_status.PENDING,                             // 初始状态为待处理
 				Message:     req.Message,                                      // 设置申请附带的留言信息
 				LastApplyAt: time.Now(),                                       // 设置申请时间为当前时间
 			}

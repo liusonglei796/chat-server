@@ -186,5 +186,3 @@ func (s *aliyunSmsService) SendVerificationCode(telephone string) error {
 
 	return nil
 }
-
-

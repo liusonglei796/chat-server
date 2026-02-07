@@ -25,6 +25,6 @@ func (rt *Router) RegisterAuthRoutes(rg *gin.RouterGroup) {
 		authGroup.POST("/sms-code", smsLimiter, rt.handlers.User.SendSmsCode) // 发送短信验证码
 
 		authGroup.POST("/register", rt.handlers.User.Register)    // 用户注册
-		authGroup.POST("/refresh", rt.handlers.Auth.RefreshToken)  // 刷新 Access Token
+		authGroup.POST("/refresh", rt.handlers.Auth.RefreshToken) // 刷新 Access Token
 	}
 }

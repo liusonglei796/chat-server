@@ -80,7 +80,7 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 		})
 
 	case "disable":
-		
+
 		err := s.repos.Transaction(func(txRepos *mysql.Repositories) error {
 			if err := txRepos.User.UpdateUserStatusByUuids(req.UserUUIDs, user_status.DISABLE); err != nil {
 				zap.L().Error("Batch disable users error", zap.Error(err))

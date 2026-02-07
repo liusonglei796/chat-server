@@ -115,9 +115,9 @@ const (
 	CodeUnauthorized    = 1006 // 未授权/认证失败
 	CodeForbidden       = 1007 // 无权限/禁止访问
 	CodeNotFound        = 1008 // 资源不存在
-	CodeDBError          = 1010 // 数据库错误
-	CodeCacheError       = 1011 // 缓存错误
-	CodeTooManyRequests  = 1012 // 请求过于频繁（限流）
+	CodeDBError         = 1010 // 数据库错误
+	CodeCacheError      = 1011 // 缓存错误
+	CodeTooManyRequests = 1012 // 请求过于频繁（限流）
 )
 
 // 预定义常用错误实例

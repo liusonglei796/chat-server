@@ -11,28 +11,28 @@ import (
 // Handlers 聚合所有 Handler 实例
 // 作为依赖注入的入口，Router 层通过此结构访问各个 Handler
 type Handlers struct {
-	User    *UserHandler
-	Auth    *AuthHandler
+	User       *UserHandler
+	Auth       *AuthHandler
 	Friendship *FriendshipHandler
-	Apply   *ApplyHandler
-	Group   *GroupHandler
-	Session *SessionHandler
-	Message *MessageHandler
-	Ws      *WsHandler
-	Admin   *AdminHandler // 后台管理
+	Apply      *ApplyHandler
+	Group      *GroupHandler
+	Session    *SessionHandler
+	Message    *MessageHandler
+	Ws         *WsHandler
+	Admin      *AdminHandler // 后台管理
 }
 
 // NewHandlers 创建并注入所有 Handler 实例
 func NewHandlers(svc *service.Services, broker chat.MessageBroker) *Handlers {
 	return &Handlers{
-		User:    NewUserHandler(svc.User),
-		Auth:    NewAuthHandler(svc.Auth),
+		User:       NewUserHandler(svc.User),
+		Auth:       NewAuthHandler(svc.Auth),
 		Friendship: NewFriendshipHandler(svc.Friendship, svc.Group),
-		Apply:   NewApplyHandler(svc.Apply),
-		Group:   NewGroupHandler(svc.Group),
-		Session: NewSessionHandler(svc.Session),
-		Message: NewMessageHandler(svc.Message),
-		Ws:      NewWsHandler(broker),
-		Admin:   NewAdminHandler(svc.UserAdmin, svc.GroupAdmin),
+		Apply:      NewApplyHandler(svc.Apply),
+		Group:      NewGroupHandler(svc.Group),
+		Session:    NewSessionHandler(svc.Session),
+		Message:    NewMessageHandler(svc.Message),
+		Ws:         NewWsHandler(broker),
+		Admin:      NewAdminHandler(svc.UserAdmin, svc.GroupAdmin),
 	}
 }

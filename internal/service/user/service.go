@@ -243,6 +243,7 @@ func (u *userInfoService) Register(registerReq auth.RegisterRequest) (*userrsp.R
 // UpdateUserInfo 修改用户信息
 // UpdateUserInfo 修改用户信息 (userId 从 JWT 获取，只能改自己)
 // 使用指针类型区分"未传字段"(nil=不更新)和"清空字段"(""=置空)
+// 警告问题修复：使用数据库事务确保用户信息和会话信息的一致性
 func (u *userInfoService) UpdateUserInfo(userId string, updateReq userreq.UpdateUserInfoRequest) error {
 	user, err := u.repos.User.FindByUuid(userId)
 	if err != nil {
@@ -267,24 +268,34 @@ func (u *userInfoService) UpdateUserInfo(userId string, updateReq userreq.Update
 	if updateReq.Avatar != nil {
 		user.Avatar = *updateReq.Avatar
 	}
-	if err := u.repos.User.UpdateUserInfo(user); err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
-	}
 
-	// 同步更新 Session 表冗余字段（昵称/头像变更时保持一致性）
-	sessionUpdates := make(map[string]interface{})
-	if updateReq.Nickname != nil {
-		sessionUpdates["receive_name"] = *updateReq.Nickname
-	}
-	if updateReq.Avatar != nil {
-		sessionUpdates["avatar"] = *updateReq.Avatar
-	}
-	if len(sessionUpdates) > 0 {
-		if err := u.repos.Session.UpdateByReceiveId(userId, sessionUpdates); err != nil {
-			zap.L().Error("同步 Session 冗余字段失败", zap.String("userId", userId), zap.Error(err))
-			// 不阻塞主流程，仅记录日志
+	// 警告问题修复：使用事务管理确保数据一致性
+	// 事务内的操作：1.更新用户信息 2.更新会话冗余字段
+	// 任一操作失败都会回滚，保证数据一致性
+	if err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
+		// 1. 在事务内更新用户信息
+		if err := txRepos.User.UpdateUserInfo(user); err != nil {
+			return err
 		}
+
+		// 2. 在事务内同步更新 Session 表冗余字段（昵称/头像变更时保持一致性）
+		sessionUpdates := make(map[string]interface{})
+		if updateReq.Nickname != nil {
+			sessionUpdates["receive_name"] = *updateReq.Nickname
+		}
+		if updateReq.Avatar != nil {
+			sessionUpdates["avatar"] = *updateReq.Avatar
+		}
+		if len(sessionUpdates) > 0 {
+			if err := txRepos.Session.UpdateByReceiveId(userId, sessionUpdates); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		zap.L().Error("更新用户信息事务失败", zap.String("userId", userId), zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
 	// 异步清理缓存（含空值标记，防止空值缓存残留导致数据不一致）

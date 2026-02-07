@@ -12,8 +12,8 @@ func (rt *Router) RegisterMessageRoutes(rg *gin.RouterGroup) {
 	// ===== 消息查询 =====
 	messageGroup := rg.Group("/messages")
 	{
-		messageGroup.GET("/direct", rt.handlers.Message.GetMessageList)      // 获取私聊消息记录
-		messageGroup.GET("/group", rt.handlers.Message.GetGroupMessageList)  // 获取群聊消息记录
+		messageGroup.GET("/direct", rt.handlers.Message.GetMessageList)     // 获取私聊消息记录
+		messageGroup.GET("/group", rt.handlers.Message.GetGroupMessageList) // 获取群聊消息记录
 	}
 
 	// ===== 文件上传（独立前缀） =====
