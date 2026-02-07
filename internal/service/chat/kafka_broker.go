@@ -380,9 +380,9 @@ func (k *MsgConsumer) handleTextMessage(req message.ChatMessageRequest) {
 
 	// 路由分发
 	if message.ReceiveId[0] == 'U' { // 发送给User
-		k.sendToUser(message, req.SendAvatar)
+		k.dispatchToUser(message, req.SendAvatar)
 	} else if message.ReceiveId[0] == 'G' { // 发送给Group
-		k.sendToGroup(message, req.SendAvatar)
+		k.dispatchToGroup(message, req.SendAvatar)
 	}
 }
 
@@ -435,9 +435,9 @@ func (k *MsgConsumer) handleFileMessage(req message.ChatMessageRequest) {
 
 	// 路由分发
 	if message.ReceiveId[0] == 'U' {
-		k.sendToUser(message, req.SendAvatar)
+		k.dispatchToUser(message, req.SendAvatar)
 	} else {
-		k.sendToGroup(message, req.SendAvatar)
+		k.dispatchToGroup(message, req.SendAvatar)
 	}
 }
 
@@ -522,12 +522,12 @@ func (k *MsgConsumer) handleAVMessage(req message.ChatMessageRequest) {
 	}
 }
 
-// sendToUser 辅助方法：发送消息给单独用户
+// dispatchToUser 将消息分发到私聊双方的 SendBack channel
 // 1. 构造响应 DTO
-// 2. 通过 WebSocket 推送给接收者 (如果在线)
-// 3. 回显给发送者 (如果在线)
+// 2. 写入接收者的 SendBack channel（由 Write goroutine 真正推送到 WebSocket）
+// 3. 回显到发送者的 SendBack channel
 // 4. 异步更新 Redis 中的双人聊天记录缓存
-func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
+func (k *MsgConsumer) dispatchToUser(message model.Message, originalAvatar string) {
 	// 构造响应体
 	messageRsp := messagersp.GetMessageListRespond{
 		SendId:     message.SendId,
@@ -555,13 +555,13 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 		Uuid:    message.Uuid,
 	}
 
-	// 消息投递 (sync.Map 自动处理并发安全，非阻塞写入)
-	// 给接收者发
+	// 消息分发到 SendBack channel (sync.Map 自动处理并发安全，非阻塞写入)
+	// 给接收者分发
 	if value, ok := k.Clients.Load(message.ReceiveId); ok {
 		receiveClient := value.(*UserConn)
 		trySendBack(receiveClient, messageBack)
 	}
-	// 给发送者回显
+	// 给发送者回显（让发送者确认消息已处理）
 	if value, ok := k.Clients.Load(message.SendId); ok {
 		sendClient := value.(*UserConn)
 		trySendBack(sendClient, messageBack)
@@ -590,13 +590,13 @@ func (k *MsgConsumer) sendToUser(message model.Message, originalAvatar string) {
 	}
 }
 
-// sendToGroup 辅助方法：发送消息给群组
+// dispatchToGroup 将消息分发到群组各成员的 SendBack channel
 // 1. 构造群组响应 DTO
-// 2. 查询群成员列表
-// 3. 遍历成员并通过 WebSocket 推送消息 (排除发送者自己)
-// 4. 回显给发送者
+// 2. 查询群成员列表（优先走 Redis 缓存）
+// 3. 遍历成员，写入各自的 SendBack channel（排除发送者）
+// 4. 回显到发送者的 SendBack channel
 // 5. 异步更新 Redis 中的群组聊天记录缓存
-func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) {
+func (k *MsgConsumer) dispatchToGroup(message model.Message, originalAvatar string) {
 	// 构造群聊响应
 	messageRsp := messagersp.GetMessageListRespond{
 		SendId:     message.SendId,
@@ -630,16 +630,16 @@ func (k *MsgConsumer) sendToGroup(message model.Message, originalAvatar string) 
 		groupMembers = k.getGroupMembersCached(message.ReceiveId)
 	}
 
-	// 分发消息 (sync.Map 自动处理并发安全，非阻塞写入)
+	// 分发到各成员的 SendBack channel (sync.Map 自动处理并发安全，非阻塞写入)
 	for _, gm := range groupMembers {
 		if gm.UserUuid != message.SendId {
-			// 推送给其他成员
+			// 分发给其他成员
 			if value, ok := k.Clients.Load(gm.UserUuid); ok {
 				receiveClient := value.(*UserConn)
 				trySendBack(receiveClient, messageBack)
 			}
 		} else {
-			// 回显给自己
+			// 回显给发送者
 			if value, ok := k.Clients.Load(message.SendId); ok {
 				sendClient := value.(*UserConn)
 				trySendBack(sendClient, messageBack)

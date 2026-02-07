@@ -34,27 +34,29 @@ const (
 	writeWait = 10 * time.Second
 )
 
-// MessageBack 用于向 WebSocket 客户端推送消息
-// 包含实际的 JSON 消息体和用于状态更新的消息 ID
-// 场景：
-// 1. 推送给接收者（Let users see new messages）
-// 2. 回显给发送者（Let sender confirm message sent）
+// MessageBack 待推送给浏览器的消息载体
+// 面向对象：一条聊天消息（1 条消息 = 1 个 MessageBack 实例）
+// 生命周期：由 Kafka 消费者在 dispatchToUser/dispatchToGroup 中创建，
+//
+//	写入 UserConn.SendBack channel，由 Write goroutine 取出后推送到浏览器
+//
+// 字段说明：
+//   - Message: 序列化后的 JSON 响应体（即前端最终收到的完整 JSON）
+//   - Uuid:    消息 ID，Write goroutine 推送成功后据此更新 MySQL 消息状态为"已发送"
 type MessageBack struct {
-	Message []byte
-	Uuid    string
+	Message []byte // 序列化后的 JSON 响应体（GetMessageListRespond / AVMessageRespond）
+	Uuid    string // 消息唯一标识，用于推送成功后更新 message.status = Sent
 }
 
-// UserConn 表示一个 WebSocket 客户端连接
-// 代表的是你的后端服务器和用户浏览器之间的一条那根网线。
-//
-//	有了 WebSocket： 用户 B 和服务器之间建立了一根"长管子"。服务器一旦收到 A 发给 B 的消息，不需要等 B 询问，直接顺着这根管子把消息"推"到 B 的屏幕上。
+// UserConn 一个在线用户的 WebSocket 连接（1 个在线用户 = 1 个 UserConn 实例）
+// 面向对象：用户的网络连接（不是消息本身）
+// 生命周期：用户登录时由 NewClientInit 创建，断开/登出时由 cleanup 销毁
 type UserConn struct {
-	Conn        *websocket.Conn
-	Uuid        string
-	SendTo      chan []byte       // 缓冲通道（Channel 模式备用）
-	SendBack    chan *MessageBack // 给前端
-	broker      MessageBroker     // 注入的消息代理
-	cleanupOnce sync.Once         // 确保 cleanup 只执行一次（Read 退出 和 ClientLogout 可能并发触发）
+	Conn        *websocket.Conn   // 底层 WebSocket 连接（通往用户浏览器的 TCP 管道）
+	Uuid        string            // 用户 ID（来自 JWT，可信）
+	SendBack    chan *MessageBack  // 待推送消息队列：Kafka 消费者写入 → Write goroutine 读取并推送到浏览器
+	broker      MessageBroker     // 注入的消息代理（用于 Publish 上行消息、注销连接等）
+	cleanupOnce sync.Once         // 确保 cleanup 只执行一次（Read 退出和 ClientLogout 可能并发触发）
 }
 
 //  gorilla/websocket 默认的安全机制会拦截跨域请求。
@@ -98,8 +100,8 @@ func (c *UserConn) Read() {
 
 		zap.L().Debug("ws received message", zap.String("userId", c.Uuid), zap.String("message", string(jsonMessage)))
 
-		// 安全: 注入真实的用户 ID，覆盖客户端传入的 send_id（防止 IDOR）
-		securedMessage := injectRealSenderId(jsonMessage, c.Uuid)
+		// 安全: 由服务端注入 send_id，客户端不传此字段（防止 IDOR）
+		securedMessage := injectSenderId(jsonMessage, c.Uuid)
 
 		// 通过接口发布消息，不关心具体实现
 		if err := c.broker.Publish(context.Background(), securedMessage); err != nil {
@@ -120,10 +122,7 @@ func (c *UserConn) cleanup() {
 		// 2. 安全关闭 SendBack 通道（让 Write goroutine 退出 range 循环）
 		safeCloseMessageBackChan(c.SendBack)
 
-		// 3. 安全关闭 SendTo 通道
-		safeCloseBytesChan(c.SendTo)
-
-		// 4. 关闭 WebSocket 连接
+		// 3. 关闭 WebSocket 连接
 		if err := c.Conn.Close(); err != nil {
 			zap.L().Warn("ws close connection error", zap.String("userId", c.Uuid), zap.Error(err))
 		}
@@ -142,27 +141,17 @@ func safeCloseMessageBackChan(ch chan *MessageBack) {
 	close(ch)
 }
 
-// safeCloseBytesChan 安全关闭 []byte 通道，防止 double-close panic
-func safeCloseBytesChan(ch chan []byte) {
-	defer func() {
-		if r := recover(); r != nil {
-			zap.L().Warn("SendTo channel already closed", zap.Any("recover", r))
-		}
-	}()
-	close(ch)
-}
-
-// injectRealSenderId 将真实的用户 ID 注入消息，覆盖客户端传入的 send_id
-// 这是防止 WebSocket 消息 IDOR 攻击的关键安全措施
-func injectRealSenderId(jsonMessage []byte, realUserId string) []byte {
+// injectSenderId 由服务端注入经过 JWT 认证的用户 ID 作为 send_id
+// 客户端无需（也不应）传入 send_id，防止 IDOR 攻击
+func injectSenderId(jsonMessage []byte, userId string) []byte {
 	var msg map[string]interface{}
 	if err := json.Unmarshal(jsonMessage, &msg); err != nil {
 		zap.L().Error("Failed to unmarshal message for security injection", zap.Error(err))
 		return jsonMessage // 如果解析失败，原样返回（后续会被校验拦截）
 	}
 
-	// 覆盖 send_id 字段
-	msg["send_id"] = realUserId
+	// 注入 send_id 字段
+	msg["send_id"] = userId
 
 	securedMessage, err := json.Marshal(msg)
 	if err != nil {
@@ -226,7 +215,6 @@ func NewClientInit(c *gin.Context, clientId string, broker MessageBroker) {
 	client := &UserConn{
 		Conn:     conn,
 		Uuid:     clientId,
-		SendTo:   make(chan []byte, constants.CHANNEL_SIZE),
 		SendBack: make(chan *MessageBack, constants.CHANNEL_SIZE),
 		broker:   broker,
 	}
