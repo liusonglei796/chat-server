@@ -16,6 +16,7 @@
 |---------|---------|------|
 | `ApplyFriendRequest` | - | 申请添加好友（无响应） |
 | `BlockContactRequest` | - | 拉黑/取消拉黑联系人（无响应） |
+| `UpdateRemarkRequest` | - | 更新好友备注（无响应） |
 | - | `GetContactInfoRespond` | 获取联系人信息（使用通用结构） |
 | - | `GetFriendInfoRespond` | 获取好友信息（使用通用结构） |
 | - | `MyUserListRespond` | 我的好友列表 |
@@ -32,6 +33,7 @@
 | `LeaveGroupRequest` | - | 退出群聊（无响应） |
 | `RemoveGroupMembersRequest` | - | 移除群成员（无响应） |
 | `SetGroupsStatusRequest` | - | 批量设置群组状态（无响应） |
+| `MuteMemberRequest` | - | 群成员禁言/取消禁言（无响应） |
 | `PagedRequest` | `GetGroupListRespond` | 分页获取群组列表 |
 | `PagedRequest` | `GetGroupListWrapper` | 群组列表包装（含分页） |
 | - | `GetGroupDetailRespond` | 获取群组详情 |
@@ -56,6 +58,7 @@
 | `CreateSessionRequest` | `string` | 创建会话（返回 session_id） |
 | `OpenSessionRequest` | `string` | 打开会话（返回 session_id） |
 | `CheckSessionAllowedRequest` | `bool` | 检查会话权限（返回是否允许） |
+| `PinSessionRequest` | - | 会话置顶/取消置顶（无响应） |
 | `BatchDeleteRequest` | - | 删除会话（无响应） |
 | - | `UserSessionListRespond` | 用户会话列表 |
 | - | `GroupSessionListRespond` | 群组会话列表 |
@@ -65,6 +68,7 @@
 | Request | Respond | 说明 |
 |---------|---------|------|
 | `ChatMessageRequest` | - | 聊天消息（WebSocket，无响应） |
+| `RecallMessageRequest` | - | 消息撤回（无响应） |
 | `GetMessageListRequest` | `GetMessageListRespond` | 获取聊天记录 |
 | - | `GetGroupMessageListRespond` | 获取群聊消息 |
 | - | `AVMessageRespond` | 音视频消息 |

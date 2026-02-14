@@ -22,6 +22,7 @@
 |------|--------|------|
 | `apply_friend_request.go` | `ApplyFriendRequest` | 申请添加好友 |
 | `block_contact_request.go` | `BlockContactRequest` | 拉黑/取消拉黑联系人 |
+| `update_remark_request.go` | `UpdateRemarkRequest` | 更新好友备注请求 |
 
 ### 群组相关
 | 文件 | 结构体 | 说明 |
@@ -33,6 +34,7 @@
 | `leave_group_request.go` | `LeaveGroupRequest` | 退出群聊 |
 | `remove_group_members_request.go` | `RemoveGroupMembersRequest` | 移除群成员（批量） |
 | `set_groups_status_request.go` | `SetGroupsStatusRequest` | 批量设置群组状态 |
+| `mute_member_request.go` | `MuteMemberRequest` | 群成员禁言请求 |
 
 ### 申请相关
 | 文件 | 结构体 | 说明 |
@@ -49,6 +51,7 @@
 | `create_session_request.go` | `CreateSessionRequest` | 创建会话 |
 | `open_session_request.go` | `OpenSessionRequest` | 打开会话 |
 | `check_session_allowed_request.go` | `CheckSessionAllowedRequest` | 检查会话权限 |
+| `pin_session_request.go` | `PinSessionRequest` | 会话置顶请求 |
 
 ### 消息相关
 | 文件 | 结构体 | 说明 |
@@ -56,6 +59,7 @@
 | `chat_message_request.go` | `ChatMessageRequest` | 聊天消息（WebSocket） |
 | `chat_message_request.go` | `AVData` | 音视频消息数据 |
 | `get_message_list_request.go` | `GetMessageListRequest` | 获取聊天记录 |
+| `recall_message_request.go` | `RecallMessageRequest` | 消息撤回请求 |
 
 ### 管理员相关
 | 文件 | 结构体 | 说明 |
