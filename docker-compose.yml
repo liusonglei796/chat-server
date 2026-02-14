@@ -1,0 +1,29 @@
+version: '3'
+services:
+  kafka:
+    image: apache/kafka:4.1.1
+    container_name: kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      # Unique ID for this node in the cluster
+      KAFKA_NODE_ID: 1
+      # Run as both broker and controller (KRaft mode)
+      KAFKA_PROCESS_ROLES: broker,controller
+      # Listeners for client and controller communication
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      # Advertised listeners for clients to connect (localhost for local dev)
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      # Listener names used for the controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Map listener names to security protocols
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      # Voters for the controller quorum (node_id@host:port)
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      # Replication factors for internal topics (set to 1 for single node)
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3

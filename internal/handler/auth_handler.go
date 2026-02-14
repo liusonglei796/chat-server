@@ -1,0 +1,88 @@
+// Package handler 提供 HTTP 请求处理器
+// 本文件处理认证相关的 API 请求
+package handler
+
+import (
+	"kama_chat_server/internal/dto/request/auth"
+	"kama_chat_server/internal/service"
+	"kama_chat_server/pkg/errorx"
+	"kama_chat_server/pkg/util/jwt"
+
+	"github.com/gin-gonic/gin"
+)
+
+// AuthHandler 认证请求处理器
+// 通过构造函数注入 AuthService，遵循依赖倒置原则
+type AuthHandler struct {
+	authSvc service.AuthService
+}
+
+// NewAuthHandler 创建认证处理器实例
+// authSvc: 认证服务接口
+func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
+	return &AuthHandler{authSvc: authSvc}
+}
+
+// RefreshToken 刷新 Access Token
+// POST /auth/refresh
+// 请求体: auth.RefreshTokenRequest
+// 响应: { access_token: string }
+// 功能:
+//   - 验证 Refresh Token 是否有效
+//   - 验证 Token ID 是否与 Redis 中存储的一致（单点互踢）
+//   - 生成新的 Access Token
+//
+// 单点互踢机制:
+//   - 用户登录时会在 Redis 中存储 Token ID
+//   - 如果用户在其他设备登录，会覆盖旧的 Token ID
+//   - 使用旧 Token ID 刷新时会被拒绝
+func (h *AuthHandler) RefreshToken(c *gin.Context) {
+	var req auth.RefreshTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+	// 1. 解析 Refresh Token
+	claims, err := jwt.ParseToken(req.RefreshToken)
+	if err != nil {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "Refresh Token 已过期或无效，请重新登录"))
+		return
+	}
+
+	// 2. 验证是否为 Refresh Token（防止使用 Access Token 刷新）
+	if claims.Subject != "refresh_token" {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请使用 Refresh Token"))
+		return
+	}
+
+	// 3. 通过 Service 层验证 Token ID，实现单点互踢（遵循依赖倒置原则）
+	valid, err := h.authSvc.ValidateTokenID(claims.UserID, claims.TokenID)
+	if err != nil {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "登录状态已失效，请重新登录"))
+		return
+	}
+
+	// 4. 比对 Token ID（如果不一致，说明用户在其他设备登录过）
+	if !valid {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "您的账号已在其他设备登录，请重新登录"))
+		return
+	}
+
+	// 5. 获取用户最新的管理员状态（确保权限变更能及时生效）
+	isAdmin, err := h.authSvc.GetUserIsAdmin(claims.UserID)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	// 6. 生成新的 Access Token（带最新的 isAdmin 状态）
+	newAccessToken, err := jwt.GenerateAccessToken(claims.UserID, isAdmin)
+	if err != nil {
+		HandleError(c, errorx.ErrServerBusy)
+		return
+	}
+
+	HandleSuccess(c, gin.H{
+		"access_token": newAccessToken,
+	})
+}
