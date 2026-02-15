@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
-	"kama_chat_server/internal/dto/request/message"
+	messagereq "kama_chat_server/internal/dto/request/message"
 	messagersp "kama_chat_server/internal/dto/respond/message"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
@@ -153,7 +153,7 @@ func (k *MsgConsumer) Start() {
 
 			// 获取消息体
 			data := kafkaMessage.Value
-			var chatMessageReq message.ChatMessageRequest
+			var chatMessageReq messagereq.ChatMessageRequest
 			// 反序列化为请求对象
 			if err := json.Unmarshal(data, &chatMessageReq); err != nil { // [标准库: encoding/json] 反序列化 JSON
 				zap.L().Error("service error", zap.Error(err))
@@ -212,18 +212,6 @@ func (k *MsgConsumer) Close() {
 		close(k.Login)
 		close(k.Logout)
 	})
-}
-
-// SendClientToLogin 将客户端发送到登录通道
-// 注意：channel 本身是并发安全的，无需额外加锁
-func (k *MsgConsumer) SendClientToLogin(client *UserConn) {
-	k.Login <- client
-}
-
-// SendClientToLogout 将客户端发送到登出通道
-// 注意：channel 本身是并发安全的，无需额外加锁
-func (k *MsgConsumer) SendClientToLogout(client *UserConn) {
-	k.Logout <- client
 }
 
 // GetClient 实现 MessageBroker 接口
@@ -359,7 +347,7 @@ func trySendBack(client *UserConn, msg *MessageBack) {
 
 // buildMessageFromRequest 从请求构建消息模型
 // 改进建议实现：提取公共逻辑，减少代码重复
-func (k *MsgConsumer) buildMessageFromRequest(req message.ChatMessageRequest) model.Message {
+func (k *MsgConsumer) buildMessageFromRequest(req messagereq.ChatMessageRequest) model.Message {
 	return model.Message{
 		Uuid:       "M" + snowflake.GenerateIDString(),
 		SessionId:  req.SessionId,
@@ -403,7 +391,7 @@ func (k *MsgConsumer) updateSessionLastMessage(message *model.Message, content s
 // 2. 将消息持久化到 MySQL
 // 3. 根据接收者类型 (User/Group) 路由消息
 // 4. 更新 Redis 缓存
-func (k *MsgConsumer) handleTextMessage(req message.ChatMessageRequest) {
+func (k *MsgConsumer) handleTextMessage(req messagereq.ChatMessageRequest) {
 	// 权限校验：检查发送者是否有权向目标发消息
 	if err := k.checkSendPermission(req.SendId, req.ReceiveId); err != nil {
 		zap.L().Warn("消息权限校验失败", zap.String("sendId", req.SendId), zap.String("receiveId", req.ReceiveId), zap.String("reason", err.Error()))
@@ -437,7 +425,7 @@ func (k *MsgConsumer) handleTextMessage(req message.ChatMessageRequest) {
 // handleFileMessage 处理文件消息
 // 逻辑与文本消息类似，区别在于 Content 为空，Url 字段存储文件链接
 // 改进建议实现：使用提取的公共函数减少代码重复
-func (k *MsgConsumer) handleFileMessage(req message.ChatMessageRequest) {
+func (k *MsgConsumer) handleFileMessage(req messagereq.ChatMessageRequest) {
 	// 权限校验：检查发送者是否有权向目标发消息
 	if err := k.checkSendPermission(req.SendId, req.ReceiveId); err != nil {
 		zap.L().Warn("文件消息权限校验失败", zap.String("sendId", req.SendId), zap.String("receiveId", req.ReceiveId), zap.String("reason", err.Error()))
@@ -481,7 +469,7 @@ func (k *MsgConsumer) handleFileMessage(req message.ChatMessageRequest) {
 //     而 offer/answer/candidate 等 WebRTC 连接协商信令是纯技术细节，不入库也不显示。
 //
 // 3. 不更新会话最后消息：信令不应覆盖会话列表的最后消息摘要，因此不调用 updateSessionLastMessage。
-func (k *MsgConsumer) handleAVMessage(req message.ChatMessageRequest) {
+func (k *MsgConsumer) handleAVMessage(req messagereq.ChatMessageRequest) {
 	// 权限校验：检查发送者是否有权向目标发消息
 	if err := k.checkSendPermission(req.SendId, req.ReceiveId); err != nil {
 		zap.L().Warn("AV消息权限校验失败", zap.String("sendId", req.SendId), zap.String("receiveId", req.ReceiveId), zap.String("reason", err.Error()))
@@ -489,7 +477,7 @@ func (k *MsgConsumer) handleAVMessage(req message.ChatMessageRequest) {
 		return
 	}
 
-	var avData message.AVSignalData
+	var avData messagereq.AVSignalData
 	if err := json.Unmarshal([]byte(req.AVdata), &avData); err != nil { // [标准库: encoding/json] 反序列化音视频信令数据
 		zap.L().Error("service error", zap.Error(err))
 		return
