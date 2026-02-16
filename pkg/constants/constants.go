@@ -28,9 +28,7 @@ const (
 	CacheKeyGroupMessageList = "message:group_list:" // 群聊消息列表
 
 	// 会话相关
-	CacheKeySessionOpen   = "session:open:"   // 单个会话缓存（OpenSession）
-	CacheKeySessionDirect = "session:direct:" // 私聊会话列表
-	CacheKeySessionGroup  = "session:group:"  // 群聊会话列表
+	CacheKeySessionOpen = "session:open:" // 单个会话缓存（OpenSession）
 
 	// 好友关系（Redis Set）
 	CacheKeyFriendRelUser = "friend_relation:user:" // 用户好友关系集合

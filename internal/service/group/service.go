@@ -85,13 +85,6 @@ func (g *groupInfoService) CreateGroup(ownerId string, groupReq group.CreateGrou
 		return errorx.ErrServerBusy
 	}
 
-	g.cache.SubmitTask(func() {
-		// 删除群组会话列表缓存
-		if err := g.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionGroup+ownerId+"*"); err != nil {
-			zap.L().Error("service error", zap.Error(err))
-		}
-	})
-
 	return nil
 }
 
@@ -250,9 +243,6 @@ func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 	}
 
 	g.cache.SubmitTask(func() {
-		if err := g.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionGroup+userId+"*"); err != nil {
-			zap.L().Error("service error", zap.Error(err))
-		}
 		if err := g.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+groupId); err != nil {
 			zap.L().Error("清理群信息缓存失败", zap.Error(err))
 		}
@@ -324,13 +314,6 @@ func (g *groupInfoService) DismissGroup(operatorId, groupId string) error {
 
 	// 7. 精确清理 Redis 缓存 (事务外)
 	g.cache.SubmitTask(func() {
-		// 清理所有群成员的会话列表缓存
-		for _, memberId := range memberIds {
-			if err := g.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionGroup+memberId+"*"); err != nil {
-				zap.L().Error("service error", zap.Error(err))
-			}
-		}
-
 		// 清理群公共信息（含空值标记）
 		if err := g.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+groupId); err != nil {
 			zap.L().Error("清理群信息缓存失败", zap.Error(err))
@@ -410,12 +393,6 @@ func (g *groupInfoService) UpdateGroupInfo(operatorId string, req group.UpdateGr
 		// 清理群信息缓存（含空值标记）
 		if err := g.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+groupId); err != nil {
 			zap.L().Error("清理群信息缓存失败", zap.Error(err))
-		}
-		// 清理所有群成员的会话列表缓存
-		for _, memberId := range memberIds {
-			if err := g.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionGroup+memberId+"*"); err != nil {
-				zap.L().Error("service error", zap.Error(err))
-			}
 		}
 	})
 
@@ -529,12 +506,6 @@ func (g *groupInfoService) RemoveGroupMembers(operatorId string, req group.Remov
 
 	// 4. 异步精确清理缓存
 	g.cache.SubmitTask(func() {
-		// 清理被移除成员的会话列表缓存
-		for _, memId := range req.UuidList {
-			if err := g.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionGroup+memId+"*"); err != nil {
-				zap.L().Error("service error", zap.Error(err))
-			}
-		}
 		// 清理群本身的缓存（含空值标记）
 		if err := g.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+req.GroupId); err != nil {
 			zap.L().Error("清理群信息缓存失败", zap.Error(err))

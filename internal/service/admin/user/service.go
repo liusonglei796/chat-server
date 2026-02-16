@@ -102,8 +102,6 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 			for _, uuid := range req.UserUUIDs {
 				patterns = append(patterns,
 					constants.CacheKeyUserInfo+uuid,
-					constants.CacheKeySessionDirect+uuid+"*",
-					constants.CacheKeySessionGroup+uuid+"*",
 				)
 			}
 			if err := s.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
@@ -142,8 +140,6 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 			for _, uuid := range req.UserUUIDs {
 				patterns = append(patterns,
 					constants.CacheKeyUserInfo+uuid,
-					constants.CacheKeySessionDirect+uuid+"*",
-					constants.CacheKeySessionGroup+uuid+"*",
 					constants.CacheKeyFriendRelUser+uuid+"*",
 				)
 			}

@@ -264,9 +264,7 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 		}
 
 		// 8. 异步更新缓存
-		// 删除相关会话缓存、群组信息缓存，确保数据一致性
 		u.cache.SubmitTask(func() {
-			_ = u.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionGroup+userId+"*")
 			_ = u.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+req.GroupId)
 			_ = u.cache.Delete(context.Background(), constants.CacheKeyGroupMembers+req.GroupId)
 		})
@@ -664,9 +662,7 @@ func (u *applyService) PassGroupApply(operatorId, groupId, applicantId string) e
 	}
 
 	// 4. 异步更新缓存
-	// 删除用户的群会话缓存、群组信息和成员列表缓存
 	u.cache.SubmitTask(func() {
-		_ = u.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionGroup+applicantId+"*")
 		_ = u.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+groupId)
 		_ = u.cache.Delete(context.Background(), constants.CacheKeyGroupMembers+groupId)
 	})

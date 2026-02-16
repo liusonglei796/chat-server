@@ -179,11 +179,6 @@ func (s *sessionService) CreateSession(sendId, receiveId string) (string, error)
 		return "", errorx.ErrServerBusy
 	}
 
-	// 6. 异步清理缓存
-	s.cache.SubmitTask(func() {
-		s.clearSessionCacheForUser(sendId)
-	})
-
 	zap.L().Info("会话创建成功",
 		zap.String("send_id", sendId),
 		zap.String("receive_id", receiveId),
@@ -191,16 +186,6 @@ func (s *sessionService) CreateSession(sendId, receiveId string) (string, error)
 	)
 
 	return session.Uuid, nil
-}
-
-// clearSessionCacheForUser 清理用户的会话缓存
-func (s *sessionService) clearSessionCacheForUser(userId string) {
-	if err := s.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionGroup+userId+"*"); err != nil {
-		zap.L().Error("清除群会话列表缓存失败", zap.Error(err))
-	}
-	if err := s.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionDirect+userId+"*"); err != nil {
-		zap.L().Error("清除私聊会话列表缓存失败", zap.Error(err))
-	}
 }
 
 // CheckOpenSessionAllowed 检查是否允许发起会话
@@ -478,11 +463,6 @@ func (s *sessionService) DeleteSession(ownerId, sessionId string) error {
 		return errorx.ErrServerBusy
 	}
 
-	// 3. 异步清理缓存
-	s.cache.SubmitTask(func() {
-		s.clearSessionCacheForUser(ownerId)
-	})
-
 	return nil
 }
 
@@ -509,11 +489,6 @@ func (s *sessionService) PinSession(userId, sessionId string, isPinned bool) err
 		)
 		return errorx.ErrServerBusy
 	}
-
-	// 异步清理缓存
-	s.cache.SubmitTask(func() {
-		s.clearSessionCacheForUser(userId)
-	})
 
 	return nil
 }

@@ -64,15 +64,8 @@ func (s *groupAdminService) DeleteGroups(groupUUIDs []string) error {
 		return nil
 	}
 
-	// 1. 收集需要清理缓存的成员ID
-	memberIds, err := s.repos.GroupMember.GetMemberIdsByGroupUuids(groupUUIDs)
-	if err != nil {
-		zap.L().Error("Find group members error", zap.Error(err))
-		return errorx.ErrServerBusy
-	}
-
-	// 2. 事务执行删除操作
-	err = s.repos.Transaction(func(txRepos *mysql.Repositories) error {
+	// 1. 事务执行删除操作
+	err := s.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 删除群成员
 		if err := txRepos.GroupMember.DeleteByGroupUuids(groupUUIDs); err != nil {
 			zap.L().Error("Batch delete group members error", zap.Error(err))
@@ -107,13 +100,6 @@ func (s *groupAdminService) DeleteGroups(groupUUIDs []string) error {
 
 	// 3. 异步清理缓存
 	s.cache.SubmitTask(func() {
-		// 清理所有相关成员的缓存
-		for _, memId := range memberIds {
-			if err := s.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionGroup+memId+"*"); err != nil {
-				zap.L().Error("service error", zap.Error(err))
-			}
-		}
-
 		// 清理群本身的缓存（含空值标记，防止空值缓存残留）
 		for _, grpId := range groupUUIDs {
 			if err := s.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+grpId); err != nil {

@@ -56,8 +56,6 @@ func (s *friendshipService) clearFriendRelationCache(userId, friendId string) {
 	s.cache.SubmitTask(func() {
 		_ = s.cache.RemoveFromSet(context.Background(), constants.CacheKeyFriendRelUser+userId, friendId)
 		_ = s.cache.RemoveFromSet(context.Background(), constants.CacheKeyFriendRelUser+friendId, userId)
-		_ = s.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionDirect+userId+"*")
-		_ = s.cache.DeleteByPattern(context.Background(), constants.CacheKeySessionDirect+friendId+"*")
 	})
 }
 
