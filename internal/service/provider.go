@@ -34,13 +34,14 @@ type Services struct {
 
 // NewServices 创建并注入所有 Service 实例
 // kickClient: 可选的踢人回调函数，由 ChatServer.Broker.KickClient 提供
-func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string)) *Services {
+// pushRecallNotify: 可选的撤回通知回调，由 ChatServer.Broker.PushRecallNotify 提供
+func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string), pushRecallNotify func(messageUuid, receiveId string)) *Services {
 	sessionSvc := session.NewSessionService(repos, cacheService)
 	userSvc := user.NewUserService(repos, cacheService, smsService, kickClient)
 	groupSvc := group.NewGroupService(repos, cacheService)
 	friendshipSvc := friendship.NewFriendshipService(repos, cacheService)
 	applySvc := apply.NewApplyService(repos, cacheService)
-	messageSvc := message.NewMessageService(repos, cacheService)
+	messageSvc := message.NewMessageService(repos, cacheService, pushRecallNotify)
 	authSvc := auth.NewAuthService(cacheService, repos.User)
 
 	// 后台管理服务

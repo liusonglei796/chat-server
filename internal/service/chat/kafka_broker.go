@@ -268,6 +268,28 @@ func (k *MsgConsumer) KickClient(userId string, reason string) {
 	zap.L().Info("用户已被踢下线", zap.String("userId", userId), zap.String("reason", reason))
 }
 
+// PushRecallNotify 向指定用户推送撤回通知（直接本地推送，不走 Kafka）
+// messageUuid: 被撤回的消息 UUID
+// receiveId: 需要收到通知的用户 UUID（私聊为对方，群聊则需外部遍历群成员逐个调用）
+func (k *MsgConsumer) PushRecallNotify(messageUuid, receiveId string) {
+	// 构造撤回通知 JSON：前端根据 type=Recall + message_uuid 移除/标记对应消息
+	recallMsg := map[string]interface{}{
+		"type":         message_type.Recall,
+		"message_uuid": messageUuid,
+	}
+	jsonMsg, err := json.Marshal(recallMsg)
+	if err != nil {
+		zap.L().Error("序列化撤回通知失败", zap.Error(err))
+		return
+	}
+
+	// 仅在用户在线时推送，不在线时忽略（下次拉取消息列表会看到已撤回状态）
+	if value, ok := k.Clients.Load(receiveId); ok {
+		client := value.(*UserConn)
+		trySendBack(client, &MessageBack{Message: jsonMsg, Uuid: ""})
+	}
+}
+
 // checkSendPermission 校验发送者是否有权向目标发消息
 // 1. 检查发送者状态（是否被禁用）
 // 2. 私聊: 检查好友关系（IsFriend 同时包含拉黑状态检查）

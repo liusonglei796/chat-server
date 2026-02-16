@@ -24,6 +24,8 @@ type MessageBroker interface {
 	GetClient(userId string) *UserConn
 	// KickClient 向指定用户推送下线通知并断开连接（单点登录互踢）
 	KickClient(userId string, reason string)
+	// PushRecallNotify 向指定用户推送撤回通知（非 Kafka，本地直推）
+	PushRecallNotify(messageUuid, receiveId string)
 	// Start 启动消息消费循环
 	Start()
 	// Close 关闭代理资源

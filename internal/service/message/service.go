@@ -28,13 +28,18 @@ import (
 type messageService struct {
 	repos *mysql.Repositories
 	cache myredis.AsyncCacheService
+	// pushRecallNotify 撤回通知回调（由 ChatServer.Broker.PushRecallNotify 提供）
+	// 用于在撤回成功后通过 WebSocket 实时通知对方
+	pushRecallNotify func(messageUuid, receiveId string)
 }
 
 // NewMessageService 构造函数，注入所有依赖
-func NewMessageService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *messageService {
+// pushRecallNotify: 可选回调，撤回消息后通过 WebSocket 推送通知
+func NewMessageService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, pushRecallNotify func(messageUuid, receiveId string)) *messageService {
 	return &messageService{
-		repos: repos,
-		cache: cacheService,
+		repos:            repos,
+		cache:            cacheService,
+		pushRecallNotify: pushRecallNotify,
 	}
 }
 
@@ -281,28 +286,43 @@ func (m *messageService) saveFile(fileHeader *multipart.FileHeader, dstDir strin
 }
 
 // RecallMessage 撤回消息
-// 校验：消息存在 + 发送者身份 + 2分钟时限
+// 流程：查消息 → 校验身份 → 校验时限 → 更新数据库 → WebSocket 通知对方
 func (m *messageService) RecallMessage(userId string, req messagereq.RecallMessageRequest) error {
+	// 1. 查询消息是否存在
 	msg, err := m.repos.Message.FindByUuid(req.MessageUuid)
 	if err != nil {
-		return err
+		if errorx.IsNotFound(err) {
+			return errorx.New(errorx.CodeInvalidParam, "消息不存在")
+		}
+		zap.L().Error("查询消息失败", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
-	// 只有发送者可以撤回
+	// 2. 只有发送者可以撤回
 	if msg.SendId != userId {
 		return errorx.New(errorx.CodeForbidden, "只能撤回自己发送的消息")
 	}
 
-	// 已撤回的消息不能重复撤回
+	// 3. 已撤回的消息不能重复撤回
 	if msg.Type == int8(msgtype.Recall) {
 		return errorx.New(errorx.CodeInvalidParam, "该消息已被撤回")
 	}
 
-	// 2分钟时限
+	// 4. 2分钟时限
 	if time.Since(msg.CreatedAt) > 2*time.Minute {
 		return errorx.New(errorx.CodeForbidden, "消息发送超过2分钟，无法撤回")
 	}
 
-	// 更新消息类型为撤回，清空内容
-	return m.repos.Message.UpdateContent(req.MessageUuid, "", int8(msgtype.Recall))
+	// 5. 更新消息类型为撤回，清空内容
+	if err := m.repos.Message.UpdateContent(req.MessageUuid, "", int8(msgtype.Recall)); err != nil {
+		zap.L().Error("撤回消息失败", zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+
+	// 6. 通过 WebSocket 通知接收方（对方在线则实时收到，不在线则忽略）
+	if m.pushRecallNotify != nil {
+		m.pushRecallNotify(req.MessageUuid, msg.ReceiveId)
+	}
+
+	return nil
 }
