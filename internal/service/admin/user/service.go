@@ -74,7 +74,7 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 			for _, uuid := range req.UserUUIDs {
 				patterns = append(patterns, constants.CacheKeyUserInfo+uuid)
 			}
-			if err := s.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
+			if err := s.cache.DeleteByPattern(context.Background(), patterns...); err != nil {
 				zap.L().Error("批量清除用户缓存失败", zap.Error(err))
 			}
 		})
@@ -104,7 +104,7 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 					constants.CacheKeyUserInfo+uuid,
 				)
 			}
-			if err := s.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
+			if err := s.cache.DeleteByPattern(context.Background(), patterns...); err != nil {
 				zap.L().Error("批量清除用户相关缓存失败", zap.Error(err))
 			}
 		})
@@ -143,7 +143,7 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 					constants.CacheKeyFriendRelUser+uuid+"*",
 				)
 			}
-			if err := s.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
+			if err := s.cache.DeleteByPattern(context.Background(), patterns...); err != nil {
 				zap.L().Error("批量清除用户相关缓存失败", zap.Error(err))
 			}
 		})
@@ -173,7 +173,7 @@ func (s *userAdminService) SetAdmin(userUUIDs []string, isAdmin int8) error {
 		for _, uuid := range userUUIDs {
 			patterns = append(patterns, constants.CacheKeyUserInfo+uuid)
 		}
-		if err := s.cache.DeleteByPatterns(context.Background(), patterns); err != nil {
+		if err := s.cache.DeleteByPattern(context.Background(), patterns...); err != nil {
 			zap.L().Error("批量清除用户缓存失败", zap.Error(err))
 		}
 	})

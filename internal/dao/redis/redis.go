@@ -1,23 +1,100 @@
-// Package redis 提供 CacheService 接口的 Redis 实现
 package redis
 
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
+
+	"kama_chat_server/internal/config"
+	"kama_chat_server/pkg/errorx"
 
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
-
-	"kama_chat_server/pkg/errorx"
 )
+
+// ==================== 接口定义 ====================
+
+// CacheService 缓存服务接口
+// 抽象缓存操作，支持 Redis、Memcached、本地缓存等多种实现
+type CacheService interface {
+	// ==================== String 操作 ====================
+
+	// Set 设置键值对并指定过期时间
+	Set(ctx context.Context, key string, value string, ttl time.Duration) error
+	// Get 获取键对应的值（键不存在返回空字符串和 nil）
+	Get(ctx context.Context, key string) (string, error)
+	// GetOrError 获取键对应的值（键不存在返回错误）
+	GetOrError(ctx context.Context, key string) (string, error)
+	// GetByPrefix 通过前缀查找唯一键的值
+	GetByPrefix(ctx context.Context, prefix string) (string, error)
+
+	// ==================== Key 操作 ====================
+
+	// Delete 删除键（如果存在）
+	Delete(ctx context.Context, key string) error
+	// DeleteByPattern 删除匹配模式的所有键（支持批量模式）
+	DeleteByPattern(ctx context.Context, patterns ...string) error
+
+	// ==================== 计数器操作 ====================
+
+	// Incr 原子递增，返回递增后的值
+	Incr(ctx context.Context, key string) (int64, error)
+	// Expire 设置键过期时间
+	Expire(ctx context.Context, key string, ttl time.Duration) error
+
+	// ==================== Set 集合操作 ====================
+
+	// AddToSet 向集合添加成员
+	AddToSet(ctx context.Context, key string, members ...interface{}) error
+	// GetSetMembers 获取集合中的所有成员
+	GetSetMembers(ctx context.Context, key string) ([]string, error)
+	// RemoveFromSet 从集合中移除成员
+	RemoveFromSet(ctx context.Context, key string, members ...interface{}) error
+}
+
+// AsyncCacheService 异步缓存服务接口
+// 提供异步任务提交能力，用于非阻塞缓存更新
+type AsyncCacheService interface {
+	CacheService
+	// SubmitTask 提交异步缓存任务
+	SubmitTask(action func())
+}
+
+// ==================== 初始化逻辑 ====================
+
+// Init 初始化 Redis 连接并返回缓存服务
+// 从配置文件读取连接参数并创建客户端实例
+// 返回 AsyncCacheService 接口，供 Service 层依赖注入使用
+func Init() AsyncCacheService {
+	conf := config.GetConfig()
+	host := conf.RedisConfig.Host         // Redis 服务器地址
+	port := conf.RedisConfig.Port         // Redis 端口
+	password := conf.RedisConfig.Password // 密码，无密码留空
+	db := conf.RedisConfig.Db             // 数据库编号
+
+	// 拼接地址：host:port
+	addr := host + ":" + strconv.Itoa(port)
+
+	// 创建 Redis 客户端
+	client := redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: password,
+		DB:       db,
+		// 连接池配置
+		PoolSize:     50, // 最大连接数
+		MinIdleConns: 15, // 最小空闲连接，与 Worker 数量匹配
+	})
+
+	// 创建并返回缓存服务实例
+	// 启动 15 个 Worker，缓冲区大小 3000，适用于多 Service 共享
+	return NewRedisCache(client, 15, 3000)
+}
+
+// ==================== 实现逻辑 ====================
 
 // RedisCache Redis 缓存实现
 // 该结构体同时实现了 CacheService（基础同步读写）和 AsyncCacheService（异步任务）两个接口。
-// 这种设计允许不同模块根据需求声明依赖最小的接口：
-// 1. SmsService 只需要 CacheService，因此它无法访问 SubmitTask 方法，保证了安全性。
-// 2. ChatServer 需要异步队列，因此它依赖 AsyncCacheService。
-// 从而实现了“同一个实现类，不同的视图限制（接口隔离）”。
 type RedisCache struct {
 	client       *redis.Client
 	taskChan     chan func()
@@ -130,36 +207,29 @@ func (r *RedisCache) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// DeleteByPattern 删除匹配模式的所有键
-func (r *RedisCache) DeleteByPattern(ctx context.Context, pattern string) error {
-	var cursor uint64
-	for {
-		var keys []string
-		var err error
-		keys, cursor, err = r.client.Scan(ctx, cursor, pattern, 500).Result()
-		if err != nil {
-			return errorx.Wrapf(err, errorx.CodeCacheError, "redis scan pattern %s", pattern)
-		}
-		if len(keys) > 0 {
-			if err := r.client.Unlink(ctx, keys...).Err(); err != nil {
-				return errorx.Wrapf(err, errorx.CodeCacheError, "redis unlink keys with pattern %s", pattern)
-			}
-		}
-		if cursor == 0 {
-			break
-		}
-	}
-	return nil
-}
-
-// DeleteByPatterns 批量删除多个模式匹配的键
-func (r *RedisCache) DeleteByPatterns(ctx context.Context, patterns []string) error {
+// DeleteByPattern 删除匹配模式的所有键（支持批量）
+func (r *RedisCache) DeleteByPattern(ctx context.Context, patterns ...string) error {
 	if len(patterns) == 0 {
 		return nil
 	}
+
 	for _, pattern := range patterns {
-		if err := r.DeleteByPattern(ctx, pattern); err != nil {
-			return err
+		var cursor uint64
+		for {
+			var keys []string
+			var err error
+			keys, cursor, err = r.client.Scan(ctx, cursor, pattern, 500).Result()
+			if err != nil {
+				return errorx.Wrapf(err, errorx.CodeCacheError, "redis scan pattern %s", pattern)
+			}
+			if len(keys) > 0 {
+				if err := r.client.Unlink(ctx, keys...).Err(); err != nil {
+					return errorx.Wrapf(err, errorx.CodeCacheError, "redis unlink keys with pattern %s", pattern)
+				}
+			}
+			if cursor == 0 {
+				break
+			}
 		}
 	}
 	return nil
