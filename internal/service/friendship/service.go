@@ -54,6 +54,7 @@ func buildUserInfoRespond(user *model.UserInfo) userrsp.GetUserInfoRespond {
 // clearFriendRelationCache 清理好友关系相关的缓存（DRY: DeleteFriend/BlackFriend 共用）
 func (s *friendshipService) clearFriendRelationCache(userId, friendId string) {
 	s.cache.SubmitTask(func() {
+		//从好友set中移除一个好友
 		_ = s.cache.RemoveFromSet(context.Background(), constants.CacheKeyFriendRelUser+userId, friendId)
 		_ = s.cache.RemoveFromSet(context.Background(), constants.CacheKeyFriendRelUser+friendId, userId)
 	})
