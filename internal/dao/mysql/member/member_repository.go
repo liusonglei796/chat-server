@@ -122,18 +122,6 @@ func (r *groupMemberRepository) GetMemberIdsByGroupUuids(groupUuids []string) ([
 	return members, nil
 }
 
-// FindGroupUuidsByUser 根据用户UUID查找其加入的所有群组UUID
-// 用于替代 Contact 表中 GROUP 类型的查询
-func (r *groupMemberRepository) FindGroupUuidsByUser(userUuid string) ([]string, error) {
-	var groupUuids []string
-	if err := r.db.Model(&model.GroupMember{}).
-		Where("user_uuid = ?", userUuid).
-		Pluck("group_uuid", &groupUuids).Error; err != nil {
-		return nil, errorx.WrapDBErrorf(err, "查询用户加入的群组 user_uuid=%s", userUuid)
-	}
-	return groupUuids, nil
-}
-
 // FindGroupUuidsByUserPaged 根据用户UUID分页查找其加入的群组UUID
 func (r *groupMemberRepository) FindGroupUuidsByUserPaged(userUuid string, page, pageSize int) ([]string, int64, error) {
 	var total int64

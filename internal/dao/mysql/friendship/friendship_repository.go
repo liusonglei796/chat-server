@@ -34,13 +34,12 @@ func (r *friendshipRepository) FindByUserIdAndFriendId(userId, friendId string) 
 
 // IsFriend 判断两个用户是否互为好友
 //
-// 好友关系是双向的，需要同时存在两条记录且状态都为正常(status=0)
+// 查询两人之间的双向关系记录（(A,B) 或 (B,A)），且状态必须为正常(status=0)
 func (r *friendshipRepository) IsFriend(userId1, userId2 string) (bool, error) {
 	var count int64
 	if err := r.db.Model(&model.Friendship{}).
-		Where("(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
-			userId1, userId2, userId2, userId1).
-		Where("status = ?", 0).
+		Where("((user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)) AND status = ?",
+			userId1, userId2, userId2, userId1, 0).
 		Count(&count).Error; err != nil {
 		return false, errorx.WrapDBError(err, "查询好友关系")
 	}

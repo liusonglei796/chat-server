@@ -167,8 +167,6 @@ type GroupMemberRepository interface {
 	DeleteByGroupUuids(groupUuids []string) error
 	// GetMemberIdsByGroupUuids [管理员] 获取多个群组的所有成员ID
 	GetMemberIdsByGroupUuids(groupUuids []string) ([]string, error)
-	// FindGroupUuidsByUser 根据用户UUID查找其加入的所有群组UUID
-	FindGroupUuidsByUser(userUuid string) ([]string, error)
 	// FindGroupUuidsByUserPaged 根据用户UUID分页查找其加入的群组UUID
 	FindGroupUuidsByUserPaged(userUuid string, page, pageSize int) ([]string, int64, error)
 	// UpdateMuteUntil 更新群成员禁言截止时间
