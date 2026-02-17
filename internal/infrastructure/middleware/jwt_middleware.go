@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/util/jwt"
+	"kama_chat_server/pkg/jwt"
 
 	"github.com/gin-gonic/gin"
 )

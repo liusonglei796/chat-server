@@ -7,12 +7,12 @@ import (
 
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
+	cacheutil "kama_chat_server/internal/dao/redis/cache"
 	adminreq "kama_chat_server/internal/dto/request/admin"
 	adminrsp "kama_chat_server/internal/dto/respond/admin"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/group/group_status"
 	"kama_chat_server/pkg/errorx"
-	cacheutil "kama_chat_server/pkg/util/cache"
 )
 
 // groupAdminService 群组管理后台服务

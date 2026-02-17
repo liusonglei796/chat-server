@@ -160,7 +160,7 @@ func (r *RedisCache) Get(ctx context.Context, key string) (string, error) {
 func (r *RedisCache) GetOrError(ctx context.Context, key string) (string, error) {
 	value, err := r.client.Get(ctx, key).Result()
 	if err != nil {
-		return "", errorx.WrapRedisError(err, "redis get key %s", key)
+		return "", WrapRedisError(err, "redis get key %s", key)
 	}
 	return value, nil
 }
@@ -297,3 +297,18 @@ func (r *RedisCache) SubmitTask(action func()) {
 
 // 确保 RedisCache 实现了 AsyncCacheService 接口
 var _ AsyncCacheService = (*RedisCache)(nil)
+
+// WrapRedisError 包装 Redis 错误，统一处理 redis.Nil 和其他错误
+//   - redis.Nil -> CodeNotFound
+//   - 其他错误 -> CodeCacheError
+//
+// 用法：return WrapRedisError(err, "redis get key %s", key)
+func WrapRedisError(err error, format string, args ...any) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, redis.Nil) {
+		return errorx.Wrapf(err, errorx.CodeNotFound, format+" not found", args...)
+	}
+	return errorx.Wrapf(err, errorx.CodeCacheError, format, args...)
+}

@@ -16,7 +16,7 @@ import (
 	"kama_chat_server/internal/infrastructure/sms"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/internal/service/chat"
-	"kama_chat_server/pkg/util/jwt"
+	"kama_chat_server/pkg/jwt"
 
 	"go.uber.org/zap"
 )

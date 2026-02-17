@@ -3,8 +3,8 @@
 package member
 
 import (
+	"kama_chat_server/internal/dao/mysql/dberr"
 	"kama_chat_server/internal/model"
-	"kama_chat_server/pkg/errorx"
 	"time"
 
 	"gorm.io/gorm"
@@ -26,7 +26,7 @@ func NewGroupMemberRepository(db *gorm.DB) *groupMemberRepository {
 func (r *groupMemberRepository) FindByGroupUuid(groupUuid string) ([]model.GroupMember, error) {
 	var members []model.GroupMember
 	if err := r.db.Where("group_uuid = ?", groupUuid).Find(&members).Error; err != nil {
-		return nil, errorx.WrapDBErrorf(err, "查询群成员 group_uuid=%s", groupUuid)
+		return nil, dberr.WrapDBErrorf(err, "查询群成员 group_uuid=%s", groupUuid)
 	}
 	return members, nil
 }
@@ -52,7 +52,7 @@ func (r *groupMemberRepository) FindMembersWithUserInfoPaged(groupUuid string, p
 	if err := r.db.Table("group_member").
 		Where("group_uuid = ? AND deleted_at IS NULL", groupUuid).
 		Count(&total).Error; err != nil {
-		return nil, 0, errorx.WrapDBErrorf(err, "统计群成员数量 group_uuid=%s", groupUuid)
+		return nil, 0, dberr.WrapDBErrorf(err, "统计群成员数量 group_uuid=%s", groupUuid)
 	}
 
 	// 计算偏移量并分页查询
@@ -64,7 +64,7 @@ func (r *groupMemberRepository) FindMembersWithUserInfoPaged(groupUuid string, p
 		Offset(offset).
 		Limit(pageSize).
 		Scan(&members).Error; err != nil {
-		return nil, 0, errorx.WrapDBErrorf(err, "分页查询群成员详情 group_uuid=%s", groupUuid)
+		return nil, 0, dberr.WrapDBErrorf(err, "分页查询群成员详情 group_uuid=%s", groupUuid)
 	}
 	return members, total, nil
 }
@@ -74,7 +74,7 @@ func (r *groupMemberRepository) FindMembersWithUserInfoPaged(groupUuid string, p
 func (r *groupMemberRepository) FindByGroupAndUser(groupUuid, userUuid string) (*model.GroupMember, error) {
 	var member model.GroupMember
 	if err := r.db.Where("group_uuid = ? AND user_uuid = ?", groupUuid, userUuid).First(&member).Error; err != nil {
-		return nil, errorx.WrapDBErrorf(err, "查询群成员 group_uuid=%s user_uuid=%s", groupUuid, userUuid)
+		return nil, dberr.WrapDBErrorf(err, "查询群成员 group_uuid=%s user_uuid=%s", groupUuid, userUuid)
 	}
 	return &member, nil
 }
@@ -82,7 +82,7 @@ func (r *groupMemberRepository) FindByGroupAndUser(groupUuid, userUuid string) (
 // CreateGroupMember 添加群成员
 func (r *groupMemberRepository) CreateGroupMember(member *model.GroupMember) error {
 	if err := r.db.Create(member).Error; err != nil {
-		return errorx.WrapDBError(err, "创建群成员")
+		return dberr.WrapDBError(err, "创建群成员")
 	}
 	return nil
 }
@@ -91,7 +91,7 @@ func (r *groupMemberRepository) CreateGroupMember(member *model.GroupMember) err
 // 用于解散群组时清理成员数据
 func (r *groupMemberRepository) DeleteByGroupUuid(groupUuid string) error {
 	if err := r.db.Where("group_uuid = ?", groupUuid).Delete(&model.GroupMember{}).Error; err != nil {
-		return errorx.WrapDBErrorf(err, "删除群所有成员 group_uuid=%s", groupUuid)
+		return dberr.WrapDBErrorf(err, "删除群所有成员 group_uuid=%s", groupUuid)
 	}
 	return nil
 }
@@ -99,7 +99,7 @@ func (r *groupMemberRepository) DeleteByGroupUuid(groupUuid string) error {
 // DeleteByUserUuids 批量删除指定用户（踢人）
 func (r *groupMemberRepository) DeleteByUserUuids(groupUuid string, userUuids []string) error {
 	if err := r.db.Where("group_uuid = ? AND user_uuid IN ?", groupUuid, userUuids).Delete(&model.GroupMember{}).Error; err != nil {
-		return errorx.WrapDBErrorf(err, "批量删除群成员 group_uuid=%s", groupUuid)
+		return dberr.WrapDBErrorf(err, "批量删除群成员 group_uuid=%s", groupUuid)
 	}
 	return nil
 }
@@ -111,7 +111,7 @@ func (r *groupMemberRepository) DeleteByGroupUuids(groupUuids []string) error {
 		return nil
 	}
 	if err := r.db.Where("group_uuid IN ?", groupUuids).Delete(&model.GroupMember{}).Error; err != nil {
-		return errorx.WrapDBError(err, "批量删除群所有成员")
+		return dberr.WrapDBError(err, "批量删除群所有成员")
 	}
 	return nil
 }
@@ -126,7 +126,7 @@ func (r *groupMemberRepository) GetMemberIdsByGroupUuids(groupUuids []string) ([
 	// Distinct: 去重，避免用户在多个群中时重复
 	// Pluck: 只获取指定字段的值
 	if err := r.db.Model(&model.GroupMember{}).Distinct("user_uuid").Where("group_uuid IN ?", groupUuids).Pluck("user_uuid", &members).Error; err != nil {
-		return nil, errorx.WrapDBError(err, "批量查询群成员ID")
+		return nil, dberr.WrapDBError(err, "批量查询群成员ID")
 	}
 	return members, nil
 }
@@ -147,7 +147,7 @@ func (r *groupMemberRepository) FindGroupUuidsByUserPaged(userUuid string, page,
 	if err := r.db.Model(&model.GroupMember{}).
 		Where("user_uuid = ?", userUuid).
 		Count(&total).Error; err != nil {
-		return nil, 0, errorx.WrapDBErrorf(err, "统计用户群组数量 user_uuid=%s", userUuid)
+		return nil, 0, dberr.WrapDBErrorf(err, "统计用户群组数量 user_uuid=%s", userUuid)
 	}
 
 	// 分页查询
@@ -158,7 +158,7 @@ func (r *groupMemberRepository) FindGroupUuidsByUserPaged(userUuid string, page,
 		Offset(offset).
 		Limit(pageSize).
 		Pluck("group_uuid", &groupUuids).Error; err != nil {
-		return nil, 0, errorx.WrapDBErrorf(err, "分页查询用户群组 user_uuid=%s", userUuid)
+		return nil, 0, dberr.WrapDBErrorf(err, "分页查询用户群组 user_uuid=%s", userUuid)
 	}
 	return groupUuids, total, nil
 }
@@ -169,7 +169,7 @@ func (r *groupMemberRepository) UpdateMuteUntil(groupUuid, userUuid string, mute
 	if err := r.db.Model(&model.GroupMember{}).
 		Where("group_uuid = ? AND user_uuid = ?", groupUuid, userUuid).
 		Update("mute_until", muteUntil).Error; err != nil {
-		return errorx.WrapDBErrorf(err, "更新群成员禁言时间 group_uuid=%s user_uuid=%s", groupUuid, userUuid)
+		return dberr.WrapDBErrorf(err, "更新群成员禁言时间 group_uuid=%s user_uuid=%s", groupUuid, userUuid)
 	}
 	return nil
 }

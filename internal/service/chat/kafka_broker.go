@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
+	cacheutil "kama_chat_server/internal/dao/redis/cache"
 	messagereq "kama_chat_server/internal/dto/request/message"
 	messagersp "kama_chat_server/internal/dto/respond/message"
 	"kama_chat_server/internal/infrastructure/snowflake"
@@ -30,7 +31,6 @@ import (
 	"kama_chat_server/pkg/enum/message/message_status"
 	"kama_chat_server/pkg/enum/message/message_type"
 	"kama_chat_server/pkg/enum/user/user_status"
-	cacheutil "kama_chat_server/pkg/util/cache"
 	"os"
 	"sync"
 	"time"
@@ -776,7 +776,7 @@ func (k *MsgConsumer) getGroupMembersCached(groupId string) []model.GroupMember 
 	cacheKey := constants.CacheKeyGroupMemberIDs + groupId
 
 	var memberIds []string
-	// [项目工具包: pkg/util/cache] Helper.GetOrLoad 实现 Cache-Aside 模式
+	// [项目工具包: internal/dao/redis/cache] Helper.GetOrLoad 实现 Cache-Aside 模式
 	// 内部自动完成: 查缓存 → singleflight 防击穿 → loader 回调查 DB → 序列化回写缓存
 	err := k.cacheHelper.GetOrLoad(
 		context.Background(),

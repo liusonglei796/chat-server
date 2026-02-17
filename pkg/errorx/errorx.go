@@ -3,8 +3,6 @@ package errorx
 import (
 	"errors"
 	"fmt"
-
-	"gorm.io/gorm"
 )
 
 // CodeError 带业务错误码的自定义错误
@@ -67,33 +65,6 @@ func Wrapf(err error, code int, format string, args ...any) *CodeError {
 }
 
 // WrapDBError 包装数据库错误
-// 根据错误类型返回不同的错误码：
-//   - ErrRecordNotFound -> CodeNotFound
-
-//   - 其他错误 -> CodeDBError
-//
-// WrapDBError 把“数据库错误到业务码”的映射集中起来：统一处理 gorm.ErrRecordNotFound -> CodeNotFound，其它 -> CodeDBError，避免每个 DAO 重复 errors.Is 判断、保持一致的错误码和消息格式。
-func WrapDBError(err error, msg string) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return Wrap(err, CodeNotFound, msg)
-	}
-	return Wrap(err, CodeDBError, msg)
-}
-
-// WrapDBErrorf 包装数据库错误（支持格式化消息）
-// 功能同 WrapDBError，但支持 fmt.Sprintf 风格的格式化
-func WrapDBErrorf(err error, format string, args ...any) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return Wrapf(err, CodeNotFound, format, args...)
-	}
-	return Wrapf(err, CodeDBError, format, args...)
-}
 
 // GetCode 从错误中提取业务错误码，如果不是 CodeError 则返回默认码
 func GetCode(err error) int {
@@ -135,5 +106,6 @@ func IsNotFound(err error) bool {
 		return true
 	}
 	// 检查是否是 gorm.ErrRecordNotFound
-	return errors.Is(err, gorm.ErrRecordNotFound)
+	// return errors.Is(err, gorm.ErrRecordNotFound)
+	return false
 }

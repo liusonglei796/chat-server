@@ -18,7 +18,7 @@
 
 ### 2.1 新增工具包
 
-**路径**: `pkg/util/cache/`
+**路径**: `internal/dao/redis/cache/`
 
 #### 2.1.1 RandomizedTTL（防雪崩）
 
@@ -115,7 +115,7 @@ func (s *userInfoService) GetUserInfo(userId string) (*UserInfo, error) {
 
 ## 6. 单元测试
 
-**测试文件**: `pkg/util/cache/ttl_test.go`
+**测试文件**: `internal/dao/redis/cache/ttl_test.go`
 
 ```
 === RUN   TestRandomizedTTL

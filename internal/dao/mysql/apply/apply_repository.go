@@ -3,9 +3,9 @@
 package apply
 
 import (
+	"kama_chat_server/internal/dao/mysql/dberr"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/enum/apply/apply_status"
-	"kama_chat_server/pkg/errorx"
 
 	"gorm.io/gorm"
 )
@@ -27,7 +27,7 @@ func NewApplyRepository(db *gorm.DB) *applyRepository {
 func (r *applyRepository) FindByApplicantIdAndTargetId(applicantId, targetId string) (*model.Apply, error) {
 	var apply model.Apply
 	if err := r.db.Where("applicant_id = ? AND target_id = ?", applicantId, targetId).First(&apply).Error; err != nil {
-		return nil, errorx.WrapDBErrorf(err, "查询申请 applicant_id=%s target_id=%s", applicantId, targetId)
+		return nil, dberr.WrapDBErrorf(err, "查询申请 applicant_id=%s target_id=%s", applicantId, targetId)
 	}
 	return &apply, nil
 }
@@ -54,7 +54,7 @@ func (r *applyRepository) FindByTargetIdPendingPaged(targetId string, page, page
 
 	// 先统计总数
 	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, errorx.WrapDBErrorf(err, "统计待处理申请数量 target_id=%s", targetId)
+		return nil, 0, dberr.WrapDBErrorf(err, "统计待处理申请数量 target_id=%s", targetId)
 	}
 
 	// 计算偏移量并分页查询，按申请时间倒序（最新的在前）
@@ -64,7 +64,7 @@ func (r *applyRepository) FindByTargetIdPendingPaged(targetId string, page, page
 		Offset(offset).
 		Limit(pageSize).
 		Find(&applies).Error; err != nil {
-		return nil, 0, errorx.WrapDBErrorf(err, "分页查询待处理申请 target_id=%s", targetId)
+		return nil, 0, dberr.WrapDBErrorf(err, "分页查询待处理申请 target_id=%s", targetId)
 	}
 
 	return applies, total, nil
@@ -73,7 +73,7 @@ func (r *applyRepository) FindByTargetIdPendingPaged(targetId string, page, page
 // CreateApply 创建新的申请记录
 func (r *applyRepository) CreateApply(apply *model.Apply) error {
 	if err := r.db.Create(apply).Error; err != nil {
-		return errorx.WrapDBError(err, "创建联系人申请")
+		return dberr.WrapDBError(err, "创建联系人申请")
 	}
 	return nil
 }
@@ -81,7 +81,7 @@ func (r *applyRepository) CreateApply(apply *model.Apply) error {
 // Update 更新申请记录（全字段更新）
 func (r *applyRepository) Update(apply *model.Apply) error {
 	if err := r.db.Save(apply).Error; err != nil {
-		return errorx.WrapDBError(err, "更新联系人申请")
+		return dberr.WrapDBError(err, "更新联系人申请")
 	}
 	return nil
 }
@@ -89,7 +89,7 @@ func (r *applyRepository) Update(apply *model.Apply) error {
 // SoftDelete 软删除申请记录
 func (r *applyRepository) SoftDelete(applicantId, targetId string) error {
 	if err := r.db.Where("applicant_id = ? AND target_id = ?", applicantId, targetId).Delete(&model.Apply{}).Error; err != nil {
-		return errorx.WrapDBErrorf(err, "删除申请 applicant_id=%s target_id=%s", applicantId, targetId)
+		return dberr.WrapDBErrorf(err, "删除申请 applicant_id=%s target_id=%s", applicantId, targetId)
 	}
 	return nil
 }
@@ -102,7 +102,7 @@ func (r *applyRepository) SoftDeleteByUsers(userUuids []string) error {
 	}
 	// 使用 OR 条件删除用户发出和收到的所有申请
 	if err := r.db.Where("applicant_id IN ? OR target_id IN ?", userUuids, userUuids).Delete(&model.Apply{}).Error; err != nil {
-		return errorx.WrapDBError(err, "批量删除联系人申请")
+		return dberr.WrapDBError(err, "批量删除联系人申请")
 	}
 	return nil
 }

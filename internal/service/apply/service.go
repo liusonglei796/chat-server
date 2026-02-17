@@ -9,6 +9,7 @@ import (
 
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
+	cacheutil "kama_chat_server/internal/dao/redis/cache"
 	applyreq "kama_chat_server/internal/dto/request/apply"
 	applyrsp "kama_chat_server/internal/dto/respond/apply"
 	"kama_chat_server/internal/infrastructure/snowflake"
@@ -21,7 +22,6 @@ import (
 	"kama_chat_server/pkg/enum/group/group_status"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
-	cacheutil "kama_chat_server/pkg/util/cache"
 )
 
 // applyService 申请业务逻辑实现

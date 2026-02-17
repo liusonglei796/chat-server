@@ -3,6 +3,7 @@
 package message
 
 import (
+	"kama_chat_server/internal/dao/mysql/dberr"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/errorx"
 
@@ -43,7 +44,7 @@ func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, page
 	// 统计总数
 	if err := r.db.Model(&model.Message{}).Where(condition,
 		userOneId, userTwoId, userTwoId, userOneId).Count(&total).Error; err != nil {
-		return nil, 0, errorx.WrapDBErrorf(err, "统计私聊消息数量 user1=%s user2=%s", userOneId, userTwoId)
+		return nil, 0, dberr.WrapDBErrorf(err, "统计私聊消息数量 user1=%s user2=%s", userOneId, userTwoId)
 	}
 
 	// 计算偏移量
@@ -55,7 +56,7 @@ func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, page
 		Offset(offset).
 		Limit(pageSize).
 		Find(&messages).Error; err != nil {
-		return nil, 0, errorx.WrapDBErrorf(err, "查询消息 user1=%s user2=%s", userOneId, userTwoId)
+		return nil, 0, dberr.WrapDBErrorf(err, "查询消息 user1=%s user2=%s", userOneId, userTwoId)
 	}
 	return messages, total, nil
 }
@@ -79,7 +80,7 @@ func (r *messageRepository) FindByGroupIdPaged(receiveId string, page, pageSize 
 
 	// 统计总数
 	if err := r.db.Model(&model.Message{}).Where("receive_id = ?", receiveId).Count(&total).Error; err != nil {
-		return nil, 0, errorx.WrapDBErrorf(err, "统计群消息数量 receive_id=%s", receiveId)
+		return nil, 0, dberr.WrapDBErrorf(err, "统计群消息数量 receive_id=%s", receiveId)
 	}
 
 	// 计算偏移量并分页查询，按时间倒序（最新的在前）
@@ -89,7 +90,7 @@ func (r *messageRepository) FindByGroupIdPaged(receiveId string, page, pageSize 
 		Offset(offset).
 		Limit(pageSize).
 		Find(&messages).Error; err != nil {
-		return nil, 0, errorx.WrapDBErrorf(err, "分页查询群消息 receive_id=%s", receiveId)
+		return nil, 0, dberr.WrapDBErrorf(err, "分页查询群消息 receive_id=%s", receiveId)
 	}
 	return messages, total, nil
 }
@@ -100,7 +101,7 @@ func (r *messageRepository) FindByGroupIdPaged(receiveId string, page, pageSize 
 // 返回: 操作错误
 func (r *messageRepository) UpdateStatus(uuid string, status int8) error {
 	if err := r.db.Model(&model.Message{}).Where("uuid = ?", uuid).Update("status", status).Error; err != nil {
-		return errorx.WrapDBErrorf(err, "更新消息状态 uuid=%s", uuid)
+		return dberr.WrapDBErrorf(err, "更新消息状态 uuid=%s", uuid)
 	}
 	return nil
 }
@@ -110,7 +111,7 @@ func (r *messageRepository) UpdateStatus(uuid string, status int8) error {
 // 返回: 操作错误
 func (r *messageRepository) Create(message *model.Message) error {
 	if err := r.db.Create(message).Error; err != nil {
-		return errorx.WrapDBError(err, "创建消息")
+		return dberr.WrapDBError(err, "创建消息")
 	}
 	return nil
 }
@@ -124,7 +125,7 @@ func (r *messageRepository) FindByUuid(uuid string) (*model.Message, error) {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errorx.New(errorx.CodeNotFound, "消息不存在")
 		}
-		return nil, errorx.WrapDBErrorf(err, "查找消息 uuid=%s", uuid)
+		return nil, dberr.WrapDBErrorf(err, "查找消息 uuid=%s", uuid)
 	}
 	return &msg, nil
 }
@@ -140,7 +141,7 @@ func (r *messageRepository) UpdateContent(uuid, content string, msgType int8) er
 			"content": content,
 			"type":    msgType,
 		}).Error; err != nil {
-		return errorx.WrapDBErrorf(err, "更新消息内容 uuid=%s", uuid)
+		return dberr.WrapDBErrorf(err, "更新消息内容 uuid=%s", uuid)
 	}
 	return nil
 }

@@ -18,7 +18,7 @@ import (
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/util/random"
+	"kama_chat_server/pkg/random"
 )
 
 // SmsService 短信服务接口

@@ -627,7 +627,7 @@ func (s *userService) GetUserInfo(userId string) (*UserInfo, error) {
 **优化方案**: 随机过期时间
 
 ```go
-// pkg/util/cache/ttl.go
+// internal/dao/redis/cache/ttl.go
 func RandomizedTTL(baseTTL time.Duration) time.Duration {
     // 添加 ±10% 的随机偏移
     jitter := time.Duration(rand.Int63n(int64(baseTTL) / 5))
@@ -695,10 +695,10 @@ func GetHotData(key string) (string, error) {
 - [x] 异步缓存任务队列
 - [x] 接口隔离设计
 - [x] Cache-Aside 读写模式
-- [x] 缓存空值标记（防穿透）— `pkg/util/cache/helper.go`
-- [x] 随机过期时间（防雪崩）— `pkg/util/cache/ttl.go`
+- [x] 缓存空值标记（防穿透）— `internal/dao/redis/cache/helper.go`
+- [x] 随机过期时间（防雪崩）— `internal/dao/redis/cache/ttl.go`
 - [ ] 热点 Key 本地缓存（按需实施）
-- [x] singleflight 防击穿 — `pkg/util/cache/helper.go`
+- [x] singleflight 防击穿 — `internal/dao/redis/cache/helper.go`
 
 ---
 

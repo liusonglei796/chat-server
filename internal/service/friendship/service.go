@@ -8,6 +8,7 @@ import (
 
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
+	cacheutil "kama_chat_server/internal/dao/redis/cache"
 	friendshiprsp "kama_chat_server/internal/dto/respond/friendship"
 	userrsp "kama_chat_server/internal/dto/respond/user"
 	"kama_chat_server/internal/model"
@@ -15,7 +16,6 @@ import (
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
-	cacheutil "kama_chat_server/pkg/util/cache"
 )
 
 // friendshipService 好友关系业务逻辑实现
