@@ -39,6 +39,15 @@ func (r *groupMemberRepository) FindByGroupUuid(groupUuid string) ([]model.Group
 func (r *groupMemberRepository) FindMembersWithUserInfoPaged(groupUuid string, page, pageSize int) ([]model.GroupMemberWithUserInfo, int64, error) {
 	var members []model.GroupMemberWithUserInfo
 	var total int64
+
+	// 校验分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
 	// 统计总数
 	if err := r.db.Table("group_member").
 		Where("group_uuid = ? AND deleted_at IS NULL", groupUuid).
@@ -125,6 +134,15 @@ func (r *groupMemberRepository) GetMemberIdsByGroupUuids(groupUuids []string) ([
 // FindGroupUuidsByUserPaged 根据用户UUID分页查找其加入的群组UUID
 func (r *groupMemberRepository) FindGroupUuidsByUserPaged(userUuid string, page, pageSize int) ([]string, int64, error) {
 	var total int64
+
+	// 校验分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
 	// 统计总数
 	if err := r.db.Model(&model.GroupMember{}).
 		Where("user_uuid = ?", userUuid).

@@ -51,6 +51,14 @@ func (r *friendshipRepository) FindFriendsByUserId(userId string, page, pageSize
 	var list []model.Friendship
 	var total int64
 
+	// 校验分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
 	query := r.db.Model(&model.Friendship{}).
 		Where("user_id = ?", userId)
 

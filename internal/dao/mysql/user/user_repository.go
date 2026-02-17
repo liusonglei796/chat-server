@@ -139,6 +139,14 @@ func (r *userRepository) FindAllPaged(page, pageSize int, keyword string, status
 	var users []model.UserInfo
 	var total int64
 
+	// 校验分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
 	query := r.db.Model(&model.UserInfo{}).Unscoped()
 
 	// 关键词搜索

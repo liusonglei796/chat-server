@@ -41,6 +41,14 @@ func (r *applyRepository) FindByTargetIdPendingPaged(targetId string, page, page
 	var applies []model.Apply
 	var total int64
 
+	// 校验分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
 	// 构建查询条件
 	query := r.db.Model(&model.Apply{}).Where("target_id = ? AND status = ?", targetId, apply_status.PENDING)
 

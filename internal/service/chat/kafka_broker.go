@@ -398,14 +398,48 @@ func (k *MsgConsumer) persistMessage(message *model.Message) {
 }
 
 // updateSessionLastMessage 异步更新会话最后消息
+//
+// 注意：私聊场景需要更新双向会话，因为 A→B 和 B→A 是两个独立的会话记录
+// 群聊场景只需更新发送者的会话（群成员各自维护自己的会话）
 func (k *MsgConsumer) updateSessionLastMessage(message *model.Message, content string) {
-	if k.sessionRepo != nil {
-		go func() {
-			if err := k.sessionRepo.UpdateLastMessage(message.SendId, message.ReceiveId, content, message.Type, message.CreatedAt); err != nil {
-				zap.L().Error("更新会话最后消息失败", zap.Error(err))
-			}
-		}()
+	if k.sessionRepo == nil {
+		return
 	}
+
+	go func() {
+		// 1. 更新发送者的会话
+		if err := k.sessionRepo.UpdateLastMessage(
+			message.SendId,
+			message.ReceiveId,
+			content,
+			message.Type,
+			message.CreatedAt,
+		); err != nil {
+			zap.L().Error("更新发送者会话最后消息失败",
+				zap.String("sendId", message.SendId),
+				zap.String("receiveId", message.ReceiveId),
+				zap.Error(err))
+		}
+
+		// 2. 私聊场景：同步更新接收者的会话（反向）
+		// 私聊中，接收者的会话记录是：send_id=接收者, receive_id=发送者
+		if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
+			if err := k.sessionRepo.UpdateLastMessage(
+				message.ReceiveId, // 接收者作为会话的发起方
+				message.SendId,    // 发送者作为会话的接收方
+				content,
+				message.Type,
+				message.CreatedAt,
+			); err != nil {
+				// 接收者可能没有主动创建过会话，这是正常情况，降级为警告日志
+				zap.L().Warn("更新接收者会话最后消息失败（可能会话不存在）",
+					zap.String("sendId", message.ReceiveId),
+					zap.String("receiveId", message.SendId),
+					zap.Error(err))
+			}
+		}
+		// 群聊场景：不需要反向更新，群成员各自维护自己的 send_id=自己, receive_id=群ID 的会话
+	}()
 }
 
 // handleTextMessage 处理文本消息

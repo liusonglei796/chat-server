@@ -37,6 +37,14 @@ func (r *groupRepository) FindByOwnerIdPaged(ownerId string, page, pageSize int)
 	var groups []model.GroupInfo
 	var total int64
 
+	// 校验分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
 	// 先统计总数
 	if err := r.db.Model(&model.GroupInfo{}).Where("owner_id = ?", ownerId).Count(&total).Error; err != nil {
 		return nil, 0, errorx.WrapDBErrorf(err, "统计群组数量 owner_id=%s", ownerId)
@@ -62,11 +70,17 @@ func (r *groupRepository) FindByOwnerIdPaged(ownerId string, page, pageSize int)
 func (r *groupRepository) GetGroupList(page, pageSize int) ([]model.GroupInfo, int64, error) {
 	var groups []model.GroupInfo
 	var total int64
+
+	// 校验分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
 	// 计算偏移量
 	offset := (page - 1) * pageSize
-	if offset < 0 {
-		offset = 0
-	}
 
 	// 先查询总数
 	if err := r.db.Unscoped().Model(&model.GroupInfo{}).Count(&total).Error; err != nil {

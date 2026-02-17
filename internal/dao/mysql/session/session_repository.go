@@ -41,6 +41,11 @@ func (r *sessionRepository) FindBySendIdAndReceiveId(sendId, receiveId string) (
 
 // FindBySendIdAndTypePaged 根据发送者ID和接收者类型前缀分页查找会话
 // receiveIdPrefix: "U" 表示私聊会话，"G" 表示群聊会话
+//
+// 排序规则：
+//  1. 置顶会话优先显示（is_pinned = true 排在前面）
+//  2. 置顶会话内部按最后消息时间倒序
+//  3. 非置顶会话按最后消息时间倒序
 func (r *sessionRepository) FindBySendIdAndTypePaged(sendId string, receiveIdPrefix string, page, pageSize int) ([]model.Session, int64, error) {
 	var sessions []model.Session
 	var total int64
@@ -52,10 +57,10 @@ func (r *sessionRepository) FindBySendIdAndTypePaged(sendId string, receiveIdPre
 		return nil, 0, errorx.WrapDBErrorf(err, "统计会话数量 send_id=%s type=%s", sendId, receiveIdPrefix)
 	}
 
-	// 分页查询
+	// 分页查询：先按置顶状态倒序，再按最后消息时间倒序
 	offset := (page - 1) * pageSize
 	if err := r.db.Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%").
-		Order("last_message_at DESC").
+		Order("is_pinned DESC, last_message_at DESC").
 		Offset(offset).
 		Limit(pageSize).
 		Find(&sessions).Error; err != nil {
@@ -95,8 +100,30 @@ func (r *sessionRepository) SoftDeleteByUsers(userUuids []string) error {
 	return nil
 }
 
-// UpdateByReceiveId 根据接收者ID批量更新会话字段
-// 用于群组信息变更时同步更新相关会话
+// UpdateByReceiveId 根据接收者ID批量更新会话冗余字段
+//
+// 应用场景：
+//  1. 用户修改昵称/头像时，同步更新所有与该用户的私聊会话
+//  2. 群组修改名称/头像时，同步更新所有成员的群聊会话
+//  3. 确保会话列表显示的信息与最新的用户/群组资料保持一致
+//
+// 说明：
+//
+//	Session表中冗余存储了receive_name和avatar字段，用于快速展示会话列表。
+//	当用户/群组信息变更时，需要批量更新所有相关会话的冗余字段，避免显示旧信息。
+//	这是典型的"写时同步"策略，以空间换时间，避免查询时的JOIN操作。
+//
+// 参数：
+//   - receiveId: 接收者ID（可以是用户UUID或群组UUID）
+//   - updates:   要更新的字段映射，如 {"receive_name": "新昵称", "avatar": "新头像URL"}
+//
+// 使用示例：
+//
+//	sessionUpdates := map[string]interface{}{
+//	    "receive_name": "新群名",
+//	    "avatar": "https://example.com/new-avatar.jpg",
+//	}
+//	err := sessionRepo.UpdateByReceiveId("group-uuid", sessionUpdates)
 func (r *sessionRepository) UpdateByReceiveId(receiveId string, updates map[string]interface{}) error {
 	if err := r.db.Model(&model.Session{}).Where("receive_id = ?", receiveId).Updates(updates).Error; err != nil {
 		return errorx.WrapDBErrorf(err, "批量更新会话 receive_id=%s", receiveId)

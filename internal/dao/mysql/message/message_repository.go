@@ -30,6 +30,14 @@ func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, page
 	var messages []model.Message
 	var total int64
 
+	// 校验分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
 	condition := "(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)"
 
 	// 统计总数
@@ -60,6 +68,14 @@ func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, page
 func (r *messageRepository) FindByGroupIdPaged(receiveId string, page, pageSize int) ([]model.Message, int64, error) {
 	var messages []model.Message
 	var total int64
+
+	// 校验分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
 
 	// 统计总数
 	if err := r.db.Model(&model.Message{}).Where("receive_id = ?", receiveId).Count(&total).Error; err != nil {
