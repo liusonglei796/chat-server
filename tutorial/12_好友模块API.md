@@ -1,4 +1,4 @@
-# 12. 联系人模块 API
+# 12. 好友模块 API
 
 > 本教程按 API 接口组织，每个接口展示完整的 Handler → Service → DAO 调用链。
 
@@ -6,25 +6,21 @@
 
 ## 1. 接口列表
 
+> 注意：群组相关接口见 [群组模块API](13_群组模块API.md)
+
 | 接口 | 方法 | 路径 | 说明 |
 |-----|------|------|------|
-| 获取好友列表 | GET | `/friend/list?userId=xxx` | 获取好友列表 |
-| 获取好友信息 | GET | `/friend/info?friendId=xxx` | 获取好友详情 |
-| 申请添加好友 | POST | `/friend/apply` | 发送好友申请 |
-| 获取好友申请列表 | GET | `/friend/applyList?userId=xxx` | 待处理好友申请 |
-| 通过好友申请 | POST | `/friend/passApply` | 同意好友申请 |
-| 拒绝好友申请 | POST | `/friend/refuseApply` | 拒绝好友申请 |
-| 删除好友 | POST | `/friend/delete` | 删除好友 |
-| 拉黑好友 | POST | `/friend/black` | 拉黑好友 |
-| 取消拉黑 | POST | `/friend/cancelBlack` | 解除拉黑 |
-| 拉黑好友申请 | POST | `/friend/blackApply` | 拉黑好友申请 |
-| 获取我加入的群 | GET | `/group/loadMyJoinedGroup?userId=xxx` | 获取已加入群列表（排除自己创建的） |
-| 获取群聊详情 | GET | `/group/getGroupDetail?groupId=xxx` | 获取群聊详情（会话用） |
-| 申请加入群 | POST | `/group/apply` | 发送入群申请 |
-| 获取入群申请列表 | GET | `/group/applyList?groupId=xxx` | 待处理入群申请 |
-| 通过入群申请 | POST | `/group/passApply` | 同意入群申请 |
-| 拒绝入群申请 | POST | `/group/refuseApply` | 拒绝入群申请 |
-| 拉黑入群申请 | POST | `/group/blackApply` | 拉黑入群申请 |
+| 获取好友列表 | GET | `/friends` | 获取当前用户的好友列表 |
+| 获取好友详情 | GET | `/friends/info` | 获取指定好友的详细信息 |
+| 删除好友 | DELETE | `/friends` | 删除指定好友 |
+| 拉黑好友 | POST | `/friends/block` | 拉黑指定好友 |
+| 取消拉黑 | DELETE | `/friends/block` | 取消拉黑指定好友 |
+| 更新好友备注 | PUT | `/friends/remark` | 更新好友备注名 |
+| 申请添加好友 | POST | `/friends/apply` | 发送好友申请 |
+| 获取好友申请列表 | GET | `/friends/applies` | 获取待处理的好友申请 |
+| 通过好友申请 | POST | `/friends/applies/approve` | 通过好友申请 |
+| 拒绝好友申请 | POST | `/friends/applies/refuse` | 拒绝好友申请 |
+| 拉黑好友申请 | POST | `/friends/applies/block` | 拉黑好友申请 |
 
 ---
 
@@ -33,14 +29,14 @@
 ### Handler
 
 ```go
-// GET /friend/list?userId=xxx
+// GET /friends/list?userId=xxx
 func GetUserListHandler(c *gin.Context) {
 	var req request.OwnlistRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.Contact.GetUserList(req.UserId)
+	data, err := service.Svc.Friendship.GetUserList(req.UserId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -62,14 +58,14 @@ func (u *contactService) GetUserList(userId string) ([]respond.MyUserListRespond
 	memberIds, err := u.cache.GetSetMembers(context.Background(), cacheKey)
 	if err != nil || len(memberIds) == 0 {
 		// 2. 缓存未命中：查库
-		contactList, dbErr := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.USER)
+		contactList, dbErr := u.repos.Friendship.FindByUserIdAndType(userId, contact_type_enum.USER)
 		if dbErr != nil {
 			return nil, errorx.ErrServerBusy
 		}
 
 		memberIds = make([]string, 0, len(contactList))
 		for _, c := range contactList {
-			memberIds = append(memberIds, c.ContactId)
+			memberIds = append(memberIds, c.FriendshipId)
 		}
 
 		// 3. 回写缓存（Set）
@@ -108,9 +104,9 @@ func (u *contactService) GetUserList(userId string) ([]respond.MyUserListRespond
 ### DAO
 
 ```go
-// ContactRepository.FindByUserIdAndType
-func (r *contactRepository) FindByUserIdAndType(userId string, contactType int8) ([]model.Contact, error) {
-	var contacts []model.Contact
+// FriendshipRepository.FindByUserIdAndType
+func (r *contactRepository) FindByUserIdAndType(userId string, contactType int8) ([]model.Friendship, error) {
+	var contacts []model.Friendship
 	if err := r.db.Where("user_id = ? AND contact_type = ?", userId, contactType).Find(&contacts).Error; err != nil {
 		return nil, wrapDBErrorf(err, "查询联系人列表 user_id=%s type=%d", userId, contactType)
 	}
@@ -141,7 +137,7 @@ func LoadMyJoinedGroupHandler(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.Contact.GetJoinedGroupsExcludedOwn(req.UserId)
+	data, err := service.Svc.Friendship.GetJoinedGroupsExcludedOwn(req.UserId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -162,14 +158,14 @@ func (u *contactService) GetJoinedGroupsExcludedOwn(userId string) ([]respond.Lo
 	groupUuids, err := u.cache.GetSetMembers(context.Background(), cacheKey)
 	if err != nil || len(groupUuids) == 0 {
 		// 2. 缓存未命中：查库
-		contactList, dbErr := u.repos.Contact.FindByUserIdAndType(userId, contact_type_enum.GROUP)
+		contactList, dbErr := u.repos.Friendship.FindByUserIdAndType(userId, contact_type_enum.GROUP)
 		if dbErr != nil {
 			return nil, errorx.ErrServerBusy
 		}
 		groupUuids = make([]string, 0, len(contactList))
 		for _, c := range contactList {
-			if len(c.ContactId) > 0 && c.ContactId[0] == 'G' {
-				groupUuids = append(groupUuids, c.ContactId)
+			if len(c.FriendshipId) > 0 && c.FriendshipId[0] == 'G' {
+				groupUuids = append(groupUuids, c.FriendshipId)
 			}
 		}
 		// 3. 回写缓存（Set）
@@ -232,14 +228,14 @@ func (r *groupRepository) FindByUuids(uuids []string) ([]model.GroupInfo, error)
 #### Handler
 
 ```go
-// GET /friend/info?friendId=xxx
+// GET /friends/info?friendId=xxx
 func GetFriendInfoHandler(c *gin.Context) {
 	var req request.GetFriendInfoRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.Contact.GetFriendInfo(req.FriendId)
+	data, err := service.Svc.Friendship.GetFriendInfo(req.FriendId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -322,7 +318,7 @@ func GetGroupDetailHandler(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.Contact.GetGroupDetail(req.GroupId)
+	data, err := service.Svc.Friendship.GetGroupDetail(req.GroupId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -395,14 +391,14 @@ func (u *contactService) GetGroupDetail(groupId string) (respond.GetGroupDetailR
 ### Handler
 
 ```go
-// POST /friend/delete
-func DeleteContactHandler(c *gin.Context) {
-	var req request.DeleteContactRequest
+// POST /friends/delete
+func DeleteFriendshipHandler(c *gin.Context) {
+	var req request.DeleteFriendshipRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Contact.DeleteContact(req.UserId, req.ContactId); err != nil {
+	if err := service.Svc.Friendship.DeleteFriendship(req.UserId, req.FriendshipId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -415,10 +411,10 @@ func DeleteContactHandler(c *gin.Context) {
 > **特点**: 事务 + Set 缓存增量更新 + 异步清理会话缓存
 
 ```go
-func (u *contactService) DeleteContact(userId, contactId string) error {
+func (u *contactService) DeleteFriendship(userId, contactId string) error {
 	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 仅从“我的”联系人列表中移除对方（单向）
-		if err := txRepos.Contact.SoftDelete(userId, contactId); err != nil {
+		if err := txRepos.Friendship.SoftDelete(userId, contactId); err != nil {
 			return errorx.ErrServerBusy
 		}
 
@@ -449,10 +445,10 @@ func (u *contactService) DeleteContact(userId, contactId string) error {
 ### DAO
 
 ```go
-// ContactRepository.SoftDelete
+// FriendshipRepository.SoftDelete
 func (r *contactRepository) SoftDelete(userId, contactId string) error {
 	if err := r.db.Where("user_id = ? AND contact_id = ?", userId, contactId).
-		Delete(&model.Contact{}).Error; err != nil {
+		Delete(&model.Friendship{}).Error; err != nil {
 		return wrapDBErrorf(err, "删除联系人关系 user_id=%s contact_id=%s", userId, contactId)
 	}
 	return nil
@@ -466,14 +462,14 @@ func (r *contactRepository) SoftDelete(userId, contactId string) error {
 ### Handler
 
 ```go
-// POST /friend/apply
+// POST /friends/apply
 func ApplyFriendHandler(c *gin.Context) {
 	var req request.ApplyFriendRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Contact.ApplyFriend(req); err != nil {
+	if err := service.Svc.Friendship.ApplyFriend(req); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -498,7 +494,7 @@ func (u *contactService) ApplyFriend(req request.ApplyFriendRequest) error {
 	}
 
 	// 2. 检查是否已是好友
-	relation, err := u.repos.Contact.FindByUserIdAndContactId(req.UserId, req.FriendId)
+	relation, err := u.repos.Friendship.FindByUserIdAndFriendshipId(req.UserId, req.FriendId)
 	if err == nil && relation != nil && relation.Status == contact_status_enum.NORMAL {
 		return errorx.New(errorx.CodeInvalidParam, "你们已经是好友")
 	}
@@ -511,7 +507,7 @@ func (u *contactService) ApplyFriend(req request.ApplyFriendRequest) error {
 				Uuid:        fmt.Sprintf("A%s", random.GetNowAndLenRandomString(11)),
 				ApplicantId: req.UserId,
 				TargetId:    req.FriendId,
-				ContactType: contact_type_enum.USER,
+				FriendshipType: contact_type_enum.USER,
 				Status:      contact_apply_status_enum.PENDING,
 				Message:     req.Message,
 				LastApplyAt: time.Now(),
@@ -561,14 +557,14 @@ func (r *applyRepository) CreateApply(apply *model.Apply) error {
 ### Handler
 
 ```go
-// GET /friend/applyList?userId=xxx
+// GET /friends/applyList?userId=xxx
 func GetFriendApplyListHandler(c *gin.Context) {
 	var req request.OwnlistRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := service.Svc.Contact.GetFriendApplyList(req.UserId)
+	data, err := service.Svc.Friendship.GetFriendApplyList(req.UserId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -582,14 +578,14 @@ func GetFriendApplyListHandler(c *gin.Context) {
 > **特点**: 批量查询 + Map 快速查找 + 预分配
 
 ```go
-func (u *contactService) GetFriendApplyList(userId string) ([]respond.NewContactListRespond, error) {
+func (u *contactService) GetFriendApplyList(userId string) ([]respond.NewFriendshipListRespond, error) {
 	// 1. 查询待处理申请
 	applyList, err := u.repos.Apply.FindByTargetIdPending(userId)
 	if err != nil {
 		return nil, errorx.ErrServerBusy
 	}
 	if len(applyList) == 0 {
-		return []respond.NewContactListRespond{}, nil
+		return []respond.NewFriendshipListRespond{}, nil
 	}
 
 	// 2. 批量查询申请人信息
@@ -609,7 +605,7 @@ func (u *contactService) GetFriendApplyList(userId string) ([]respond.NewContact
 	}
 
 	// 4. 组装结果 (预分配)
-	rsp := make([]respond.NewContactListRespond, 0, len(applyList))
+	rsp := make([]respond.NewFriendshipListRespond, 0, len(applyList))
 	for _, apply := range applyList {
 		user, ok := userMap[apply.ApplicantId]
 		if !ok {
@@ -619,10 +615,10 @@ func (u *contactService) GetFriendApplyList(userId string) ([]respond.NewContact
 		if apply.Message != "" {
 			message = "申请理由：" + apply.Message
 		}
-		rsp = append(rsp, respond.NewContactListRespond{
+		rsp = append(rsp, respond.NewFriendshipListRespond{
 			ApplicantId:   user.Uuid,
-			ContactName:   user.Nickname,
-			ContactAvatar: user.Avatar,
+			FriendshipName:   user.Nickname,
+			FriendshipAvatar: user.Avatar,
 			Message:       message,
 		})
 	}
@@ -651,14 +647,14 @@ func (r *applyRepository) FindByTargetIdPending(targetId string) ([]model.Apply,
 ### Handler
 
 ```go
-// POST /friend/passApply
+// POST /friends/passApply
 func PassFriendApplyHandler(c *gin.Context) {
 	var req request.PassFriendApplyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Contact.PassFriendApply(req.UserId, req.ApplicantId); err != nil {
+	if err := service.Svc.Friendship.PassFriendApply(req.UserId, req.ApplicantId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -694,15 +690,15 @@ func (u *contactService) PassFriendApply(userId string, applicantId string) erro
 		}
 
 		// 双向建立联系人关系
-		if err := txRepos.Contact.CreateContact(&model.Contact{
-			UserId: userId, ContactId: applicantId,
-			ContactType: contact_type_enum.USER, Status: contact_status_enum.NORMAL,
+		if err := txRepos.Friendship.CreateFriendship(&model.Friendship{
+			UserId: userId, FriendshipId: applicantId,
+			FriendshipType: contact_type_enum.USER, Status: contact_status_enum.NORMAL,
 		}); err != nil {
 			return err
 		}
-		if err := txRepos.Contact.CreateContact(&model.Contact{
-			UserId: applicantId, ContactId: userId,
-			ContactType: contact_type_enum.USER, Status: contact_status_enum.NORMAL,
+		if err := txRepos.Friendship.CreateFriendship(&model.Friendship{
+			UserId: applicantId, FriendshipId: userId,
+			FriendshipType: contact_type_enum.USER, Status: contact_status_enum.NORMAL,
 		}); err != nil {
 			return err
 		}
@@ -728,14 +724,14 @@ func (u *contactService) PassFriendApply(userId string, applicantId string) erro
 ### Handler
 
 ```go
-// POST /friend/black
-func BlackContactHandler(c *gin.Context) {
-	var req request.BlackContactRequest
+// POST /friends/black
+func BlackFriendshipHandler(c *gin.Context) {
+	var req request.BlackFriendshipRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Contact.BlackContact(req.UserId, req.ContactId); err != nil {
+	if err := service.Svc.Friendship.BlackFriendship(req.UserId, req.FriendshipId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -748,14 +744,14 @@ func BlackContactHandler(c *gin.Context) {
 > **特点**: 事务 + 双向状态更新 + 异步缓存清理
 
 ```go
-func (u *contactService) BlackContact(userId, contactId string) error {
+func (u *contactService) BlackFriendship(userId, contactId string) error {
 	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 更新拉黑者状态为 BLACK
-		if err := txRepos.Contact.UpdateStatus(userId, contactId, contact_status_enum.BLACK); err != nil {
+		if err := txRepos.Friendship.UpdateStatus(userId, contactId, contact_status_enum.BLACK); err != nil {
 			return errorx.ErrServerBusy
 		}
 		// 2. 更新被拉黑者状态为 BE_BLACK
-		if err := txRepos.Contact.UpdateStatus(contactId, userId, contact_status_enum.BE_BLACK); err != nil {
+		if err := txRepos.Friendship.UpdateStatus(contactId, userId, contact_status_enum.BE_BLACK); err != nil {
 			return errorx.ErrServerBusy
 		}
 		// 3. 双方会话软删除
@@ -783,9 +779,9 @@ func (u *contactService) BlackContact(userId, contactId string) error {
 ### DAO
 
 ```go
-// ContactRepository.UpdateStatus
+// FriendshipRepository.UpdateStatus
 func (r *contactRepository) UpdateStatus(userId, contactId string, status int8) error {
-	if err := r.db.Model(&model.Contact{}).
+	if err := r.db.Model(&model.Friendship{}).
 		Where("user_id = ? AND contact_id = ?", userId, contactId).
 		Update("status", status).Error; err != nil {
 		return wrapDBErrorf(err, "更新联系人状态 user_id=%s contact_id=%s", userId, contactId)
@@ -801,14 +797,14 @@ func (r *contactRepository) UpdateStatus(userId, contactId string, status int8) 
 ### Handler
 
 ```go
-// POST /friend/cancelBlack
-func CancelBlackContactHandler(c *gin.Context) {
-	var req request.BlackContactRequest
+// POST /friends/cancelBlack
+func CancelBlackFriendshipHandler(c *gin.Context) {
+	var req request.BlackFriendshipRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := service.Svc.Contact.CancelBlackContact(req.UserId, req.ContactId); err != nil {
+	if err := service.Svc.Friendship.CancelBlackFriendship(req.UserId, req.FriendshipId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -821,28 +817,28 @@ func CancelBlackContactHandler(c *gin.Context) {
 > **特点**: 事务 + 双向状态恢复 + 异步缓存清理
 
 ```go
-func (u *contactService) CancelBlackContact(userId, contactId string) error {
+func (u *contactService) CancelBlackFriendship(userId, contactId string) error {
 	// 1. 校验状态
-	blackContact, err := u.repos.Contact.FindByUserIdAndContactId(userId, contactId)
+	blackFriendship, err := u.repos.Friendship.FindByUserIdAndFriendshipId(userId, contactId)
 	if err != nil {
 		return errorx.ErrServerBusy
 	}
-	if blackContact.Status != contact_status_enum.BLACK {
+	if blackFriendship.Status != contact_status_enum.BLACK {
 		return errorx.New(errorx.CodeInvalidParam, "未拉黑该联系人，无需解除拉黑")
 	}
 
-	beBlackContact, err := u.repos.Contact.FindByUserIdAndContactId(contactId, userId)
+	beBlackFriendship, err := u.repos.Friendship.FindByUserIdAndFriendshipId(contactId, userId)
 	if err != nil {
 		return errorx.ErrServerBusy
 	}
-	if beBlackContact.Status != contact_status_enum.BE_BLACK {
+	if beBlackFriendship.Status != contact_status_enum.BE_BLACK {
 		return errorx.New(errorx.CodeInvalidParam, "该联系人未被拉黑，无需解除拉黑")
 	}
 
 	// 2. 事务恢复双方状态
 	err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
-		txRepos.Contact.UpdateStatus(userId, contactId, contact_status_enum.NORMAL)
-		txRepos.Contact.UpdateStatus(contactId, userId, contact_status_enum.NORMAL)
+		txRepos.Friendship.UpdateStatus(userId, contactId, contact_status_enum.NORMAL)
+		txRepos.Friendship.UpdateStatus(contactId, userId, contact_status_enum.NORMAL)
 		return nil
 	})
 
@@ -870,9 +866,9 @@ func (u *contactService) CancelBlackContact(userId, contactId string) error {
 | LoadMyJoinedGroup | - | ✅ | ✅ Redis Set（群ID） | ✅（回写/清理） |
 | GetFriendInfo | - | - | ✅ Cache-Aside | ✅（回写） |
 | GetGroupDetail | - | - | ✅ Cache-Aside | ✅（回写） |
-| DeleteContact | ✅ | - | ✅ Set 增量更新 | ✅ |
+| DeleteFriendship | ✅ | - | ✅ Set 增量更新 | ✅ |
 | ApplyFriend | - | - | - | - |
 | GetFriendApplyList | - | ✅ | - | - |
 | PassFriendApply | ✅ | - | - | ✅ |
-| BlackContact | ✅ | - | - | ✅ |
-| CancelBlackContact | ✅ | - | - | ✅ |
+| BlackFriendship | ✅ | - | - | ✅ |
+| CancelBlackFriendship | ✅ | - | - | ✅ |

@@ -6,19 +6,13 @@
 
 ## 1. 接口列表
 
+> 注意：用户注册、登录、短信验证码等认证相关接口见认证模块，本章节介绍用户信息管理相关接口。
+
 | 接口 | 方法 | 路径 | 说明 |
 |-----|------|------|------|
-| 发送验证码 | POST | `/user/sendSmsCode` | 发送短信验证码 |
-| 注册 | POST | `/register` | 用户注册 |
-| 密码登录 | POST | `/login` | 密码登录 |
-| 验证码登录 | POST | `/user/smsLogin` | 短信验证码登录 |
-| 获取信息 | GET | `/user/getUserInfo?uuid=xxx` | 获取用户信息 |
-| 更新信息 | POST | `/user/updateUserInfo` | 更新用户信息 |
-| 获取用户列表 | GET | `/admin/user/list?ownerId=xxx` | 获取用户列表（管理员） |
-| 启用用户 | POST | `/admin/user/able` | 启用用户（管理员） |
-| 禁用用户 | POST | `/admin/user/disable` | 禁用用户（管理员） |
-| 删除用户 | POST | `/admin/user/delete` | 删除用户（管理员） |
-| 设置管理员 | POST | `/admin/user/setAdmin` | 设置管理员（管理员） |
+| 获取当前用户信息 | GET | `/user/info` | 获取登录用户详细信息 |
+| 获取他人公开信息 | GET | `/user/public-info` | 获取指定用户的公开信息 |
+| 更新用户信息 | PUT | `/user/info` | 更新当前用户信息 |
 
 ---
 
