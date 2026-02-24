@@ -6,21 +6,26 @@
 
 ## 1. 接口列表
 
+> 注意：群组申请相关接口在好友模块的 `/friends/applies` 路由下，管理员相关功能见 [管理员功能](管理员功能.md)
+
 | 接口 | 方法 | 路径 | 说明 |
 |-----|------|------|------|
-| 创建群组 | POST | `/group/createGroup` | 创建新群组 |
-| 获取我的群组 | GET | `/group/loadMyGroup?user_id=xxx` | 获取我创建的群组 |
-| 检查加群方式 | GET | `/group/checkGroupAddMode?group_id=xxx` | 查看群加群方式 |
-| 直接进群 | POST | `/group/enterGroupDirectly` | 直接加入群组 |
-| 退出群组 | POST | `/group/leaveGroup` | 退出群组 |
-| 解散群聊 | POST | `/group/dismissGroup` | 解散群组（群主） |
-| 获取群信息 | GET | `/group/getGroupInfo?group_id=xxx` | 获取群基本信息 |
-| 获取群列表 | GET | `/admin/group/list?page=1&page_size=10` | 获取所有群组（管理员） |
-| 更新群信息 | POST | `/group/updateGroupInfo` | 更新群资料 |
-| 获取群成员 | GET | `/group/getGroupMemberList?group_id=xxx` | 获取群成员列表 |
-| 移除群成员 | POST | `/group/removeGroupMembers` | 踢出群成员 |
-| 删除群组 | POST | `/admin/group/delete` | 删除其它群组（管理员） |
-| 设置群状态 | POST | `/admin/group/setStatus` | 启用/禁用群组（管理员） |
+| 创建群组 | POST | `/groups` | 创建新群组 |
+| 获取我创建的群组 | GET | `/groups/owned` | 获取当前用户创建的群组 |
+| 获取已加入的群组 | GET | `/groups/joined` | 获取已加入的群组列表 |
+| 获取群聊详情 | GET | `/groups/detail` | 获取群组详细信息 |
+| 更新群组信息 | PUT | `/groups/info` | 更新群资料（群主/管理员） |
+| 解散群组 | DELETE | `/groups` | 解散群组（群主） |
+| 退出群组 | POST | `/groups/leave` | 退出群组 |
+| 获取群成员列表 | GET | `/groups/members` | 获取群成员列表 |
+| 移除群成员 | DELETE | `/groups/members` | 移除群成员（群主/管理员） |
+| 禁言/取消禁言 | POST | `/groups/members/mute` | 禁言/取消禁言群成员 |
+| 检查加群方式 | GET | `/groups/add-mode` | 查看群加群方式 |
+| 申请加入群 | POST | `/groups/apply` | 申请加入群组 |
+| 获取入群申请列表 | GET | `/groups/applies` | 获取待处理的入群申请 |
+| 通过入群申请 | POST | `/groups/applies/approve` | 通过入群申请 |
+| 拒绝入群申请 | POST | `/groups/applies/refuse` | 拒绝入群申请 |
+| 拉黑入群申请 | POST | `/groups/applies/block` | 拉黑入群申请 |
 
 ---
 
