@@ -23,7 +23,7 @@ func Init(cfg *config.LogConfig, mode string) error {
 
 	// 获取日志写入器和编码器
 	writeSyncer := getLogWriter(cfg.FileName, cfg.MaxSize, cfg.MaxBackups, cfg.MaxAge)
-	encoder := getEncoder()
+	encoder := getJSONEncoder()
 
 	var level zapcore.Level
 	if err := level.UnmarshalText([]byte(cfg.Level)); err != nil {
