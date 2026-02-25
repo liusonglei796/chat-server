@@ -3,6 +3,7 @@ package logger
 import (
 	"fmt"
 	"os"
+	"sync"
 
 	"kama_chat_server/internal/config"
 
@@ -11,39 +12,46 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// Init 初始化 Logger
+// loggerOnce 确保日志只初始化一次
+var loggerOnce sync.Once
+
+// Init 初始化 Logger（单例模式）
 // 根据配置创建 zap logger，支持开发/生产模式
 func Init(cfg *config.LogConfig, mode string) error {
-	if cfg == nil {
-		return fmt.Errorf("logger.Init received nil config")
-	}
+	var initErr error
+	loggerOnce.Do(func() {
+		if cfg == nil {
+			initErr = fmt.Errorf("logger.Init received nil config")
+			return
+		}
 
-	// 设置默认值
-	setDefaultIfEmpty(cfg)
+		// 设置默认值
+		setDefaultIfEmpty(cfg)
 
-	// 获取日志写入器和编码器
-	writeSyncer := getLogWriter(cfg.FileName, cfg.MaxSize, cfg.MaxBackups, cfg.MaxAge)
-	encoder := getJSONEncoder()
+		// 获取日志写入器和编码器
+		writeSyncer := getLogWriter(cfg.FileName, cfg.MaxSize, cfg.MaxBackups, cfg.MaxAge)
+		encoder := getJSONEncoder()
 
-	var level zapcore.Level
-	if err := level.UnmarshalText([]byte(cfg.Level)); err != nil {
-		return err
-	}
+		var level zapcore.Level
+		if err := level.UnmarshalText([]byte(cfg.Level)); err != nil {
+			initErr = err
+			return
+		}
 
-	var core zapcore.Core
-	if mode == "dev" || mode == gin.DebugMode {
-		// 开发模式：同时输出到控制台和文件
-		core = newDevCore(encoder, writeSyncer, level)
-	} else {
-		// 生产模式：只输出到文件（JSON 格式）
-		core = zapcore.NewCore(encoder, writeSyncer, level)
-	}
+		var core zapcore.Core
+		if mode == "dev" || mode == gin.DebugMode {
+			// 开发模式：同时输出到控制台和文件
+			core = newDevCore(encoder, writeSyncer, level)
+		} else {
+			// 生产模式：只输出到文件（JSON 格式）
+			core = zapcore.NewCore(encoder, writeSyncer, level)
+		}
 
-	// 创建并替换全局 Logger
-	lg := zap.New(core, zap.AddCaller())
-	zap.ReplaceGlobals(lg)
-
-	return nil
+		// 创建并替换全局 Logger
+		lg := zap.New(core, zap.AddCaller())
+		zap.ReplaceGlobals(lg)
+	})
+	return initErr
 }
 
 // setDefaultIfEmpty 设置配置默认值
