@@ -438,6 +438,80 @@ func (s *sessionService) GetGroupSessionList(ownerId string, page, pageSize int)
 	return sessionListRsp, total, nil
 }
 
+// GetUserSessionListCursor 获取用户单聊会话列表（游标分页）
+// cursor: 上一页最后一条会话的时间戳（Unix时间戳字符串）
+func (s *sessionService) GetUserSessionListCursor(ownerId, cursor string, pageSize int) ([]sessionrsp.UserSessionListRespond, string, bool, error) {
+	// 设置默认分页参数
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	// 游标分页查询
+	result, err := s.repos.Session.FindBySendIdAndTypeCursor(ownerId, "U", cursor, pageSize)
+	if err != nil {
+		zap.L().Error("service error", zap.Error(err))
+		return nil, "", false, errorx.ErrServerBusy
+	}
+
+	sessionListRsp := make([]sessionrsp.UserSessionListRespond, 0, len(result.Sessions))
+	for i := 0; i < len(result.Sessions); i++ {
+		var lastMessageTime string
+		if result.Sessions[i].LastMessageAt.Valid {
+			lastMessageTime = result.Sessions[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
+		}
+
+		sessionListRsp = append(sessionListRsp, sessionrsp.UserSessionListRespond{
+			SessionId:       result.Sessions[i].Uuid,
+			Avatar:          result.Sessions[i].Avatar,
+			UserId:          result.Sessions[i].ReceiveId,
+			Username:        result.Sessions[i].ReceiveName,
+			LastMessage:     result.Sessions[i].LastMessage,
+			LastMessageTime: lastMessageTime,
+			LastMessageType: result.Sessions[i].LastMessageType,
+			IsPinned:        result.Sessions[i].IsPinned,
+		})
+	}
+
+	return sessionListRsp, result.NextCursor, result.HasMore, nil
+}
+
+// GetGroupSessionListCursor 获取群聊会话列表（游标分页）
+// cursor: 上一页最后一条会话的时间戳（Unix时间戳字符串）
+func (s *sessionService) GetGroupSessionListCursor(ownerId, cursor string, pageSize int) ([]sessionrsp.GroupSessionListRespond, string, bool, error) {
+	// 设置默认分页参数
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	// 游标分页查询
+	result, err := s.repos.Session.FindBySendIdAndTypeCursor(ownerId, "G", cursor, pageSize)
+	if err != nil {
+		zap.L().Error("service error", zap.Error(err))
+		return nil, "", false, errorx.ErrServerBusy
+	}
+
+	sessionListRsp := make([]sessionrsp.GroupSessionListRespond, 0, len(result.Sessions))
+	for i := 0; i < len(result.Sessions); i++ {
+		var lastMessageTime string
+		if result.Sessions[i].LastMessageAt.Valid {
+			lastMessageTime = result.Sessions[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
+		}
+
+		sessionListRsp = append(sessionListRsp, sessionrsp.GroupSessionListRespond{
+			SessionId:       result.Sessions[i].Uuid,
+			Avatar:          result.Sessions[i].Avatar,
+			GroupId:         result.Sessions[i].ReceiveId,
+			GroupName:       result.Sessions[i].ReceiveName,
+			LastMessage:     result.Sessions[i].LastMessage,
+			LastMessageTime: lastMessageTime,
+			LastMessageType: result.Sessions[i].LastMessageType,
+			IsPinned:        result.Sessions[i].IsPinned,
+		})
+	}
+
+	return sessionListRsp, result.NextCursor, result.HasMore, nil
+}
+
 // DeleteSession 删除会话
 func (s *sessionService) DeleteSession(ownerId, sessionId string) error {
 	// 1. 权限校验: 直接按 UUID 查询会话，验证归属关系

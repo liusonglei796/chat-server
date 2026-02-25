@@ -145,6 +145,103 @@ func (m *messageService) GetGroupMessageList(userId, groupId string, page, pageS
 	return rspList, total, nil
 }
 
+// GetMessageListCursor 获取两个用户之间的聊天记录（游标分页）
+// cursor: 上一页最后一条消息的时间戳（Unix时间戳字符串），为空则从头开始
+func (m *messageService) GetMessageListCursor(requesterId, partnerId, cursor string, pageSize int) ([]messagersp.GetMessageListRespond, string, bool, error) {
+	// 参数校验
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	// 权限校验: 必须是好友关系才能查看聊天记录
+	isFriend, err := m.repos.Friendship.IsFriend(requesterId, partnerId)
+	if err != nil {
+		zap.L().Error("check friend relationship error", zap.Error(err))
+		return nil, "", false, errorx.ErrServerBusy
+	}
+	if !isFriend {
+		return nil, "", false, errorx.New(errorx.CodeForbidden, "你们不是好友，无法查看聊天记录")
+	}
+
+	userOneId := requesterId
+
+	// 确保 ID 顺序一致，保证查询结果稳定
+	if userOneId > partnerId {
+		userOneId, partnerId = partnerId, userOneId
+	}
+
+	// 游标分页查询
+	result, err := m.repos.Message.FindByUserIdsCursor(userOneId, partnerId, cursor, pageSize)
+	if err != nil {
+		zap.L().Error("find messages by user ids cursor error", zap.Error(err))
+		return nil, "", false, errorx.ErrServerBusy
+	}
+
+	rspList := make([]messagersp.GetMessageListRespond, 0, len(result.Messages))
+	for _, message := range result.Messages {
+		rspList = append(rspList, messagersp.GetMessageListRespond{
+			SendId:     message.SendId,
+			SendName:   message.SendName,
+			SendAvatar: message.SendAvatar,
+			ReceiveId:  message.ReceiveId,
+			Content:    message.Content,
+			Url:        message.Url,
+			Type:       message.Type,
+			FileType:   message.FileType,
+			FileName:   message.FileName,
+			FileSize:   message.FileSize,
+			CreatedAt:  message.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	return rspList, result.NextCursor, result.HasMore, nil
+}
+
+// GetGroupMessageListCursor 获取群聊消息记录（游标分页）
+// cursor: 上一页最后一条消息的时间戳（Unix时间戳字符串），为空则从头开始
+func (m *messageService) GetGroupMessageListCursor(userId, groupId, cursor string, pageSize int) ([]messagersp.GetMessageListRespond, string, bool, error) {
+	// 设置默认分页参数
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	// 权限校验: 只要有 Session 记录(未删除)即可查看历史消息
+	_, err := m.repos.Session.FindBySendIdAndReceiveId(userId, groupId)
+	if err != nil {
+		if errorx.IsNotFound(err) {
+			return nil, "", false, errorx.New(errorx.CodeForbidden, "您没有该群的会话记录")
+		}
+		zap.L().Error("Find session error", zap.Error(err))
+		return nil, "", false, errorx.ErrServerBusy
+	}
+
+	// 游标分页查询数据库
+	result, err := m.repos.Message.FindByGroupIdCursor(groupId, cursor, pageSize)
+	if err != nil {
+		zap.L().Error("find group messages cursor error", zap.Error(err))
+		return nil, "", false, errorx.ErrServerBusy
+	}
+
+	rspList := make([]messagersp.GetMessageListRespond, 0, len(result.Messages))
+	for _, message := range result.Messages {
+		rspList = append(rspList, messagersp.GetMessageListRespond{
+			SendId:     message.SendId,
+			SendName:   message.SendName,
+			SendAvatar: message.SendAvatar,
+			ReceiveId:  message.ReceiveId,
+			Content:    message.Content,
+			Url:        message.Url,
+			Type:       message.Type,
+			FileType:   message.FileType,
+			FileName:   message.FileName,
+			FileSize:   message.FileSize,
+			CreatedAt:  message.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	return rspList, result.NextCursor, result.HasMore, nil
+}
+
 // UploadAvatar 上传头像
 func (m *messageService) UploadAvatar(c *gin.Context) (string, error) {
 	if err := c.Request.ParseMultipartForm(constants.FILE_MAX_SIZE); err != nil {

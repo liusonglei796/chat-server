@@ -52,8 +52,9 @@ func (h *SessionHandler) OpenSession(c *gin.Context) {
 
 // GetUserSessionList 获取单聊会话列表
 // GET /session/getUserSessionList?page=1&page_size=20
+// GET /session/getUserSessionList?cursor=1234567890&page_size=20 (推荐使用游标分页)
 // 从JWT上下文获取当前用户ID
-// 响应: map[string]interface{} (list, total, page, page_size)
+// 响应: map[string]interface{} (list, total, page, page_size) 或 (list, cursor, has_more, page_size)
 func (h *SessionHandler) GetUserSessionList(c *gin.Context) {
 	// 从JWT中间件获取当前用户ID
 	userId, exists := c.Get("user_id")
@@ -69,16 +70,26 @@ func (h *SessionHandler) GetUserSessionList(c *gin.Context) {
 	}
 
 	// 设置默认分页参数
-	page := req.Page
-	pageSize := req.PageSize
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = 20
+	if req.PageSize <= 0 {
+		req.PageSize = 20
 	}
 
-	data, total, err := h.sessionSvc.GetUserSessionList(userId.(string), page, pageSize)
+	// 优先使用游标分页（推荐）
+	if req.Cursor != "" {
+		h.getUserSessionListWithCursor(c, userId.(string), req)
+		return
+	}
+
+	// 兼容传统分页（已不推荐，但保持向后兼容）
+	if req.Page <= 0 {
+		req.Page = 1
+	}
+	h.getUserSessionListWithPage(c, userId.(string), req)
+}
+
+// getUserSessionListWithPage 使用传统分页（已不推荐，但保持向后兼容）
+func (h *SessionHandler) getUserSessionListWithPage(c *gin.Context, userId string, req session.GetSessionListRequest) {
+	data, total, err := h.sessionSvc.GetUserSessionList(userId, req.Page, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -86,15 +97,31 @@ func (h *SessionHandler) GetUserSessionList(c *gin.Context) {
 	HandleSuccess(c, map[string]interface{}{
 		"list":      data,
 		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
+		"page":      req.Page,
+		"page_size": req.PageSize,
+	})
+}
+
+// getUserSessionListWithCursor 使用游标分页（推荐）
+func (h *SessionHandler) getUserSessionListWithCursor(c *gin.Context, userId string, req session.GetSessionListRequest) {
+	data, nextCursor, hasMore, err := h.sessionSvc.GetUserSessionListCursor(userId, req.Cursor, req.PageSize)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, map[string]interface{}{
+		"list":      data,
+		"cursor":    nextCursor,
+		"has_more":  hasMore,
+		"page_size": req.PageSize,
 	})
 }
 
 // GetGroupSessionList 获取群聊会话列表
 // GET /session/getGroupSessionList?page=1&page_size=20
+// GET /session/getGroupSessionList?cursor=1234567890&page_size=20 (推荐使用游标分页)
 // 从JWT上下文获取当前用户ID
-// 响应: map[string]interface{} (list, total, page, page_size)
+// 响应: map[string]interface{} (list, total, page, page_size) 或 (list, cursor, has_more, page_size)
 func (h *SessionHandler) GetGroupSessionList(c *gin.Context) {
 	// 从JWT中间件获取当前用户ID
 	userId, exists := c.Get("user_id")
@@ -110,16 +137,26 @@ func (h *SessionHandler) GetGroupSessionList(c *gin.Context) {
 	}
 
 	// 设置默认分页参数
-	page := req.Page
-	pageSize := req.PageSize
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = 20
+	if req.PageSize <= 0 {
+		req.PageSize = 20
 	}
 
-	data, total, err := h.sessionSvc.GetGroupSessionList(userId.(string), page, pageSize)
+	// 优先使用游标分页（推荐）
+	if req.Cursor != "" {
+		h.getGroupSessionListWithCursor(c, userId.(string), req)
+		return
+	}
+
+	// 兼容传统分页（已不推荐，但保持向后兼容）
+	if req.Page <= 0 {
+		req.Page = 1
+	}
+	h.getGroupSessionListWithPage(c, userId.(string), req)
+}
+
+// getGroupSessionListWithPage 使用传统分页（已不推荐，但保持向后兼容）
+func (h *SessionHandler) getGroupSessionListWithPage(c *gin.Context, userId string, req session.GetSessionListRequest) {
+	data, total, err := h.sessionSvc.GetGroupSessionList(userId, req.Page, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -127,8 +164,23 @@ func (h *SessionHandler) GetGroupSessionList(c *gin.Context) {
 	HandleSuccess(c, map[string]interface{}{
 		"list":      data,
 		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
+		"page":      req.Page,
+		"page_size": req.PageSize,
+	})
+}
+
+// getGroupSessionListWithCursor 使用游标分页（推荐）
+func (h *SessionHandler) getGroupSessionListWithCursor(c *gin.Context, userId string, req session.GetSessionListRequest) {
+	data, nextCursor, hasMore, err := h.sessionSvc.GetGroupSessionListCursor(userId, req.Cursor, req.PageSize)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, map[string]interface{}{
+		"list":      data,
+		"cursor":    nextCursor,
+		"has_more":  hasMore,
+		"page_size": req.PageSize,
 	})
 }
 

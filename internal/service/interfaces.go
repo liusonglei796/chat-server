@@ -49,10 +49,16 @@ type SessionService interface {
 	CheckOpenSessionAllowed(sendId, receiveId string) (bool, error)
 	// OpenSession 打开/获取会话 (sendId 从 JWT 获取，防止 IDOR)
 	OpenSession(sendId string, req session.OpenSessionRequest) (string, error)
-	// GetUserSessionList 获取用户单聊会话列表（分页）
+	// GetUserSessionList 获取用户单聊会话列表（传统分页 - 已不推荐）
 	GetUserSessionList(ownerId string, page, pageSize int) ([]sessionrsp.UserSessionListRespond, int64, error)
-	// GetGroupSessionList 获取用户群聊会话列表（分页）
+	// GetUserSessionListCursor 获取用户单聊会话列表（游标分页 - 推荐）
+	// cursor: 上一页最后一条会话的时间戳（Unix时间戳字符串）
+	GetUserSessionListCursor(ownerId, cursor string, pageSize int) ([]sessionrsp.UserSessionListRespond, string, bool, error)
+	// GetGroupSessionList 获取用户群聊会话列表（传统分页 - 已不推荐）
 	GetGroupSessionList(ownerId string, page, pageSize int) ([]sessionrsp.GroupSessionListRespond, int64, error)
+	// GetGroupSessionListCursor 获取用户群聊会话列表（游标分页 - 推荐）
+	// cursor: 上一页最后一条会话的时间戳（Unix时间戳字符串）
+	GetGroupSessionListCursor(ownerId, cursor string, pageSize int) ([]sessionrsp.GroupSessionListRespond, string, bool, error)
 	// DeleteSession 删除会话
 	DeleteSession(ownerId, sessionId string) error
 	// PinSession 置顶/取消置顶会话
@@ -136,10 +142,18 @@ type ApplyService interface {
 // MessageService 消息业务接口
 // 处理消息历史记录和文件上传等功能
 type MessageService interface {
-	// GetMessageList 获取两个用户之间的聊天记录 (requesterId 用于权限校验)
+	// GetMessageList 获取两个用户之间的聊天记录（传统分页 - 已不推荐使用）
 	GetMessageList(requesterId, partnerId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error)
-	// GetGroupMessageList 获取群聊消息记录（分页）(userId 必须是群成员)
+	// GetMessageListCursor 获取两个用户之间的聊天记录（游标分页 - 推荐）
+	// cursor: 上一页最后一条消息的时间戳（Unix时间戳字符串），为空则从头开始
+	// 返回: 消息列表、下一页游标、是否有更多数据、错误
+	GetMessageListCursor(requesterId, partnerId, cursor string, pageSize int) ([]messagersp.GetMessageListRespond, string, bool, error)
+	// GetGroupMessageList 获取群聊消息记录（传统分页 - 已不推荐使用）
 	GetGroupMessageList(userId, groupId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error)
+	// GetGroupMessageListCursor 获取群聊消息记录（游标分页 - 推荐）
+	// cursor: 上一页最后一条消息的时间戳（Unix时间戳字符串），为空则从头开始
+	// 返回: 消息列表、下一页游标、是否有更多数据、错误
+	GetGroupMessageListCursor(userId, groupId, cursor string, pageSize int) ([]messagersp.GetMessageListRespond, string, bool, error)
 	// UploadAvatar 上传头像，返回新文件名
 	UploadAvatar(c *gin.Context) (string, error)
 	// UploadFile 上传文件，返回文件名列表

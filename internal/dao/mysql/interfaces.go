@@ -91,9 +91,13 @@ type SessionRepository interface {
 	FindByUuid(uuid string) (*model.Session, error)
 	// FindBySendIdAndReceiveId 根据发送者和接收者查找会话
 	FindBySendIdAndReceiveId(sendId, receiveId string) (*model.Session, error)
-	// FindBySendIdAndTypePaged 根据发送者ID和接收者类型前缀分页查找会话
+	// FindBySendIdAndTypePaged 根据发送者ID和接收者类型前缀分页查找会话（传统分页）
 	// receiveIdPrefix: "U" 表示私聊会话，"G" 表示群聊会话
 	FindBySendIdAndTypePaged(sendId string, receiveIdPrefix string, page, pageSize int) ([]model.Session, int64, error)
+	// FindBySendIdAndTypeCursor 根据发送者ID和接收者类型前缀游标分页查找会话（推荐）
+	// receiveIdPrefix: "U" 表示私聊会话，"G" 表示群聊会话
+	// cursor: 游标时间戳（上一页最后一条会话的 last_message_at Unix 时间戳）
+	FindBySendIdAndTypeCursor(sendId string, receiveIdPrefix, cursor string, pageSize int) (*model.CursorPageSessionResult, error)
 	// CreateSession 创建新会话
 	CreateSession(session *model.Session) error
 	// SoftDeleteByUuids 批量软删除会话
@@ -113,8 +117,16 @@ type SessionRepository interface {
 type MessageRepository interface {
 	// FindByUserIdsPaged 根据两个用户ID查找私聊消息（分页）
 	FindByUserIdsPaged(userOneId, userTwoId string, page, pageSize int) ([]model.Message, int64, error)
+	// FindByUserIdsCursor 根据两个用户ID查找私聊消息（游标分页）
+	// cursor: 游标时间戳（上一页最后一条消息的 created_at Unix 时间戳）
+	// 返回: 游标分页结果（包含消息列表、下页游标、是否有更多）
+	FindByUserIdsCursor(userOneId, userTwoId, cursor string, pageSize int) (*model.CursorPageMessageResult, error)
 	// FindByGroupIdPaged 根据群组ID分页查找群聊消息
 	FindByGroupIdPaged(groupId string, page, pageSize int) ([]model.Message, int64, error)
+	// FindByGroupIdCursor 根据群组ID查找群聊消息（游标分页）
+	// cursor: 游标时间戳（上一页最后一条消息的 created_at Unix 时间戳）
+	// 返回: 游标分页结果（包含消息列表、下页游标、是否有更多）
+	FindByGroupIdCursor(groupId, cursor string, pageSize int) (*model.CursorPageMessageResult, error)
 	// FindByUuid 根据消息UUID查找消息
 	FindByUuid(uuid string) (*model.Message, error)
 	// UpdateStatus 更新消息状态

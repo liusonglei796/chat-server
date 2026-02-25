@@ -3,10 +3,13 @@
 package session
 
 import (
-	"kama_chat_server/internal/dao/mysql/dberr"
-	"kama_chat_server/internal/model"
+	"strconv"
 	"time"
 
+	"kama_chat_server/internal/dao/mysql/dberr"
+	"kama_chat_server/internal/model"
+
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -67,6 +70,69 @@ func (r *sessionRepository) FindBySendIdAndTypePaged(sendId string, receiveIdPre
 		return nil, 0, dberr.WrapDBErrorf(err, "分页查询会话 send_id=%s type=%s", sendId, receiveIdPrefix)
 	}
 	return sessions, total, nil
+}
+
+// FindBySendIdAndTypeCursor 根据发送者ID和接收者类型前缀游标分页查找会话
+// receiveIdPrefix: "U" 表示私聊会话，"G" 表示群聊会话
+// cursor: 游标时间戳（上一页最后一条会话的 last_message_at Unix 时间戳）
+//
+// 排序规则：
+//  1. 置顶会话优先显示（is_pinned = true 排在前面）
+//  2. 置顶会话内部按最后消息时间倒序
+//  3. 非置顶会话按最后消息时间倒序
+func (r *sessionRepository) FindBySendIdAndTypeCursor(sendId string, receiveIdPrefix, cursor string, pageSize int) (*model.CursorPageSessionResult, error) {
+	var sessions []model.Session
+
+	// 校验分页参数
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	// 构建查询
+	query := r.db.Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%")
+
+	// 如果有游标，基于游标时间戳查询
+	// 游标逻辑：查询 last_message_at < cursor 的数据
+	if cursor != "" {
+		timestamp, err := strconv.ParseInt(cursor, 10, 64)
+		if err != nil {
+			// 解析失败则忽略游标，从最新开始查询
+			zap.L().Warn("parse cursor failed, ignore cursor", zap.String("cursor", cursor), zap.Error(err))
+		} else {
+			cursorTime := time.Unix(timestamp, 0)
+			query = query.Where("last_message_at < ?", cursorTime)
+		}
+	}
+
+	// 先按置顶状态倒序，再按最后消息时间倒序
+	// 多查一条用于判断是否有更多
+	if err := query.
+		Order("is_pinned DESC, last_message_at DESC").
+		Limit(pageSize + 1).
+		Find(&sessions).Error; err != nil {
+		return nil, dberr.WrapDBErrorf(err, "游标分页查询会话 send_id=%s type=%s", sendId, receiveIdPrefix)
+	}
+
+	// 判断是否有更多
+	hasMore := len(sessions) > pageSize
+	if hasMore {
+		sessions = sessions[:pageSize] // 截取实际需要的数据
+	}
+
+	// 生成下一页游标
+	var nextCursor string
+	if len(sessions) > 0 && hasMore {
+		lastSession := sessions[len(sessions)-1]
+		if lastSession.LastMessageAt.Valid {
+			nextCursor = strconv.FormatInt(lastSession.LastMessageAt.Time.Unix(), 10)
+		}
+	}
+
+	return &model.CursorPageSessionResult{
+		Sessions:   sessions,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
+	}, nil
 }
 
 // CreateSession 创建会话

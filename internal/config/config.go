@@ -56,7 +56,6 @@ type LogConfig struct {
 
 // KafkaConfig Kafka 消息队列配置
 type KafkaConfig struct {
-	MessageMode string        `toml:"messageMode"` // 消息模式："channel" 或 "kafka"
 	HostPort    string        `toml:"hostPort"`    // Kafka 服务器地址，如 "localhost:9092"
 	LoginTopic  string        `toml:"loginTopic"`  // 登录主题（保留字段）
 	LogoutTopic string        `toml:"logoutTopic"` // 登出主题（保留字段）
@@ -116,6 +115,8 @@ func LoadConfig() (*Config, error) {
 		"configs/config.toml",
 		filepath.Join(execDir, "configs/config_local.toml"),
 		filepath.Join(execDir, "configs/config.toml"),
+		"/app/configs/config.toml",
+		"/app/config.toml",
 		"../../configs/config_local.toml",
 		"../../configs/config.toml",
 	}
@@ -142,8 +143,14 @@ func LoadConfig() (*Config, error) {
 
 // overlayEnvVars 使用环境变量覆盖配置
 func overlayEnvVars(c *Config) {
+	if v := os.Getenv("MYSQL_HOST"); v != "" {
+		c.MysqlConfig.Host = v
+	}
 	if v := os.Getenv("MYSQL_PASSWORD"); v != "" {
 		c.MysqlConfig.Password = v
+	}
+	if v := os.Getenv("REDIS_HOST"); v != "" {
+		c.RedisConfig.Host = v
 	}
 	if v := os.Getenv("REDIS_PASSWORD"); v != "" {
 		c.RedisConfig.Password = v
