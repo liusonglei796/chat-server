@@ -152,10 +152,10 @@ func (k *MsgConsumer) Start() {
 				zap.ByteString("value", kafkaMessage.Value))
 
 			// 获取消息体
-			data := kafkaMessage.Value
+			messageData := kafkaMessage.Value
 			var chatMessageReq messagereq.ChatMessageRequest
 			// 反序列化为请求对象
-			if err := json.Unmarshal(data, &chatMessageReq); err != nil { // [标准库: encoding/json] 反序列化 JSON
+			if err := json.Unmarshal(messageData, &chatMessageReq); err != nil { // [标准库: encoding/json] 反序列化 JSON
 				zap.L().Error("service error", zap.Error(err))
 				continue // 反序列化失败，直接跳过
 			}

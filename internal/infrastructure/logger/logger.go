@@ -17,23 +17,23 @@ var loggerOnce sync.Once
 
 // Init 初始化 Logger（单例模式）
 // 根据配置创建 zap logger，支持开发/生产模式
-func Init(cfg *config.LogConfig, mode string) error {
+func Init(logCfg *config.LogConfig, mode string) error {
 	var initErr error
 	loggerOnce.Do(func() {
-		if cfg == nil {
+		if logCfg == nil {
 			initErr = fmt.Errorf("logger.Init received nil config")
 			return
 		}
 
 		// 设置默认值
-		setDefaultIfEmpty(cfg)
+		setDefaultIfEmpty(logCfg)
 
-		// 获取日志写入器和编码器
-		writeSyncer := getLogWriter(cfg.FileName, cfg.MaxSize, cfg.MaxBackups, cfg.MaxAge)
-		encoder := getJSONEncoder()
+		// 获取日志写入器和 JSON 编码器
+		writeSyncer := getLogWriter(logCfg.FileName, logCfg.MaxSize, logCfg.MaxBackups, logCfg.MaxAge)
+		jsonEncoder := getJSONEncoderForFile()
 
 		var level zapcore.Level
-		if err := level.UnmarshalText([]byte(cfg.Level)); err != nil {
+		if err := level.UnmarshalText([]byte(logCfg.Level)); err != nil {
 			initErr = err
 			return
 		}
@@ -41,10 +41,11 @@ func Init(cfg *config.LogConfig, mode string) error {
 		var core zapcore.Core
 		if mode == "dev" || mode == gin.DebugMode {
 			// 开发模式：同时输出到控制台和文件
-			core = newDevCore(encoder, writeSyncer, level)
+			consoleEncoder := getConsoleEncoderForTerminal()
+			core = newDualCore(jsonEncoder, consoleEncoder, writeSyncer, level)
 		} else {
 			// 生产模式：只输出到文件（JSON 格式）
-			core = zapcore.NewCore(encoder, writeSyncer, level)
+			core = zapcore.NewCore(jsonEncoder, writeSyncer, level)
 		}
 
 		// 创建并替换全局 Logger
@@ -55,29 +56,37 @@ func Init(cfg *config.LogConfig, mode string) error {
 }
 
 // setDefaultIfEmpty 设置配置默认值
-func setDefaultIfEmpty(cfg *config.LogConfig) {
-	if cfg.FileName == "" {
-		cfg.FileName = cfg.LogPath + "/app.log"
+func setDefaultIfEmpty(logCfg *config.LogConfig) {
+	if logCfg.FileName == "" {
+		logCfg.FileName = logCfg.LogPath + "/app.log"
 	}
-	if cfg.MaxSize == 0 {
-		cfg.MaxSize = 100
+	if logCfg.MaxSize == 0 {
+		logCfg.MaxSize = 100
 	}
-	if cfg.MaxBackups == 0 {
-		cfg.MaxBackups = 5
+	if logCfg.MaxBackups == 0 {
+		logCfg.MaxBackups = 5
 	}
-	if cfg.MaxAge == 0 {
-		cfg.MaxAge = 30
+	if logCfg.MaxAge == 0 {
+		logCfg.MaxAge = 30
 	}
-	if cfg.Level == "" {
-		cfg.Level = "info"
+	if logCfg.Level == "" {
+		logCfg.Level = "info"
 	}
 }
 
-// newDevCore 创建开发模式的 Core
-// 同时输出到控制台（易读）和文件（便于追溯）
-func newDevCore(encoder zapcore.Encoder, writeSyncer zapcore.WriteSyncer, level zapcore.Level) zapcore.Core {
-	consoleEncoder := getConsoleEncoder()
-	fileCore := zapcore.NewCore(encoder, writeSyncer, level)
+// newDualCore 创建双输出 Core（开发模式）
+// 同时输出到控制台（彩色易读）和文件（JSON格式便于分析）
+// 参数说明：
+//   - jsonEncoder: JSON 编码器，用于文件日志
+//   - consoleEncoder: Console 编码器，用于控制台输出
+//   - writeSyncer: 日志写入目标（文件）
+//   - level: 日志级别
+func newDualCore(jsonEncoder, consoleEncoder zapcore.Encoder, writeSyncer zapcore.WriteSyncer, level zapcore.Level) zapcore.Core {
+	// 文件日志：使用 JSON encoder，按配置的级别输出
+	fileCore := zapcore.NewCore(jsonEncoder, writeSyncer, level)
+
+	// 控制台日志：使用 console encoder，始终输出 DebugLevel（更详细）
 	consoleCore := zapcore.NewCore(consoleEncoder, zapcore.Lock(os.Stdout), zapcore.DebugLevel)
+
 	return zapcore.NewTee(fileCore, consoleCore)
 }

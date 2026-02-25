@@ -4,9 +4,9 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// getJSONEncoder 获取 JSON 编码器
+// getJSONEncoderForFile 获取文件编码器
 // JSON 格式输出，适合机器解析和日志收集系统（如 ELK）
-func getJSONEncoder() zapcore.Encoder {
+func getJSONEncoderForFile() zapcore.Encoder {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "time",
 		LevelKey:       "level",
@@ -23,9 +23,9 @@ func getJSONEncoder() zapcore.Encoder {
 	return zapcore.NewJSONEncoder(encoderConfig)
 }
 
-// getConsoleEncoder 获取控制台编码器
+// getConsoleEncoderForTerminal 获取控制台编码器
 // Console 格式输出，更易读，适合开发调试
-func getConsoleEncoder() zapcore.Encoder {
+func getConsoleEncoderForTerminal() zapcore.Encoder {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "time",
 		LevelKey:       "level",

@@ -108,14 +108,14 @@ type ChatServerConfig struct {
 }
 
 // NewChatServer 创建聊天服务器实例
-func NewChatServer(cfg ChatServerConfig) *ChatServer {
+func NewChatServer(chatServerCfg ChatServerConfig) *ChatServer {
 	cs := &ChatServer{
-		messageRepo:     cfg.MessageRepo,
-		friendshipRepo:  cfg.FriendshipRepo,
-		groupMemberRepo: cfg.GroupMemberRepo,
-		sessionRepo:     cfg.SessionRepo,
-		cacheService:    cfg.CacheService,
-		userRepo:        cfg.UserRepo,
+		messageRepo:     chatServerCfg.MessageRepo,
+		friendshipRepo:  chatServerCfg.FriendshipRepo,
+		groupMemberRepo: chatServerCfg.GroupMemberRepo,
+		sessionRepo:     chatServerCfg.SessionRepo,
+		cacheService:    chatServerCfg.CacheService,
+		userRepo:        chatServerCfg.UserRepo,
 	}
 
 	// 初始化 Kafka 客户端和消费者

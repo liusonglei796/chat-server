@@ -53,7 +53,7 @@ func (h *Helper) GetOrLoad(
 
 	// 1. 检查空值标记（防止缓存穿透）
 	if nullTTL > 0 {
-		if val, _ := h.cache.Get(ctx, nullKey); val == "1" {
+		if nullVal, _ := h.cache.Get(ctx, nullKey); nullVal == "1" {
 			return errorx.New(errorx.CodeNotFound, "data not found (cached null)")
 		}
 	}
@@ -69,7 +69,7 @@ func (h *Helper) GetOrLoad(
 	}
 
 	// 3. 使用 singleflight 防止缓存击穿
-	val, sfErr, _ := h.sf.Do(key, func() (interface{}, error) {
+	sfResult, sfErr, _ := h.sf.Do(key, func() (interface{}, error) {
 		// 再次检查缓存（double-check）
 		if cached, _ := h.cache.Get(ctx, key); cached != "" {
 			return cached, nil
@@ -100,7 +100,7 @@ func (h *Helper) GetOrLoad(
 	}
 
 	// 处理 singleflight 返回值
-	switch v := val.(type) {
+	switch v := sfResult.(type) {
 	case string:
 		// 从缓存读取的字符串
 		return json.Unmarshal([]byte(v), result)
