@@ -1,30 +1,22 @@
 # 18. Kafka 集成与消息模式
 
-> 本教程将引入 Kafka 消息队列，实现异步消息处理，解耦消息的生产与消费。
+> 本教程介绍 Kafka 消息队列的集成，实现异步消息处理，解耦消息的生产与消费。
 
 ---
 
 ## 📌 学习目标
 
-- 理解 Channel 模式与 Kafka 模式的区别
 - 掌握 `MessageBroker` 接口设计与依赖注入
 - 实现消息生产者与消费者
-- 理解 MsgConsumer 与 StandaloneServer 的架构设计
+- 理解 MsgConsumer 的架构设计
 
 ---
 
-## 1. 消息模式对比
+## 1. 消息模式说明
 
-项目设计了两种消息传递模式，通过配置文件的 `kafkaConfig.messageMode` 切换：
+> 注意：本项目**只支持 Kafka 模式**，已移除 Channel 模式。
 
-### 1.1 Channel 模式 (Default)
-- **机制**：使用 Go 原生 `channel` 在内存中转发消息
-- **数据流**：WebSocket Client → StandaloneServer.Transmit → 消息处理 → DB/WebSocket
-- **优点**：简单、无依赖、部署快、延迟低
-- **缺点**：单机受限，重启丢失堆积消息，无法支持多实例集群
-- **适用**：开发环境、单机部署、小规模应用
-
-### 1.2 Kafka 模式
+**Kafka 模式**：
 - **机制**：使用 Kafka 作为消息中间件进行异步解耦
 - **数据流**：WebSocket Client → Kafka Producer → Kafka Broker → MsgConsumer → 消息处理 → DB/WebSocket
 - **优点**：高吞吐、持久化、削峰填谷、支持集群扩容、消息可追溯
@@ -39,7 +31,6 @@
 internal/service/chat/
 ├── server.go          # ChatServer 聚合结构 + MessageBroker 接口
 ├── ws_gateway.go      # WebSocket 连接管理 (UserConn)
-├── channel_broker.go  # StandaloneServer (Channel 模式)
 ├── kafka_broker.go    # MsgConsumer (Kafka 模式)
 └── kafka_client.go    # Kafka 客户端封装
 ```
@@ -68,9 +59,9 @@ import (
 )
 
 // MessageBroker 定义消息代理接口
-// 支持多种实现：KafkaBroker (分布式), ChannelBroker (单机)
+// 当前仅支持 Kafka 实现
 type MessageBroker interface {
-	// Publish 发布消息到消息队列/通道
+	// Publish 发布消息到 Kafka
 	Publish(ctx context.Context, msg []byte) error
 	// RegisterClient 注册客户端连接
 	RegisterClient(client *UserConn)
@@ -78,69 +69,82 @@ type MessageBroker interface {
 	UnregisterClient(client *UserConn)
 	// GetClient 获取指定用户的连接
 	GetClient(userId string) *UserConn
+	// KickClient 单点登录互踢
+	KickClient(userId string, reason string)
+	// PushRecallNotify 推送撤回通知
+	PushRecallNotify(messageUuid, receiveId string)
 	// Start 启动消息消费循环
 	Start()
 	// Close 关闭代理资源
 	Close()
 	// GetMessageRepo 获取消息 Repository
-	GetMessageRepo() repository.MessageRepository
+	GetMessageRepo() mysql.MessageRepository
 }
+```
 
+### 4.2 ChatServer 结构
+
+```go
 // ChatServer 聊天服务器聚合结构
 type ChatServer struct {
 	Broker          MessageBroker
 	KafkaClient     *KafkaClient
-	messageRepo     repository.MessageRepository
-	groupMemberRepo repository.GroupMemberRepository
+	messageRepo     mysql.MessageRepository
+	friendshipRepo  mysql.FriendshipRepository
+	groupMemberRepo mysql.GroupMemberRepository
+	sessionRepo     mysql.SessionRepository
 	cacheService    myredis.AsyncCacheService
-	mode            string
+	userRepo        mysql.UserRepository
 }
 
 // ChatServerConfig 聊天服务器配置
 type ChatServerConfig struct {
-	Mode            string // "channel" 或 "kafka"
-	MessageRepo     repository.MessageRepository
-	GroupMemberRepo repository.GroupMemberRepository
+	MessageRepo     mysql.MessageRepository
+	FriendshipRepo  mysql.FriendshipRepository
+	GroupMemberRepo mysql.GroupMemberRepository
+	SessionRepo     mysql.SessionRepository
 	CacheService    myredis.AsyncCacheService
-	KafkaHostPort   string
-	KafkaTopic      string
+	UserRepo        mysql.UserRepository
 }
 
 // NewChatServer 创建聊天服务器实例
 func NewChatServer(cfg ChatServerConfig) *ChatServer {
 	cs := &ChatServer{
 		messageRepo:     cfg.MessageRepo,
+		friendshipRepo:  cfg.FriendshipRepo,
 		groupMemberRepo: cfg.GroupMemberRepo,
+		sessionRepo:     cfg.SessionRepo,
 		cacheService:    cfg.CacheService,
-		mode:            cfg.Mode,
+		userRepo:        cfg.UserRepo,
 	}
 
-	if cfg.Mode == "kafka" {
-		// Kafka 模式
-		cs.KafkaClient = NewKafkaClient()
-		cs.Broker = NewMsgConsumer(cs.KafkaClient, cs.messageRepo, cs.groupMemberRepo, cs.cacheService)
-	} else {
-		// Channel 模式（默认）
-		cs.Broker = NewStandaloneServer(cs.messageRepo, cs.groupMemberRepo, cs.cacheService)
-	}
+	// 初始化 Kafka 客户端和消费者
+	cs.KafkaClient = NewKafkaClient()
+	cs.Broker = NewMsgConsumer(
+		cs.KafkaClient,
+		cs.messageRepo,
+		cs.friendshipRepo,
+		cs.groupMemberRepo,
+		cs.sessionRepo,
+		cs.cacheService,
+		cs.userRepo,
+	)
 
 	return cs
 }
 
 // InitKafka 初始化 Kafka 连接
 func (cs *ChatServer) InitKafka() {
-	if cs.KafkaClient != nil {
-		cs.KafkaClient.KafkaInit()
-	}
+	cs.KafkaClient.KafkaInit()
 }
 
-// Start 启动聊天服务器
-func (cs *ChatServer) Start() {
+// Run 启动聊天服务器
+func (cs *ChatServer) Run() {
 	cs.Broker.Start()
 }
 
-// Close 关闭聊天服务器
-func (cs *ChatServer) Close() {
+// Shutdown 关闭聊天服务器
+func (cs *ChatServer) Shutdown() {
 	cs.Broker.Close()
 	if cs.KafkaClient != nil {
 		cs.KafkaClient.KafkaClose()
@@ -169,7 +173,7 @@ import (
 // KafkaClient Kafka 客户端结构
 type KafkaClient struct {
 	Producer  *kafka.Writer // 生产者
-	Consumer  *kafka.Reader // 消费者
+	Reader    *kafka.Reader // 消费者
 	KafkaConn *kafka.Conn   // 连接管理
 }
 
@@ -181,6 +185,7 @@ func NewKafkaClient() *KafkaClient {
 // KafkaInit 初始化 Kafka 客户端
 func (k *KafkaClient) KafkaInit() {
 	kafkaConfig := myconfig.GetConfig().KafkaConfig
+	
 	k.Producer = &kafka.Writer{
 		Addr:                   kafka.TCP(kafkaConfig.HostPort),
 		Topic:                  kafkaConfig.ChatTopic,
@@ -189,11 +194,12 @@ func (k *KafkaClient) KafkaInit() {
 		RequiredAcks:           kafka.RequireNone,
 		AllowAutoTopicCreation: false,
 	}
-	k.Consumer = kafka.NewReader(kafka.ReaderConfig{
+	
+	k.Reader = kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        []string{kafkaConfig.HostPort},
 		Topic:          kafkaConfig.ChatTopic,
-		CommitInterval: kafkaConfig.Timeout * time.Second,
-		GroupID:        "chat",
+		CommitInterval: time.Second,
+		GroupID:        "chat-consumer-group",
 		StartOffset:    kafka.LastOffset,
 	})
 }
@@ -202,15 +208,14 @@ func (k *KafkaClient) KafkaClose() {
 	if err := k.Producer.Close(); err != nil {
 		zap.L().Error(err.Error())
 	}
-	if err := k.Consumer.Close(); err != nil {
+	if err := k.Reader.Close(); err != nil {
 		zap.L().Error(err.Error())
 	}
 }
 
 // WriteMessage 向 Kafka 发送消息
-func (k *KafkaClient) WriteMessage(ctx context.Context, key, value []byte) error {
+func (k *KafkaClient) WriteMessage(ctx context.Context, value []byte) error {
 	return k.Producer.WriteMessages(ctx, kafka.Message{
-		Key:   key,
 		Value: value,
 	})
 }
@@ -228,7 +233,7 @@ package chat
 import (
 	"context"
 	"kama_chat_server/pkg/constants"
-	"kama_chat_server/pkg/enum/message/message_status_enum"
+	"kama_chat_server/pkg/enum/message/message_status"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -239,16 +244,16 @@ import (
 // MessageBack 用于回传消息给前端
 type MessageBack struct {
 	Message []byte
-	Uuid    int64
+	Uuid    string
 }
 
 // UserConn 表示一个 WebSocket 客户端连接
 type UserConn struct {
-	Conn     *websocket.Conn
-	Uuid     string
-	SendTo   chan []byte       // 缓冲通道
-	SendBack chan *MessageBack // 给前端
-	broker   MessageBroker     // 注入的消息代理
+	Conn        *websocket.Conn
+	Uuid        string
+	SendBack    chan *MessageBack // 给前端
+	broker      MessageBroker     // 注入的消息代理
+	cleanupOnce sync.Once         // 确保 cleanup 只执行一次
 }
 
 var upgrader = websocket.Upgrader{
@@ -261,32 +266,72 @@ var ctx = context.Background()
 
 // Read 从 WebSocket 读取消息并通过 Broker 发布
 func (c *UserConn) Read() {
+	defer c.cleanup()
+	
+	// 设置心跳超时
+	_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.Conn.SetPongHandler(func(string) error {
+		_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+	
 	for {
 		_, jsonMessage, err := c.Conn.ReadMessage()
 		if err != nil {
-			zap.L().Error(err.Error())
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				zap.L().Error("ws read error", zap.String("userId", c.Uuid), zap.Error(err))
+			}
 			return
 		}
-		// 通过接口发布消息，不关心具体实现
-		if err := c.broker.Publish(ctx, jsonMessage); err != nil {
-			zap.L().Error(err.Error())
+		
+		// 安全：由服务端注入 send_id，防止 IDOR 攻击
+		securedMessage := injectSenderId(jsonMessage, c.Uuid)
+		
+		// 通过接口发布消息
+		if err := c.broker.Publish(ctx, securedMessage); err != nil {
+			zap.L().Error("publish message error", zap.String("userId", c.Uuid), zap.Error(err))
 		}
 	}
 }
 
 // Write 从 SendBack 通道读取消息并发送给 WebSocket
 func (c *UserConn) Write() {
-	for messageBack := range c.SendBack {
-		err := c.Conn.WriteMessage(websocket.TextMessage, messageBack.Message)
-		if err != nil {
-			zap.L().Error(err.Error())
-			return
-		}
-		// 通过 Repository 接口更新消息状态
-		if repo := c.broker.GetMessageRepo(); repo != nil {
-			repo.UpdateStatus(messageBack.Uuid, message_status_enum.Sent)
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case messageBack, ok := <-c.SendBack:
+			if !ok {
+				_ = c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			
+			if err := c.Conn.WriteMessage(websocket.TextMessage, messageBack.Message); err != nil {
+				zap.L().Error("ws write error", zap.String("userId", c.Uuid), zap.Error(err))
+				return
+			}
+			
+			// 推送成功后更新消息状态
+			if repo := c.broker.GetMessageRepo(); repo != nil {
+				_ = repo.UpdateStatus(messageBack.Uuid, message_status.Sent)
+			}
+		
+		case <-ticker.C:
+			// 定期发送 Ping 心跳
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
+}
+
+// cleanup 清理资源
+func (c *UserConn) cleanup() {
+	c.cleanupOnce.Do(func() {
+		c.broker.UnregisterClient(c)
+		close(c.SendBack)
+	})
 }
 
 // NewClientInit 初始化新的 WebSocket 客户端
@@ -296,13 +341,14 @@ func NewClientInit(c *gin.Context, clientId string, broker MessageBroker) {
 		zap.L().Error(err.Error())
 		return
 	}
+	
 	client := &UserConn{
 		Conn:     conn,
 		Uuid:     clientId,
-		SendTo:   make(chan []byte, constants.CHANNEL_SIZE),
 		SendBack: make(chan *MessageBack, constants.CHANNEL_SIZE),
 		broker:   broker,
 	}
+	
 	broker.RegisterClient(client)
 	go client.Read()
 	go client.Write()
@@ -311,75 +357,9 @@ func NewClientInit(c *gin.Context, clientId string, broker MessageBroker) {
 
 ---
 
-## 7. StandaloneServer（Channel 模式）
+## 7. MsgConsumer（Kafka 模式）
 
-### 7.1 internal/service/chat/channel_broker.go
-
-```go
-package chat
-
-import (
-	"context"
-	"kama_chat_server/internal/dao/mysql"
-	myredis "kama_chat_server/internal/dao/redis"
-	"kama_chat_server/pkg/constants"
-	"sync"
-)
-
-// StandaloneServer 单机模式聊天服务器
-type StandaloneServer struct {
-	Clients         sync.Map
-	Transmit        chan []byte
-	Login           chan *UserConn
-	Logout          chan *UserConn
-	messageRepo     repository.MessageRepository
-	groupMemberRepo repository.GroupMemberRepository
-	cacheService    myredis.AsyncCacheService
-}
-
-// NewStandaloneServer 创建 ChannelBroker 实例（依赖注入）
-func NewStandaloneServer(
-	messageRepo repository.MessageRepository,
-	groupMemberRepo repository.GroupMemberRepository,
-	cacheService myredis.AsyncCacheService,
-) *StandaloneServer {
-	return &StandaloneServer{
-		Transmit:        make(chan []byte, constants.CHANNEL_SIZE),
-		Login:           make(chan *UserConn, constants.CHANNEL_SIZE),
-		Logout:          make(chan *UserConn, constants.CHANNEL_SIZE),
-		messageRepo:     messageRepo,
-		groupMemberRepo: groupMemberRepo,
-		cacheService:    cacheService,
-	}
-}
-
-// Start 启动 Channel Server 主循环
-func (s *StandaloneServer) Start() {
-	for {
-		select {
-		case client := <-s.Login:
-			s.Clients.Store(client.Uuid, client)
-		case client := <-s.Logout:
-			s.Clients.Delete(client.Uuid)
-		case data := <-s.Transmit:
-			// 反序列化并根据消息类型分发处理
-			s.handleMessage(data)
-		}
-	}
-}
-
-// Publish 实现 MessageBroker 接口
-func (s *StandaloneServer) Publish(ctx context.Context, msg []byte) error {
-	s.Transmit <- msg
-	return nil
-}
-```
-
----
-
-## 8. MsgConsumer（Kafka 模式）
-
-### 8.1 internal/service/chat/kafka_broker.go
+### 7.1 internal/service/chat/kafka_broker.go
 
 ```go
 package chat
@@ -390,7 +370,7 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/dto/request"
-	"kama_chat_server/pkg/enum/message/message_type_enum"
+	"kama_chat_server/pkg/enum/message/message_type"
 	"sync"
 
 	"go.uber.org/zap"
@@ -399,82 +379,145 @@ import (
 // MsgConsumer 基于 Kafka 的聊天服务
 type MsgConsumer struct {
 	Clients         sync.Map
-	Login           chan *UserConn
-	Logout          chan *UserConn
-	kafkaClient     *KafkaClient
-	messageRepo     repository.MessageRepository
-	groupMemberRepo repository.GroupMemberRepository
+	Producer        *kafka.Writer
+	Reader          *kafka.Reader
+	
+	// 依赖注入
+	messageRepo     mysql.MessageRepository
+	friendshipRepo  mysql.FriendshipRepository
+	groupMemberRepo mysql.GroupMemberRepository
+	sessionRepo     mysql.SessionRepository
 	cacheService    myredis.AsyncCacheService
+	userRepo        mysql.UserRepository
 }
 
 // NewMsgConsumer 创建 KafkaBroker 实例（依赖注入）
 func NewMsgConsumer(
 	kafkaClient *KafkaClient,
-	messageRepo repository.MessageRepository,
-	groupMemberRepo repository.GroupMemberRepository,
+	messageRepo mysql.MessageRepository,
+	friendshipRepo mysql.FriendshipRepository,
+	groupMemberRepo mysql.GroupMemberRepository,
+	sessionRepo mysql.SessionRepository,
 	cacheService myredis.AsyncCacheService,
+	userRepo mysql.UserRepository,
 ) *MsgConsumer {
 	return &MsgConsumer{
-		Login:           make(chan *UserConn),
-		Logout:          make(chan *UserConn),
-		kafkaClient:     kafkaClient,
+		Producer:        kafkaClient.Producer,
+		Reader:          kafkaClient.Reader,
 		messageRepo:     messageRepo,
+		friendshipRepo:  friendshipRepo,
 		groupMemberRepo: groupMemberRepo,
+		sessionRepo:     sessionRepo,
 		cacheService:    cacheService,
+		userRepo:        userRepo,
 	}
 }
 
 // Start 启动 Kafka 消费者服务
-func (k *MsgConsumer) Start() {
-	// 启动 Kafka 消费协程
-	go func() {
-		for {
-			kafkaMessage, err := k.kafkaClient.Consumer.ReadMessage(ctx)
-			if err != nil {
-				zap.L().Error(err.Error())
-				continue
-			}
-
-			var chatMessageReq request.ChatMessageRequest
-			if err := json.Unmarshal(kafkaMessage.Value, &chatMessageReq); err != nil {
-				zap.L().Error(err.Error())
-				continue
-			}
-
-			switch chatMessageReq.Type {
-			case message_type_enum.Text:
-				k.handleTextMessage(chatMessageReq)
-			case message_type_enum.File:
-				k.handleFileMessage(chatMessageReq)
-			case message_type_enum.AudioOrVideo:
-				k.handleAVMessage(chatMessageReq)
-			}
-		}
-	}()
-
-	// 主循环：处理登录/登出
+func (mc *MsgConsumer) Start() {
 	for {
-		select {
-		case client := <-k.Login:
-			k.Clients.Store(client.Uuid, client)
-		case client := <-k.Logout:
-			k.Clients.Delete(client.Uuid)
+		msg, err := mc.Reader.ReadMessage(context.Background())
+		if err != nil {
+			zap.L().Error("kafka read error", zap.Error(err))
+			break
+		}
+
+		var req request.ChatMessageRequest
+		if err := json.Unmarshal(msg.Value, &req); err != nil {
+			continue
+		}
+
+		// 根据消息类型分发处理
+		switch req.Type {
+		case message_type.Text:
+			mc.handleTextMessage(req)
+		case message_type.Voice:
+			mc.handleFileMessage(req)
+		case message_type.File:
+			mc.handleFileMessage(req)
+		case message_type.AudioOrVideo:
+			mc.handleAVMessage(req)
+		case message_type.Recall:
+			mc.handleRecallMessage(req)
 		}
 	}
 }
 
 // Publish 实现 MessageBroker 接口
-func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
-	key := []byte("0")
-	return k.kafkaClient.WriteMessage(ctx, key, msg)
+func (mc *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
+	return mc.Producer.WriteMessages(ctx, kafka.Message{
+		Value: msg,
+	})
+}
+
+// RegisterClient 注册客户端
+func (mc *MsgConsumer) RegisterClient(client *UserConn) {
+	mc.Clients.Store(client.Uuid, client)
+	zap.L().Info("client registered", zap.String("userId", client.Uuid))
+}
+
+// UnregisterClient 注销客户端
+func (mc *MsgConsumer) UnregisterClient(client *UserConn) {
+	if client != nil {
+		mc.Clients.Delete(client.Uuid)
+	}
+}
+
+// GetClient 获取客户端
+func (mc *MsgConsumer) GetClient(userId string) *UserConn {
+	value, ok := mc.Clients.Load(userId)
+	if !ok {
+		return nil
+	}
+	return value.(*UserConn)
+}
+
+// KickClient 单点登录互踢
+func (mc *MsgConsumer) KickClient(userId string, reason string) {
+	client := mc.GetClient(userId)
+	if client != nil {
+		// 推送下线通知
+		notify := map[string]interface{}{
+			"type":    message_type.KickNotification,
+			"content": reason,
+		}
+		data, _ := json.Marshal(notify)
+		_ = client.Conn.WriteMessage(websocket.TextMessage, data)
+		// 断开连接
+		client.cleanup()
+	}
+}
+
+// PushRecallNotify 推送撤回通知
+func (mc *MsgConsumer) PushRecallNotify(messageUuid, receiveId string) {
+	client := mc.GetClient(receiveId)
+	if client != nil {
+		notify := map[string]interface{}{
+			"type":       message_type.Recall,
+			"messageUuid": messageUuid,
+		}
+		data, _ := json.Marshal(notify)
+		_ = client.Conn.WriteMessage(websocket.TextMessage, data)
+	}
+}
+
+// Close 关闭资源
+func (mc *MsgConsumer) Close() {
+	mc.Reader.Close()
+	mc.Producer.Close()
+}
+
+// GetMessageRepo 获取消息仓库
+func (mc *MsgConsumer) GetMessageRepo() mysql.MessageRepository {
+	return mc.messageRepo
 }
 ```
 
 ---
 
-## 9. 配置文件
+## 8. 配置文件
 
-### 9.1 configs/config.toml
+### 8.1 configs/config.toml
 
 ```toml
 [kafkaConfig]
@@ -482,12 +525,12 @@ hostPort = "localhost:9092"  # Kafka 地址
 chatTopic = "chat_topic"     # Topic 名称
 partition = 1                # 分区数
 timeout = 10                 # 超时时间(秒)
-messageMode = "channel"      # 消息模式: "channel" 或 "kafka"
+messageMode = "kafka"        # 消息模式（本项目仅支持 kafka）
 ```
 
 ---
 
-## 10. 主程序启动示例
+## 9. 主程序启动示例
 
 ```go
 package main
@@ -503,19 +546,22 @@ func main() {
 
 	// 创建聊天服务器
 	chatServer := chat.NewChatServer(chat.ChatServerConfig{
-		Mode:            conf.KafkaConfig.MessageMode,
-		MessageRepo:     messageRepo,     // 注入 Repository
-		GroupMemberRepo: groupMemberRepo, // 注入 Repository
-		CacheService:    cacheService,    // 注入 Redis 缓存服务
+		MessageRepo:     repos.Message,
+		FriendshipRepo:  repos.Friendship,
+		GroupMemberRepo: repos.GroupMember,
+		SessionRepo:     repos.Session,
+		CacheService:    cacheService,
+		UserRepo:        repos.User,
 	})
 
-	// Kafka 模式需要初始化连接
-	if conf.KafkaConfig.MessageMode == "kafka" {
-		chatServer.InitKafka()
-	}
+	// 初始化 Kafka 连接
+	chatServer.InitKafka()
+
+	// 注入 Broker 到 Handler
+	handlers := handler.NewHandlers(services, chatServer.GetBroker())
 
 	// 启动聊天服务器
-	go chatServer.Start()
+	go chatServer.Run()
 
 	// 启动 HTTP 服务器...
 }
@@ -523,42 +569,13 @@ func main() {
 
 ---
 
-## 11. Channel vs Kafka 对比
+## ✅ 本节小结
 
-| 对比项 | Channel 模式 | Kafka 模式 |
-|-------|-------------|-----------|
-| **Server 类型** | StandaloneServer | MsgConsumer |
-| **消息队列** | Go channel（内存） | Kafka（分布式） |
-| **适用场景** | 开发环境、单机部署 | 生产环境、集群部署 |
-| **消息持久化** | 否（重启丢失） | 是（磁盘存储） |
-| **横向扩展** | 不支持 | 支持多实例 |
-| **消息顺序** | 严格保证 | 分区内有序 |
-| **依赖组件** | 无 | Kafka 集群 |
-
----
-
-## 12. 选择建议
-
-| 场景 | 推荐模式 |
-|-----|---------|
-| 本地开发 | Channel |
-| 功能测试 | Channel |
-| 小规模生产（<100人） | Channel |
-| 中大规模生产 | Kafka |
-| 需要消息持久化 | Kafka |
-| 需要水平扩展 | Kafka |
-
----
-
-## ✅ 本节完成
-
-你已经完成了：
-- [x] Channel 与 Kafka 模式对比
-- [x] MessageBroker 接口设计
-- [x] ChatServer 聚合与依赖注入
-- [x] Kafka 客户端封装
-- [x] MsgConsumer 与 StandaloneServer 实现
-- [x] 模式切换配置
+- 本项目**只支持 Kafka 模式**
+- `MessageBroker` 接口定义了消息代理的抽象
+- `MsgConsumer` 负责从 Kafka 消费消息并处理
+- WebSocket 网关通过 `Publish` 接口发布消息，不关心底层实现
+- 支持单点登录互踢（KickClient）和消息撤回通知（PushRecallNotify）
 
 ---
 

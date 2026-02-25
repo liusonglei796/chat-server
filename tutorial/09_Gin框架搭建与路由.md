@@ -39,7 +39,9 @@ package https_server
 import (
 	"kama_chat_server/internal/config"
 	"kama_chat_server/internal/handler"
+	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/infrastructure/logger"
+	"kama_chat_server/internal/infrastructure/middleware"
 	"kama_chat_server/internal/router"
 
 	"github.com/gin-contrib/cors"
@@ -48,7 +50,9 @@ import (
 
 // Init 初始化 HTTP/HTTPS 服务器并返回 Gin 引擎实例
 // handlers: 通过依赖注入传入的 handler 聚合对象
-func Init(handlers *handler.Handlers) *gin.Engine {
+// adminChecker: 管理员权限实时校验回调
+// cache: Redis 缓存服务，供限流等中间件使用
+func Init(handlers *handler.Handlers, adminChecker middleware.AdminAuthChecker, cache myredis.CacheService) *gin.Engine {
 	engine := gin.New()
 	// 使用自定义的 zap logger 和 recovery 中间件
 	engine.Use(logger.GinLogger())
@@ -66,7 +70,7 @@ func Init(handlers *handler.Handlers) *gin.Engine {
 	engine.Static("/static/files", config.GetConfig().StaticFilePath)
 
 	// 注册所有路由（通过 Router 对象封装注册逻辑）
-	rt := router.NewRouter(handlers)
+	rt := router.NewRouter(handlers, adminChecker, cache)
 	rt.RegisterRoutes(engine)
 
 	return engine
@@ -91,6 +95,7 @@ func Init(handlers *handler.Handlers) *gin.Engine {
 package router
 
 import (
+	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/infrastructure/middleware"
 
@@ -99,11 +104,17 @@ import (
 
 // Router 路由管理器：封装所有路由注册逻辑，通过依赖注入接收 handlers
 type Router struct {
-	handlers *handler.Handlers
+	handlers     *handler.Handlers
+	adminChecker middleware.AdminAuthChecker // 管理员权限实时校验回调
+	cache        myredis.CacheService        // Redis 缓存服务（限流等中间件使用）
 }
 
-func NewRouter(handlers *handler.Handlers) *Router {
-	return &Router{handlers: handlers}
+func NewRouter(handlers *handler.Handlers, adminChecker middleware.AdminAuthChecker, cache myredis.CacheService) *Router {
+	return &Router{
+		handlers:     handlers,
+		adminChecker: adminChecker,
+		cache:        cache,
+	}
 }
 
 // RegisterRoutes 注册所有路由
@@ -172,14 +183,29 @@ func (rt *Router) RegisterUserRoutes(rg *gin.RouterGroup) {
 package router
 
 import (
+	"time"
+
+	"kama_chat_server/internal/infrastructure/middleware"
+
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterAuthRoutes 注册认证相关路由
+// RegisterAuthRoutes 注册认证相关路由（公开）
+// 统一到 /auth 前缀下，对高频接口施加限流保护
 func (rt *Router) RegisterAuthRoutes(rg *gin.RouterGroup) {
 	authGroup := rg.Group("/auth")
 	{
-		authGroup.POST("/refresh", rt.handlers.Auth.RefreshToken)
+		// 登录路由：同一 IP 5分钟内最多 10 次
+		loginLimiter := middleware.RateLimit(rt.cache, "rate:login:", middleware.ByClientIP, 10, 5*time.Minute)
+		authGroup.POST("/login", loginLimiter, rt.handlers.User.Login)        // 密码登录
+		authGroup.POST("/sms-login", loginLimiter, rt.handlers.User.SmsLogin) // 短信验证码登录
+
+		// 短信验证码：同一手机号 60秒内最多 1 次
+		smsLimiter := middleware.RateLimit(rt.cache, "rate:sms:", middleware.ByFormPhone, 1, 60*time.Second)
+		authGroup.POST("/sms-code", smsLimiter, rt.handlers.User.SendSmsCode) // 发送短信验证码
+
+		authGroup.POST("/register", rt.handlers.User.Register)    // 用户注册
+		authGroup.POST("/refresh", rt.handlers.Auth.RefreshToken) // 刷新 Access Token
 	}
 }
 ```
