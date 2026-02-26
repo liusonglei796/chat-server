@@ -82,17 +82,25 @@ type SnowflakeConfig struct {
 	MachineID int64 `toml:"machineId"` // 雪花算法节点 ID，范围 0-1023，分布式部署时每台机器需唯一
 }
 
+// ModelScopeConfig ModelScope 魔搭社区配置
+type ModelScopeConfig struct {
+	APIKey  string `toml:"apiKey"`  // ModelScope API Key
+	BaseURL string `toml:"baseUrl"` // API 基础地址
+	Model   string `toml:"model"`   // 模型名称
+}
+
 // Config 应用程序总配置，聚合所有子配置
 type Config struct {
-	MainConfig      `toml:"mainConfig"`      // 主配置
-	MysqlConfig     `toml:"mysqlConfig"`     // MySQL 配置
-	RedisConfig     `toml:"redisConfig"`     // Redis 配置
-	AuthCodeConfig  `toml:"authCodeConfig"`  // 短信验证码配置
-	LogConfig       `toml:"logConfig"`       // 日志配置
-	KafkaConfig     `toml:"kafkaConfig"`     // Kafka 配置
-	StaticSrcConfig `toml:"staticSrcConfig"` // 静态资源配置
-	JWTConfig       `toml:"jwtConfig"`       // JWT 配置
-	SnowflakeConfig `toml:"snowflakeConfig"` // 雪花算法配置
+	MainConfig       `toml:"mainConfig"`       // 主配置
+	MysqlConfig      `toml:"mysqlConfig"`      // MySQL 配置
+	RedisConfig      `toml:"redisConfig"`      // Redis 配置
+	AuthCodeConfig   `toml:"authCodeConfig"`   // 短信验证码配置
+	LogConfig        `toml:"logConfig"`        // 日志配置
+	KafkaConfig      `toml:"kafkaConfig"`      // Kafka 配置
+	StaticSrcConfig  `toml:"staticSrcConfig"`  // 静态资源配置
+	JWTConfig        `toml:"jwtConfig"`        // JWT 配置
+	SnowflakeConfig  `toml:"snowflakeConfig"`  // 雪花算法配置
+	ModelScopeConfig `toml:"modelScopeConfig"` // ModelScope 配置
 }
 
 // config 全局配置单例

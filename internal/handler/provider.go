@@ -31,7 +31,7 @@ func NewHandlers(svc *service.Services, broker chat.MessageBroker) *Handlers {
 		Apply:      NewApplyHandler(svc.Apply),
 		Group:      NewGroupHandler(svc.Group),
 		Session:    NewSessionHandler(svc.Session),
-		Message:    NewMessageHandler(svc.Message),
+		Message:    NewMessageHandler(svc.Message, svc.Translation),
 		Ws:         NewWsHandler(broker),
 		Admin:      NewAdminHandler(svc.UserAdmin, svc.GroupAdmin),
 	}

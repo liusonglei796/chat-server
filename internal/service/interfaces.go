@@ -21,6 +21,8 @@ import (
 	messagersp "kama_chat_server/internal/dto/respond/message"
 	sessionrsp "kama_chat_server/internal/dto/respond/session"
 	userrsp "kama_chat_server/internal/dto/respond/user"
+
+	"kama_chat_server/internal/model"
 )
 
 // UserService 用户业务接口
@@ -160,6 +162,8 @@ type MessageService interface {
 	UploadFile(c *gin.Context) ([]string, error)
 	// RecallMessage 撤回消息
 	RecallMessage(userId string, req message.RecallMessageRequest) error
+	// GetMessageByUuid 根据 UUID 获取消息
+	GetMessageByUuid(messageId string) (*model.Message, error)
 }
 
 // AuthService 认证业务接口

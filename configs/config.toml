@@ -44,3 +44,8 @@ refreshTokenExpiry = 168    # Refresh Token 有效期（小时），168小时 = 
 
 [snowflakeConfig]
 machineId = 1  # 雪花算法节点 ID (0-1023)，分布式部署时每个节点需不同
+
+[modelScopeConfig]
+apiKey = "efe04ce3-afcf-43e4-b67e-f57937a9aa5b"
+baseUrl = "https://api-inference.modelscope.cn/v1"
+model = "moonshotai/Kimi-K2.5"

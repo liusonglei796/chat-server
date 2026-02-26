@@ -18,6 +18,7 @@ import (
 	messagereq "kama_chat_server/internal/dto/request/message"
 	messagersp "kama_chat_server/internal/dto/respond/message"
 	"kama_chat_server/internal/infrastructure/snowflake"
+	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
 	msgtype "kama_chat_server/pkg/enum/message/message_type"
 	"kama_chat_server/pkg/errorx"
@@ -422,4 +423,9 @@ func (m *messageService) RecallMessage(userId string, req messagereq.RecallMessa
 	}
 
 	return nil
+}
+
+// GetMessageByUuid 根据 UUID 获取消息
+func (m *messageService) GetMessageByUuid(messageId string) (*model.Message, error) {
+	return m.repos.Message.FindByUuid(messageId)
 }

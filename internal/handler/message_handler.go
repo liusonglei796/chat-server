@@ -4,7 +4,9 @@ package handler
 
 import (
 	"kama_chat_server/internal/dto/request/message"
+	messageresp "kama_chat_server/internal/dto/respond/message"
 	"kama_chat_server/internal/service"
+	"kama_chat_server/internal/service/translation"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
@@ -13,13 +15,17 @@ import (
 // MessageHandler 消息请求处理器
 // 通过构造函数注入 MessageService，遵循依赖倒置原则
 type MessageHandler struct {
-	messageSvc service.MessageService
+	messageSvc     service.MessageService
+	translationSvc *translation.TranslationService
 }
 
 // NewMessageHandler 创建消息处理器实例
 // messageSvc: 消息服务接口
-func NewMessageHandler(messageSvc service.MessageService) *MessageHandler {
-	return &MessageHandler{messageSvc: messageSvc}
+func NewMessageHandler(messageSvc service.MessageService, translationSvc *translation.TranslationService) *MessageHandler {
+	return &MessageHandler{
+		messageSvc:     messageSvc,
+		translationSvc: translationSvc,
+	}
 }
 
 // GetMessageList 获取聊天记录（私聊 + 群聊统一入口）
@@ -161,4 +167,52 @@ func (h *MessageHandler) RecallMessage(c *gin.Context) {
 		return
 	}
 	HandleSuccess(c, nil)
+}
+
+// Translate 翻译消息
+// POST /api/message/translate
+// 请求体: message.TranslateRequest
+// 响应: message.TranslateRespond
+func (h *MessageHandler) Translate(c *gin.Context) {
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
+	var req message.TranslateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+
+	// 根据 messageId 查询消息内容
+	msg, err := h.messageSvc.GetMessageByUuid(req.MessageID)
+	if err != nil {
+		HandleError(c, errorx.New(errorx.CodeNotFound, "消息不存在"))
+		return
+	}
+
+	// 检查权限（消息发送者或接收者才能翻译）
+	if msg.SendId != userId.(string) && msg.ReceiveId != userId.(string) {
+		HandleError(c, errorx.New(errorx.CodeForbidden, "无权限翻译此消息"))
+		return
+	}
+
+	// 调用翻译服务
+	targetLang := req.TargetLang
+	if targetLang == "" {
+		targetLang = "英语"
+	}
+
+	translatedText, err := h.translationSvc.Translate(c.Request.Context(), msg.Content, targetLang)
+	if err != nil {
+		HandleError(c, errorx.New(errorx.CodeServerBusy, "翻译失败"))
+		return
+	}
+
+	HandleSuccess(c, messageresp.TranslateRespond{
+		OriginalText:   msg.Content,
+		TranslatedText: translatedText,
+	})
 }
