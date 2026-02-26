@@ -52,6 +52,7 @@ func (rt *Router) RegisterRoutes(r *gin.Engine) {
 		rt.RegisterGroupRoutes(private)     // 群组路由
 		rt.RegisterSessionRoutes(private)   // 会话路由
 		rt.RegisterMessageRoutes(private)   // 消息路由 + 文件上传
+		rt.RegisterAIRoutes(private)        // AI 路由
 		rt.RegisterWebSocketRoutes(private) // WebSocket 路由
 	}
 }

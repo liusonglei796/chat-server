@@ -82,13 +82,6 @@ type SnowflakeConfig struct {
 	MachineID int64 `toml:"machineId"` // 雪花算法节点 ID，范围 0-1023，分布式部署时每台机器需唯一
 }
 
-// ModelScopeConfig ModelScope 魔搭社区配置
-type ModelScopeConfig struct {
-	APIKey  string `toml:"apiKey"`  // ModelScope API Key
-	BaseURL string `toml:"baseUrl"` // API 基础地址
-	Model   string `toml:"model"`   // 模型名称
-}
-
 // Config 应用程序总配置，聚合所有子配置
 type Config struct {
 	MainConfig       `toml:"mainConfig"`       // 主配置
@@ -101,6 +94,13 @@ type Config struct {
 	JWTConfig        `toml:"jwtConfig"`        // JWT 配置
 	SnowflakeConfig  `toml:"snowflakeConfig"`  // 雪花算法配置
 	ModelScopeConfig `toml:"modelScopeConfig"` // ModelScope 配置
+}
+
+// ModelScopeConfig ModelScope (Kimi) 配置
+type ModelScopeConfig struct {
+	ApiKey  string `toml:"apiKey"`
+	BaseUrl string `toml:"baseUrl"`
+	Model   string `toml:"model"`
 }
 
 // config 全局配置单例
@@ -168,6 +168,25 @@ func overlayEnvVars(c *Config) {
 	}
 	if v := os.Getenv("KAFKA_HOST_PORT"); v != "" {
 		c.KafkaConfig.HostPort = v
+	}
+
+	// ModelScope / AI 配置覆盖（优先读取 MODELSCOPE_*，其次 AI_*）
+	if v := os.Getenv("MODELSCOPE_API_KEY"); v != "" {
+		c.ModelScopeConfig.ApiKey = v
+	} else if v := os.Getenv("AI_API_KEY"); v != "" {
+		c.ModelScopeConfig.ApiKey = v
+	}
+
+	if v := os.Getenv("MODELSCOPE_BASE_URL"); v != "" {
+		c.ModelScopeConfig.BaseUrl = v
+	} else if v := os.Getenv("AI_BASE_URL"); v != "" {
+		c.ModelScopeConfig.BaseUrl = v
+	}
+
+	if v := os.Getenv("MODELSCOPE_MODEL"); v != "" {
+		c.ModelScopeConfig.Model = v
+	} else if v := os.Getenv("AI_DEFAULT_MODEL"); v != "" {
+		c.ModelScopeConfig.Model = v
 	}
 }
 

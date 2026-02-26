@@ -14,7 +14,6 @@ func (rt *Router) RegisterMessageRoutes(rg *gin.RouterGroup) {
 	{
 		messageGroup.GET("", rt.handlers.Message.GetMessageList)        // 获取聊天记录（私聊/群聊统一）
 		messageGroup.POST("/recall", rt.handlers.Message.RecallMessage) // 撤回消息
-		messageGroup.POST("/translate", rt.handlers.Message.Translate)  // 翻译消息
 	}
 
 	// ===== 文件上传（独立前缀） =====

@@ -18,6 +18,7 @@ type Handlers struct {
 	Group      *GroupHandler
 	Session    *SessionHandler
 	Message    *MessageHandler
+	AI         *AIHandler
 	Ws         *WsHandler
 	Admin      *AdminHandler // 后台管理
 }
@@ -31,7 +32,8 @@ func NewHandlers(svc *service.Services, broker chat.MessageBroker) *Handlers {
 		Apply:      NewApplyHandler(svc.Apply),
 		Group:      NewGroupHandler(svc.Group),
 		Session:    NewSessionHandler(svc.Session),
-		Message:    NewMessageHandler(svc.Message, svc.Translation),
+		Message:    NewMessageHandler(svc.Message),
+		AI:         NewAIHandler(svc.AI),
 		Ws:         NewWsHandler(broker),
 		Admin:      NewAdminHandler(svc.UserAdmin, svc.GroupAdmin),
 	}

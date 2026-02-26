@@ -8,27 +8,27 @@ import (
 	"kama_chat_server/internal/infrastructure/sms"
 	admingroup "kama_chat_server/internal/service/admin/group"
 	adminuser "kama_chat_server/internal/service/admin/user"
+	"kama_chat_server/internal/service/ai"
 	"kama_chat_server/internal/service/apply"
 	"kama_chat_server/internal/service/auth"
 	"kama_chat_server/internal/service/friendship"
 	"kama_chat_server/internal/service/group"
 	"kama_chat_server/internal/service/message"
 	"kama_chat_server/internal/service/session"
-	"kama_chat_server/internal/service/translation"
 	"kama_chat_server/internal/service/user"
 )
 
 // Services 聚合所有 Service 实例
 // 作为依赖注入的入口，Handler 层通过 service.Services 访问各个 Service
 type Services struct {
-	User        UserService                     // 用户 Service
-	Session     SessionService                  // 会话 Service
-	Group       GroupService                    // 群组 Service
-	Friendship  FriendshipService               // 好友关系 Service
-	Apply       ApplyService                    // 申请 Service
-	Message     MessageService                  // 消息 Service
-	Auth        AuthService                     // 认证 Service
-	Translation *translation.TranslationService // 翻译 Service
+	User       UserService       // 用户 Service
+	Session    SessionService    // 会话 Service
+	Group      GroupService      // 群组 Service
+	Friendship FriendshipService // 好友关系 Service
+	Apply      ApplyService      // 申请 Service
+	Message    MessageService    // 消息 Service
+	Auth       AuthService       // 认证 Service
+	AI         AIService         // AI Service
 
 	// 后台管理 Services
 	UserAdmin  UserAdminService  // 用户管理后台 Service
@@ -46,31 +46,22 @@ func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheServi
 	applySvc := apply.NewApplyService(repos, cacheService)
 	messageSvc := message.NewMessageService(repos, cacheService, pushRecallNotify)
 	authSvc := auth.NewAuthService(cacheService, repos.User)
-
-	// 翻译服务
-	translationSvc, err := translation.NewTranslationService(
-		cfg.ModelScopeConfig.APIKey,
-		cfg.ModelScopeConfig.BaseURL,
-		cfg.ModelScopeConfig.Model,
-	)
-	if err != nil {
-		panic("failed to initialize translation service: " + err.Error())
-	}
+	aiSvc := ai.NewAIService(repos, cfg)
 
 	// 后台管理服务
 	userAdminSvc := adminuser.NewUserAdminService(repos, cacheService)
 	groupAdminSvc := admingroup.NewGroupAdminService(repos, cacheService)
 
 	return &Services{
-		User:        userSvc,
-		Session:     sessionSvc,
-		Group:       groupSvc,
-		Friendship:  friendshipSvc,
-		Apply:       applySvc,
-		Message:     messageSvc,
-		Auth:        authSvc,
-		Translation: translationSvc,
-		UserAdmin:   userAdminSvc,
-		GroupAdmin:  groupAdminSvc,
+		User:       userSvc,
+		Session:    sessionSvc,
+		Group:      groupSvc,
+		Friendship: friendshipSvc,
+		Apply:      applySvc,
+		Message:    messageSvc,
+		Auth:       authSvc,
+		AI:         aiSvc,
+		UserAdmin:  userAdminSvc,
+		GroupAdmin: groupAdminSvc,
 	}
 }

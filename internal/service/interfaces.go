@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	adminreq "kama_chat_server/internal/dto/request/admin"
+	aireq "kama_chat_server/internal/dto/request/ai"
 	"kama_chat_server/internal/dto/request/apply"
 	"kama_chat_server/internal/dto/request/auth"
 	"kama_chat_server/internal/dto/request/group"
@@ -15,6 +16,7 @@ import (
 	"kama_chat_server/internal/dto/request/user"
 
 	adminrsp "kama_chat_server/internal/dto/respond/admin"
+	airsp "kama_chat_server/internal/dto/respond/ai"
 	applyrsp "kama_chat_server/internal/dto/respond/apply"
 	friendshiprsp "kama_chat_server/internal/dto/respond/friendship"
 	grouprsp "kama_chat_server/internal/dto/respond/group"
@@ -176,6 +178,17 @@ type AuthService interface {
 	ValidateTokenID(userID, tokenID string) (bool, error)
 	// GetUserIsAdmin 获取用户是否为管理员（用于 Token 刷新时获取最新状态）
 	GetUserIsAdmin(userID string) (bool, error)
+}
+
+// AIService AI 业务接口
+// 处理智能回复建议、群聊总结、多语言翻译
+type AIService interface {
+	// ReplySuggestions 智能回复建议
+	ReplySuggestions(userId string, req aireq.ReplySuggestionsRequest) (*airsp.ReplySuggestionsRespond, error)
+	// GroupSummary 群聊总结
+	GroupSummary(userId string, req aireq.GroupSummaryRequest) (*airsp.GroupSummaryRespond, error)
+	// Translate 多语言翻译
+	Translate(userId string, req aireq.TranslateRequest) (*airsp.TranslateRespond, error)
 }
 
 // ==================== 后台管理服务 ====================

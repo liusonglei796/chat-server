@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=for-the-badge" alt="License">
 </p>
 
-KamaChat Server 是一个基于 Go 语言开发的高性能即时通讯服务端，支持单聊、群聊、WebSocket 实时通信、Kafka 消息队列、AI 消息翻译等功能。
+KamaChat Server 是一个基于 Go 语言开发的高性能即时通讯服务端，支持单聊、群聊、WebSocket 实时通信、Kafka 消息队列，以及 AI 智能回复、群聊总结、多语言翻译等功能。
 
 ## ✨ 功能特性
 
@@ -27,7 +27,9 @@ KamaChat Server 是一个基于 Go 语言开发的高性能即时通讯服务端
 - 📌 **会话置顶** - 支持将重要会话置顶显示
 - 🔇 **群成员禁言** - 群主/管理员可对群成员进行禁言操作
 - 📝 **好友备注** - 支持设置好友备注名，方便管理联系人
-- 🌍 **AI 消息翻译** - 基于 Eino + ModelScope，支持翻译开关与目标语言自定义
+- 🤖 **AI 智能回复建议** - 基于上下文生成 3 条可选回复
+- 📋 **AI 群聊总结** - 自动提炼群聊要点、待办与决策
+- 🌍 **AI 多语言翻译** - 支持自动识别源语言并翻译到目标语言
 
 ## 🏗️ 项目架构
 
@@ -84,9 +86,9 @@ kama_chat_server/
 | **日志** | Zap + Lumberjack |
 | **认证** | JWT (golang-jwt/jwt) |
 | **短信服务** | 阿里云 SMS |
-| **AI 框架** | Eino |
-| **LLM 接入** | ModelScope (OpenAI 兼容 API) |
 | **配置管理** | TOML |
+| **AI 编排** | ByteDance Eino |
+| **AI 模型接入** | ModelScope OpenAI-Compatible API (Kimi K2.5) |
 
 ## 🚀 快速开始
 
@@ -136,11 +138,6 @@ kama_chat_server/
    [kafkaConfig]
    messageMode = "channel"  # 或 "kafka"
    hostPort = "127.0.0.1:9092"
-
-   [modelScopeConfig]
-   apiKey = "your_modelscope_token"
-   baseUrl = "https://api-inference.modelscope.cn/v1"
-   model = "moonshotai/Kimi-K2.5"
    ```
 
 4. **运行数据库迁移**
@@ -163,27 +160,10 @@ kama_chat_server/
 | 好友模块 | `/friends` | 好友关系、好友申请 |
 | 群组模块 | `/groups` | 群组创建、成员管理、入群申请 |
 | 会话模块 | `/sessions` | 会话列表、会话管理、会话置顶 |
-| 消息模块 | `/messages` | 消息记录、撤回、翻译 |
+| 消息模块 | `/messages` | 消息记录、撤回 |
 | 上传模块 | `/upload` | 头像、文件上传 |
+| AI 模块 | `/ai` | 智能回复建议、群聊总结、翻译 |
 | WebSocket | `/ws` | 实时通信 |
-
-### 翻译接口示例
-
-- 路径：`POST /messages/translate`
-- 请求体：
-
-```json
-{
-   "messageId": "M202602260001",
-   "enableTranslate": true,
-   "targetLang": "日语"
-}
-```
-
-- 字段说明：
-   - `messageId`：要翻译的消息 ID（必填）
-   - `enableTranslate`：是否开启翻译（可选，不传默认 `true`）
-   - `targetLang`：目标语言（可选，空值默认“英语”）
 
 ## 🔧 配置说明
 
@@ -206,6 +186,29 @@ KamaChat 支持两种消息处理模式：
 secret = "your-super-secret-key"
 accessTokenExpiry = 15      # Access Token 有效期（分钟）
 refreshTokenExpiry = 168    # Refresh Token 有效期（小时）
+```
+
+### AI 配置（ModelScope + Kimi K2.5）
+
+```toml
+[modelScopeConfig]
+apiKey = "" # 建议通过环境变量注入，不要写死在仓库
+baseUrl = "https://api-inference.modelscope.cn/v1"
+model = "moonshotai/Kimi-K2.5"
+```
+
+推荐环境变量：
+
+- `MODELSCOPE_API_KEY`
+- `MODELSCOPE_BASE_URL`
+- `MODELSCOPE_MODEL`
+
+PowerShell 示例：
+
+```powershell
+$env:MODELSCOPE_API_KEY="ms-你的Key"
+$env:MODELSCOPE_MODEL="moonshotai/Kimi-K2.5"
+go run cmd/kama_chat_server/main.go
 ```
 
 ## 📝 开发指南
