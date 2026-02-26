@@ -3,6 +3,8 @@
 package handler
 
 import (
+	"strings"
+
 	"kama_chat_server/internal/dto/request/message"
 	messageresp "kama_chat_server/internal/dto/respond/message"
 	"kama_chat_server/internal/service"
@@ -200,9 +202,24 @@ func (h *MessageHandler) Translate(c *gin.Context) {
 	}
 
 	// 调用翻译服务
-	targetLang := req.TargetLang
+	targetLang := strings.TrimSpace(req.TargetLang)
 	if targetLang == "" {
 		targetLang = "英语"
+	}
+
+	enableTranslate := true
+	if req.EnableTranslate != nil {
+		enableTranslate = *req.EnableTranslate
+	}
+
+	if !enableTranslate {
+		HandleSuccess(c, messageresp.TranslateRespond{
+			TranslationEnabled: false,
+			TargetLang:         "",
+			OriginalText:       msg.Content,
+			TranslatedText:     msg.Content,
+		})
+		return
 	}
 
 	translatedText, err := h.translationSvc.Translate(c.Request.Context(), msg.Content, targetLang)
@@ -212,7 +229,9 @@ func (h *MessageHandler) Translate(c *gin.Context) {
 	}
 
 	HandleSuccess(c, messageresp.TranslateRespond{
-		OriginalText:   msg.Content,
-		TranslatedText: translatedText,
+		TranslationEnabled: true,
+		TargetLang:         targetLang,
+		OriginalText:       msg.Content,
+		TranslatedText:     translatedText,
 	})
 }

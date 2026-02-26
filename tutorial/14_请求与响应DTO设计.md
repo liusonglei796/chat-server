@@ -131,6 +131,13 @@ type RemoveGroupMembersRequest struct {
     OwnerId  string   `json:"owner_id" binding:"required"`
     UuidList []string `json:"uuid_list" binding:"required,min=1"`
 }
+
+// 消息翻译模块（支持开关 + 目标语言）
+type TranslateRequest struct {
+    MessageID       string `json:"messageId" binding:"required"`
+    EnableTranslate *bool  `json:"enableTranslate"` // nil 表示默认开启（兼容旧客户端）
+    TargetLang      string `json:"targetLang"`      // 为空时后端默认“英语”
+}
 ```
 
 ---
@@ -183,6 +190,14 @@ type GetGroupInfoRespond struct {
     Status    int8   `json:"status"`
     Avatar    string `json:"avatar"`
     IsDeleted bool   `json:"is_deleted"`   // snake_case
+}
+
+// 消息翻译模块响应（camelCase 与现有翻译接口保持一致）
+type TranslateRespond struct {
+    TranslationEnabled bool   `json:"translationEnabled"`
+    TargetLang         string `json:"targetLang"`
+    OriginalText       string `json:"originalText"`
+    TranslatedText     string `json:"translatedText"`
 }
 ```
 

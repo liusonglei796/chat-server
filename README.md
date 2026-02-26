@@ -1,15 +1,15 @@
 # KamaChat Server
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.20-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version">
-  <img src="https://img.shields.io/badge/Gin-v1.10.0-00ADD8?style=for-the-badge&logo=gin&logoColor=white" alt="Gin Framework">
+   <img src="https://img.shields.io/badge/Go-1.24-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version">
+   <img src="https://img.shields.io/badge/Gin-v1.11.0-00ADD8?style=for-the-badge&logo=gin&logoColor=white" alt="Gin Framework">
   <img src="https://img.shields.io/badge/MySQL-8.0-4479A1?style=for-the-badge&logo=mysql&logoColor=white" alt="MySQL">
-  <img src="https://img.shields.io/badge/Redis-v8-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis">
+   <img src="https://img.shields.io/badge/Redis-v9-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis">
   <img src="https://img.shields.io/badge/Kafka-Supported-231F20?style=for-the-badge&logo=apachekafka&logoColor=white" alt="Kafka">
   <img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=for-the-badge" alt="License">
 </p>
 
-KamaChat Server 是一个基于 Go 语言开发的高性能即时通讯服务端，支持单聊、群聊、WebSocket 实时通信、Kafka 消息队列等功能。
+KamaChat Server 是一个基于 Go 语言开发的高性能即时通讯服务端，支持单聊、群聊、WebSocket 实时通信、Kafka 消息队列、AI 消息翻译等功能。
 
 ## ✨ 功能特性
 
@@ -27,6 +27,7 @@ KamaChat Server 是一个基于 Go 语言开发的高性能即时通讯服务端
 - 📌 **会话置顶** - 支持将重要会话置顶显示
 - 🔇 **群成员禁言** - 群主/管理员可对群成员进行禁言操作
 - 📝 **好友备注** - 支持设置好友备注名，方便管理联系人
+- 🌍 **AI 消息翻译** - 基于 Eino + ModelScope，支持翻译开关与目标语言自定义
 
 ## 🏗️ 项目架构
 
@@ -73,23 +74,25 @@ kama_chat_server/
 
 | 组件 | 技术 |
 |------|------|
-| **语言** | Go 1.20 |
-| **Web 框架** | Gin v1.10 |
+| **语言** | Go 1.24 |
+| **Web 框架** | Gin v1.11 |
 | **ORM** | GORM v1.25 |
 | **数据库** | MySQL 8.0 |
-| **缓存** | Redis v8 |
+| **缓存** | Redis v9 |
 | **消息队列** | Kafka (可选) |
 | **WebSocket** | Gorilla WebSocket |
 | **日志** | Zap + Lumberjack |
 | **认证** | JWT (golang-jwt/jwt) |
 | **短信服务** | 阿里云 SMS |
+| **AI 框架** | Eino |
+| **LLM 接入** | ModelScope (OpenAI 兼容 API) |
 | **配置管理** | TOML |
 
 ## 🚀 快速开始
 
 ### 前置要求
 
-- Go 1.20+
+- Go 1.24+
 - MySQL 8.0+
 - Redis 6.0+
 - Kafka (可选，用于分布式消息处理)
@@ -133,6 +136,11 @@ kama_chat_server/
    [kafkaConfig]
    messageMode = "channel"  # 或 "kafka"
    hostPort = "127.0.0.1:9092"
+
+   [modelScopeConfig]
+   apiKey = "your_modelscope_token"
+   baseUrl = "https://api-inference.modelscope.cn/v1"
+   model = "moonshotai/Kimi-K2.5"
    ```
 
 4. **运行数据库迁移**
@@ -150,13 +158,32 @@ kama_chat_server/
 
 | 模块 | 路由前缀 | 说明 |
 |------|---------|------|
-| 用户模块 | `/api/user` | 注册、登录、用户信息管理 |
-| 联系人模块 | `/api/contact` | 好友申请、好友列表 |
-| 群组模块 | `/api/group` | 群组创建、成员管理 |
-| 会话模块 | `/api/session` | 会话列表、会话管理 |
-| 消息模块 | `/api/message` | 消息列表、文件上传 |
-| 认证模块 | `/api/auth` | Token 刷新 |
+| 认证模块 | `/auth` | 注册、登录、短信验证码、Token 刷新 |
+| 用户模块 | `/user` | 用户信息管理 |
+| 好友模块 | `/friends` | 好友关系、好友申请 |
+| 群组模块 | `/groups` | 群组创建、成员管理、入群申请 |
+| 会话模块 | `/sessions` | 会话列表、会话管理、会话置顶 |
+| 消息模块 | `/messages` | 消息记录、撤回、翻译 |
+| 上传模块 | `/upload` | 头像、文件上传 |
 | WebSocket | `/ws` | 实时通信 |
+
+### 翻译接口示例
+
+- 路径：`POST /messages/translate`
+- 请求体：
+
+```json
+{
+   "messageId": "M202602260001",
+   "enableTranslate": true,
+   "targetLang": "日语"
+}
+```
+
+- 字段说明：
+   - `messageId`：要翻译的消息 ID（必填）
+   - `enableTranslate`：是否开启翻译（可选，不传默认 `true`）
+   - `targetLang`：目标语言（可选，空值默认“英语”）
 
 ## 🔧 配置说明
 

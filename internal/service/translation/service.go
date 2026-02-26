@@ -3,51 +3,62 @@ package translation
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
-	openai "github.com/sashabaranov/go-openai"
+	einopenai "github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino/schema"
 )
 
 // TranslationService 翻译服务
 type TranslationService struct {
-	client *openai.Client
-	model  string
+	chatModel *einopenai.ChatModel
 }
 
 // NewTranslationService 创建翻译服务实例
 func NewTranslationService(apiKey, baseURL, model string) (*TranslationService, error) {
-	config := openai.DefaultConfig(apiKey)
-	config.BaseURL = baseURL
-	client := openai.NewClientWithConfig(config)
+	chatModel, err := einopenai.NewChatModel(context.Background(), &einopenai.ChatModelConfig{
+		APIKey:  apiKey,
+		BaseURL: baseURL,
+		Model:   model,
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	return &TranslationService{
-		client: client,
-		model:  model,
+		chatModel: chatModel,
 	}, nil
 }
 
 // Translate 将文本翻译成目标语言
 func (s *TranslationService) Translate(ctx context.Context, text, targetLang string) (string, error) {
-	messages := []openai.ChatCompletionMessage{
+	messages := []*schema.Message{
 		{
-			Role:    openai.ChatMessageRoleSystem,
+			Role:    schema.System,
 			Content: "你是一个专业的翻译助手。",
 		},
 		{
-			Role:    openai.ChatMessageRoleUser,
-			Content: "请将下面的消息翻译成" + targetLang + "，只返回翻译结果，不要有任何解释：\n\n" + text,
+			Role: schema.User,
+			Content: fmt.Sprintf("请将下面的消息翻译成%s，只返回翻译结果，不要有任何解释：\n\n%s",
+				targetLang,
+				text,
+			),
 		},
 	}
 
-	resp, err := s.client.CreateChatCompletion(
-		ctx,
-		openai.ChatCompletionRequest{
-			Model:    s.model,
-			Messages: messages,
-		},
-	)
+	resp, err := s.chatModel.Generate(ctx, messages)
 	if err != nil {
 		return "", err
 	}
+	if resp == nil {
+		return "", fmt.Errorf("empty translation response")
+	}
 
-	return resp.Choices[0].Message.Content, nil
+	translatedText := strings.TrimSpace(resp.Content)
+	if translatedText == "" {
+		return "", fmt.Errorf("empty translation result")
+	}
+
+	return translatedText, nil
 }

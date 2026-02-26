@@ -128,3 +128,6 @@ model = "moonshotai/Kimi-K2.5"
 
 - [ ] 确认 ModelScope Token 格式
 - [ ] 确认 K2.5 模型具体名称
+
+
+
