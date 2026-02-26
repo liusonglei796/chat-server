@@ -48,11 +48,14 @@ func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheServi
 	authSvc := auth.NewAuthService(cacheService, repos.User)
 
 	// 翻译服务
-	translationSvc := translation.NewTranslationService(
+	translationSvc, err := translation.NewTranslationService(
 		cfg.ModelScopeConfig.APIKey,
 		cfg.ModelScopeConfig.BaseURL,
 		cfg.ModelScopeConfig.Model,
 	)
+	if err != nil {
+		panic("failed to initialize translation service: " + err.Error())
+	}
 
 	// 后台管理服务
 	userAdminSvc := adminuser.NewUserAdminService(repos, cacheService)
