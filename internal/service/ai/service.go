@@ -83,6 +83,8 @@ func (s *aiService) ReplySuggestions(userId string, req aireq.ReplySuggestionsRe
 	ctx, cancel := context.WithTimeout(context.Background(), aiRequestTimeout)
 	defer cancel()
 
+	// 调用 Eino 客户端生成回复建议：
+	// systemPrompt 约束输出必须是 JSON；userPrompt 提供聊天上下文、草稿和风格。
 	out, err := s.client.Generate(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		zap.L().Error("ai reply suggestions failed", zap.Error(err), zap.String("user_id", userId), zap.String("target_id", targetId))
@@ -160,6 +162,8 @@ func (s *aiService) GroupSummary(userId string, req aireq.GroupSummaryRequest) (
 	ctx, cancel := context.WithTimeout(context.Background(), aiRequestTimeout)
 	defer cancel()
 
+	// 调用 Eino 客户端生成群聊总结：
+	// 模型返回 JSON（summary/todos/decisions），再由 parseGroupSummary 做结构化解析。
 	out, err := s.client.Generate(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		zap.L().Error("ai group summary failed", zap.Error(err), zap.String("group_id", groupId), zap.String("user_id", userId))
@@ -197,6 +201,8 @@ func (s *aiService) Translate(userId string, req aireq.TranslateRequest) (*airsp
 	ctx, cancel := context.WithTimeout(context.Background(), aiRequestTimeout)
 	defer cancel()
 
+	// 调用 Eino 客户端执行翻译：
+	// 模型按约定返回 detected_lang 和 translated_text 两个字段。
 	out, err := s.client.Generate(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		zap.L().Error("ai translate failed", zap.Error(err), zap.String("user_id", userId))
