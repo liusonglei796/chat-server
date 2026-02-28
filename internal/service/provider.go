@@ -21,18 +21,18 @@ import (
 // Services 聚合所有 Service 实例
 // 作为依赖注入的入口，Handler 层通过 service.Services 访问各个 Service
 type Services struct {
-	User       UserService       // 用户 Service
-	Session    SessionService    // 会话 Service
-	Group      GroupService      // 群组 Service
-	Friendship FriendshipService // 好友关系 Service
-	Apply      ApplyService      // 申请 Service
-	Message    MessageService    // 消息 Service
-	Auth       AuthService       // 认证 Service
-	AI         AIService         // AI Service
+	User       *user.UserService             // 用户 Service
+	Session    *session.SessionService       // 会话 Service
+	Group      *group.GroupService           // 群组 Service
+	Friendship *friendship.FriendshipService // 好友关系 Service
+	Apply      *apply.ApplyService           // 申请 Service
+	Message    *message.MessageService       // 消息 Service
+	Auth       *auth.Service                 // 认证 Service
+	AI         *ai.AiService                 // AI Service
 
 	// 后台管理 Services
-	UserAdmin  UserAdminService  // 用户管理后台 Service
-	GroupAdmin GroupAdminService // 群组管理后台 Service
+	UserAdmin  *adminuser.UserAdminService   // 用户管理后台 Service
+	GroupAdmin *admingroup.GroupAdminService // 群组管理后台 Service
 }
 
 // NewServices 创建并注入所有 Service 实例

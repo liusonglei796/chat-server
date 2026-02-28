@@ -15,17 +15,17 @@ import (
 	"kama_chat_server/pkg/errorx"
 )
 
-// groupAdminService 群组管理后台服务
+// GroupAdminService 群组管理后台服务
 // 处理群组列表、批量删除、状态管理等管理员功能
-type groupAdminService struct {
+type GroupAdminService struct {
 	repos       *mysql.Repositories
 	cache       myredis.AsyncCacheService
 	cacheHelper *cacheutil.Helper
 }
 
 // NewGroupAdminService 构造函数
-func NewGroupAdminService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *groupAdminService {
-	return &groupAdminService{
+func NewGroupAdminService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *GroupAdminService {
+	return &GroupAdminService{
 		repos:       repos,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
@@ -33,7 +33,7 @@ func NewGroupAdminService(repos *mysql.Repositories, cacheService myredis.AsyncC
 }
 
 // GetGroupInfoList 分页获取群组列表
-func (s *groupAdminService) GetGroupInfoList(req adminreq.GetGroupInfoListRequest) (*adminrsp.GetGroupListWrapper, error) {
+func (s *GroupAdminService) GetGroupInfoList(req adminreq.GetGroupInfoListRequest) (*adminrsp.GetGroupListWrapper, error) {
 	groupList, total, err := s.repos.Group.GetGroupList(req.Page, req.PageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
@@ -59,7 +59,7 @@ func (s *groupAdminService) GetGroupInfoList(req adminreq.GetGroupInfoListReques
 }
 
 // DeleteGroups 批量删除群组
-func (s *groupAdminService) DeleteGroups(groupUUIDs []string) error {
+func (s *GroupAdminService) DeleteGroups(groupUUIDs []string) error {
 	if len(groupUUIDs) == 0 {
 		return nil
 	}
@@ -115,7 +115,7 @@ func (s *groupAdminService) DeleteGroups(groupUUIDs []string) error {
 }
 
 // SetGroupsStatus 批量设置群组状态
-func (s *groupAdminService) SetGroupsStatus(groupUUIDs []string, status int8) error {
+func (s *GroupAdminService) SetGroupsStatus(groupUUIDs []string, status int8) error {
 	if len(groupUUIDs) == 0 {
 		return nil
 	}

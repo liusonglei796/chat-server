@@ -4,7 +4,8 @@ package handler
 
 import (
 	"kama_chat_server/internal/dto/request/friendship"
-	"kama_chat_server/internal/service"
+	friendshipsvc "kama_chat_server/internal/service/friendship"
+	groupsvc "kama_chat_server/internal/service/group"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
@@ -12,12 +13,12 @@ import (
 
 // FriendshipHandler 好友关系请求处理器
 type FriendshipHandler struct {
-	friendshipSvc service.FriendshipService
-	groupSvc      service.GroupService
+	friendshipSvc *friendshipsvc.FriendshipService
+	groupSvc      *groupsvc.GroupService
 }
 
 // NewFriendshipHandler 创建好友关系处理器实例
-func NewFriendshipHandler(friendshipSvc service.FriendshipService, groupSvc service.GroupService) *FriendshipHandler {
+func NewFriendshipHandler(friendshipSvc *friendshipsvc.FriendshipService, groupSvc *groupsvc.GroupService) *FriendshipHandler {
 	return &FriendshipHandler{
 		friendshipSvc: friendshipSvc,
 		groupSvc:      groupSvc,

@@ -24,17 +24,17 @@ import (
 	"kama_chat_server/pkg/errorx"
 )
 
-// sessionService 会话业务逻辑实现
+// SessionService 会话业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖
-type sessionService struct {
+type SessionService struct {
 	repos       *mysql.Repositories
 	cache       myredis.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
 }
 
 // NewSessionService 构造函数，注入所有依赖
-func NewSessionService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *sessionService {
-	return &sessionService{
+func NewSessionService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *SessionService {
+	return &SessionService{
 		repos:       repos,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
@@ -42,7 +42,7 @@ func NewSessionService(repos *mysql.Repositories, cacheService myredis.AsyncCach
 }
 
 // CreateSession 创建会话
-func (s *sessionService) CreateSession(sendId, receiveId string) (string, error) {
+func (s *SessionService) CreateSession(sendId, receiveId string) (string, error) {
 	// 1. 幂等性检查：先查询是否已存在会话
 	existingSession, err := s.repos.Session.FindBySendIdAndReceiveId(sendId, receiveId)
 	if err != nil {
@@ -189,7 +189,7 @@ func (s *sessionService) CreateSession(sendId, receiveId string) (string, error)
 }
 
 // CheckOpenSessionAllowed 检查是否允许发起会话
-func (s *sessionService) CheckOpenSessionAllowed(sendId, receiveId string) (bool, error) {
+func (s *SessionService) CheckOpenSessionAllowed(sendId, receiveId string) (bool, error) {
 	if len(receiveId) == 0 {
 		return false, errorx.New(errorx.CodeInvalidParam, "接收方ID不能为空")
 	}
@@ -246,7 +246,7 @@ func (s *sessionService) CheckOpenSessionAllowed(sendId, receiveId string) (bool
 }
 
 // checkTargetStatusWithCache 检查目标(用户或群组)状态，使用 cacheHelper
-func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
+func (s *SessionService) checkTargetStatusWithCache(targetId string) error {
 	if len(targetId) == 0 {
 		return errorx.New(errorx.CodeInvalidParam, "目标ID为空")
 	}
@@ -325,7 +325,7 @@ func (s *sessionService) checkTargetStatusWithCache(targetId string) error {
 
 // OpenSession 打开会话
 // sendId: 从 JWT 上下文获取的当前用户 ID，防止 IDOR 攻击
-func (s *sessionService) OpenSession(sendId string, req sessionreq.OpenSessionRequest) (string, error) {
+func (s *SessionService) OpenSession(sendId string, req sessionreq.OpenSessionRequest) (string, error) {
 	cacheKey := constants.CacheKeySessionOpen + sendId + "_" + req.ReceiveId
 
 	// 1. 查缓存
@@ -361,7 +361,7 @@ func (s *sessionService) OpenSession(sendId string, req sessionreq.OpenSessionRe
 }
 
 // GetUserSessionList 获取用户单聊会话列表（分页）
-func (s *sessionService) GetUserSessionList(ownerId string, page, pageSize int) ([]sessionrsp.UserSessionListRespond, int64, error) {
+func (s *SessionService) GetUserSessionList(ownerId string, page, pageSize int) ([]sessionrsp.UserSessionListRespond, int64, error) {
 	// 设置默认分页参数
 	if page < 1 {
 		page = 1
@@ -400,7 +400,7 @@ func (s *sessionService) GetUserSessionList(ownerId string, page, pageSize int) 
 }
 
 // GetGroupSessionList 获取群聊会话列表（分页）
-func (s *sessionService) GetGroupSessionList(ownerId string, page, pageSize int) ([]sessionrsp.GroupSessionListRespond, int64, error) {
+func (s *SessionService) GetGroupSessionList(ownerId string, page, pageSize int) ([]sessionrsp.GroupSessionListRespond, int64, error) {
 	// 设置默认分页参数
 	if page < 1 {
 		page = 1
@@ -440,7 +440,7 @@ func (s *sessionService) GetGroupSessionList(ownerId string, page, pageSize int)
 
 // GetUserSessionListCursor 获取用户单聊会话列表（游标分页）
 // cursor: 上一页最后一条会话的时间戳（Unix时间戳字符串）
-func (s *sessionService) GetUserSessionListCursor(ownerId, cursor string, pageSize int) ([]sessionrsp.UserSessionListRespond, string, bool, error) {
+func (s *SessionService) GetUserSessionListCursor(ownerId, cursor string, pageSize int) ([]sessionrsp.UserSessionListRespond, string, bool, error) {
 	// 设置默认分页参数
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
@@ -477,7 +477,7 @@ func (s *sessionService) GetUserSessionListCursor(ownerId, cursor string, pageSi
 
 // GetGroupSessionListCursor 获取群聊会话列表（游标分页）
 // cursor: 上一页最后一条会话的时间戳（Unix时间戳字符串）
-func (s *sessionService) GetGroupSessionListCursor(ownerId, cursor string, pageSize int) ([]sessionrsp.GroupSessionListRespond, string, bool, error) {
+func (s *SessionService) GetGroupSessionListCursor(ownerId, cursor string, pageSize int) ([]sessionrsp.GroupSessionListRespond, string, bool, error) {
 	// 设置默认分页参数
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
@@ -513,7 +513,7 @@ func (s *sessionService) GetGroupSessionListCursor(ownerId, cursor string, pageS
 }
 
 // DeleteSession 删除会话
-func (s *sessionService) DeleteSession(ownerId, sessionId string) error {
+func (s *SessionService) DeleteSession(ownerId, sessionId string) error {
 	// 1. 权限校验: 直接按 UUID 查询会话，验证归属关系
 	session, err := s.repos.Session.FindByUuid(sessionId)
 	if err != nil {
@@ -541,7 +541,7 @@ func (s *sessionService) DeleteSession(ownerId, sessionId string) error {
 }
 
 // PinSession 置顶/取消置顶会话
-func (s *sessionService) PinSession(userId, sessionId string, isPinned bool) error {
+func (s *SessionService) PinSession(userId, sessionId string, isPinned bool) error {
 	// 权限校验: 只能操作自己的会话
 	session, err := s.repos.Session.FindByUuid(sessionId)
 	if err != nil {

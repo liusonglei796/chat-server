@@ -4,7 +4,7 @@ package handler
 
 import (
 	"kama_chat_server/internal/dto/request/message"
-	"kama_chat_server/internal/service"
+	msgsvc "kama_chat_server/internal/service/message"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
@@ -13,12 +13,12 @@ import (
 // MessageHandler 消息请求处理器
 // 通过构造函数注入 MessageService，遵循依赖倒置原则
 type MessageHandler struct {
-	messageSvc service.MessageService
+	messageSvc *msgsvc.MessageService
 }
 
 // NewMessageHandler 创建消息处理器实例
-// messageSvc: 消息服务接口
-func NewMessageHandler(messageSvc service.MessageService) *MessageHandler {
+// messageSvc: 消息服务
+func NewMessageHandler(messageSvc *msgsvc.MessageService) *MessageHandler {
 	return &MessageHandler{
 		messageSvc: messageSvc,
 	}

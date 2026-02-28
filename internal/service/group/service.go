@@ -19,17 +19,17 @@ import (
 	"kama_chat_server/pkg/errorx"
 )
 
-// groupInfoService 群组业务逻辑实现
+// GroupService 群组业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖
-type groupInfoService struct {
+type GroupService struct {
 	repos       *mysql.Repositories
 	cache       myredis.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
 }
 
 // NewGroupService 构造函数，注入所有依赖
-func NewGroupService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *groupInfoService {
-	return &groupInfoService{
+func NewGroupService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *GroupService {
+	return &GroupService{
 		repos:       repos,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
@@ -37,7 +37,7 @@ func NewGroupService(repos *mysql.Repositories, cacheService myredis.AsyncCacheS
 }
 
 // CreateGroup 创建群聊 (ownerId 从 JWT 获取)
-func (g *groupInfoService) CreateGroup(ownerId string, groupReq group.CreateGroupRequest) error {
+func (g *GroupService) CreateGroup(ownerId string, groupReq group.CreateGroupRequest) error {
 	group := model.GroupInfo{
 		Uuid:      fmt.Sprintf("G%s", snowflake.GenerateIDString()),
 		Name:      groupReq.Name,
@@ -89,7 +89,7 @@ func (g *groupInfoService) CreateGroup(ownerId string, groupReq group.CreateGrou
 }
 
 // LoadMyGroup 获取我创建的群聊（分页）
-func (g *groupInfoService) LoadMyGroup(userId string, page, pageSize int) ([]grouprsp.MyGroupListRespond, int64, error) {
+func (g *GroupService) LoadMyGroup(userId string, page, pageSize int) ([]grouprsp.MyGroupListRespond, int64, error) {
 	// 设置默认分页参数
 	if page < 1 {
 		page = 1
@@ -119,7 +119,7 @@ func (g *groupInfoService) LoadMyGroup(userId string, page, pageSize int) ([]gro
 }
 
 // GetGroupListByMember 通过 GroupMember 表分页获取用户加入的所有群组
-func (g *groupInfoService) GetGroupListByMember(userId string, page, pageSize int) ([]grouprsp.MyGroupListRespond, int64, error) {
+func (g *GroupService) GetGroupListByMember(userId string, page, pageSize int) ([]grouprsp.MyGroupListRespond, int64, error) {
 	// 参数校验
 	if page < 1 {
 		page = 1
@@ -160,7 +160,7 @@ func (g *groupInfoService) GetGroupListByMember(userId string, page, pageSize in
 
 // CheckGroupAddMode 检查群聊加群方式
 // 使用 Cache-Aside 模式 + singleflight 防止缓存击穿
-func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
+func (g *GroupService) CheckGroupAddMode(groupId string) (int8, error) {
 	cacheKey := constants.CacheKeyGroupInfo + groupId
 	var groupInfo grouprsp.GetGroupInfoRespond
 
@@ -200,7 +200,7 @@ func (g *groupInfoService) CheckGroupAddMode(groupId string) (int8, error) {
 }
 
 // LeaveGroup 退群
-func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
+func (g *GroupService) LeaveGroup(userId string, groupId string) error {
 	// 校验是否是群成员
 	member, err := g.repos.GroupMember.FindByGroupAndUser(groupId, userId)
 	if err != nil {
@@ -254,7 +254,7 @@ func (g *groupInfoService) LeaveGroup(userId string, groupId string) error {
 }
 
 // DismissGroup 解散群聊 (operatorId 必须是群主)
-func (g *groupInfoService) DismissGroup(operatorId, groupId string) error {
+func (g *GroupService) DismissGroup(operatorId, groupId string) error {
 	// 权限校验: 必须是群主 (Role=3) 才能解散群
 	group, err := g.repos.Group.FindByUuid(groupId)
 	if err != nil {
@@ -327,7 +327,7 @@ func (g *groupInfoService) DismissGroup(operatorId, groupId string) error {
 }
 
 // UpdateGroupInfo 更新群组信息 (operatorId 必须是群主或管理员)
-func (g *groupInfoService) UpdateGroupInfo(operatorId string, req group.UpdateGroupInfoRequest) error {
+func (g *GroupService) UpdateGroupInfo(operatorId string, req group.UpdateGroupInfoRequest) error {
 	// 权限校验: 必须是群主或管理员 (Role >= 2)
 	member, err := g.repos.GroupMember.FindByGroupAndUser(req.Uuid, operatorId)
 	if err != nil {
@@ -400,7 +400,7 @@ func (g *groupInfoService) UpdateGroupInfo(operatorId string, req group.UpdateGr
 }
 
 // GetGroupMemberList 获取群聊成员列表（分页）(userId 必须是群成员)
-func (g *groupInfoService) GetGroupMemberList(userId, groupId string, page, pageSize int) ([]grouprsp.GetGroupMemberListRespond, int64, error) {
+func (g *GroupService) GetGroupMemberList(userId, groupId string, page, pageSize int) ([]grouprsp.GetGroupMemberListRespond, int64, error) {
 	// 设置默认分页参数
 	if page < 1 {
 		page = 1
@@ -440,7 +440,7 @@ func (g *groupInfoService) GetGroupMemberList(userId, groupId string, page, page
 }
 
 // RemoveGroupMembers 移除群聊成员 (operatorId 必须是群主或管理员)
-func (g *groupInfoService) RemoveGroupMembers(operatorId string, req group.RemoveGroupMembersRequest) error {
+func (g *GroupService) RemoveGroupMembers(operatorId string, req group.RemoveGroupMembersRequest) error {
 	if len(req.UuidList) == 0 {
 		return nil
 	}
@@ -519,7 +519,7 @@ func (g *groupInfoService) RemoveGroupMembers(operatorId string, req group.Remov
 }
 
 // GetGroupDetail 获取群聊详情 (userId 必须是群成员)
-func (g *groupInfoService) GetGroupDetail(userId, groupId string) (grouprsp.PublicGroupInfoRespond, error) {
+func (g *GroupService) GetGroupDetail(userId, groupId string) (grouprsp.PublicGroupInfoRespond, error) {
 	if len(groupId) == 0 {
 		return grouprsp.PublicGroupInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "群聊ID不能为空")
 	}
@@ -583,7 +583,7 @@ func (g *groupInfoService) GetGroupDetail(userId, groupId string) (grouprsp.Publ
 }
 
 // MuteMember 禁言/取消禁言群成员
-func (g *groupInfoService) MuteMember(operatorId string, req group.MuteMemberRequest) error {
+func (g *GroupService) MuteMember(operatorId string, req group.MuteMemberRequest) error {
 	// 1. 权限校验: 必须是群主或管理员 (Role >= 2)
 	operator, err := g.repos.GroupMember.FindByGroupAndUser(req.GroupId, operatorId)
 	if err != nil {

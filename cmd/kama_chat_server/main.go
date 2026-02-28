@@ -43,14 +43,20 @@ func main() {
 	jwt.Init(conf.JWTConfig.Secret, conf.JWTConfig.AccessTokenExpiry, conf.JWTConfig.RefreshTokenExpiry)
 	zap.L().Info("JWT 初始化成功")
 
-	// 6. 初始化 SMS Service (依赖注入缓存服务)
+	// 6. 初始化 Validator 国际化
+	if err := handler.InitTrans("zh"); err != nil {
+		zap.L().Fatal("validator 初始化失败", zap.Error(err))
+	}
+	zap.L().Info("Validator 国际化初始化成功")
+
+	// 7. 初始化 SMS Service (依赖注入缓存服务)
 	smsService, err := sms.Init(cacheService)
 	if err != nil {
 		zap.L().Fatal("SMS Service 初始化失败", zap.Error(err))
 	}
 	zap.L().Info("SMS Service 初始化成功")
 
-	// 7. 初始化 ChatServer（必须在 Services 之前，因为 UserService 需要 KickClient）
+	// 8. 初始化 ChatServer（必须在 Services 之前，因为 UserService 需要 KickClient）
 	// 新增：传入 UserRepo 用于消息发送权限校验（检查用户是否被禁用）
 	chatServer := chat.NewChatServer(chat.ChatServerConfig{
 		MessageRepo:     repos.Message,

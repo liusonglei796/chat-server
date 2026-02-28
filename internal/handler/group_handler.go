@@ -4,7 +4,7 @@ package handler
 
 import (
 	"kama_chat_server/internal/dto/request/group"
-	"kama_chat_server/internal/service"
+	groupsvc "kama_chat_server/internal/service/group"
 	"kama_chat_server/pkg/errorx"
 	"strconv"
 
@@ -14,12 +14,12 @@ import (
 // GroupHandler 群组请求处理器
 // 通过构造函数注入 GroupService，遵循依赖倒置原则
 type GroupHandler struct {
-	groupSvc service.GroupService
+	groupSvc *groupsvc.GroupService
 }
 
 // NewGroupHandler 创建群组处理器实例
-// groupSvc: 群组服务接口
-func NewGroupHandler(groupSvc service.GroupService) *GroupHandler {
+// groupSvc: 群组服务
+func NewGroupHandler(groupSvc *groupsvc.GroupService) *GroupHandler {
 	return &GroupHandler{groupSvc: groupSvc}
 }
 

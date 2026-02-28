@@ -24,21 +24,21 @@ import (
 	"kama_chat_server/pkg/errorx"
 )
 
-// applyService 申请业务逻辑实现
+// ApplyService 申请业务逻辑实现
 // 设计原则说明：
 //  1. 读操作（如获取申请列表）：采用【直接查询数据库】模式。
 //     原因：申请/审批流程对数据一致性要求极高（防脏读、防重复），且相比消息/联系列表，其访问频率较低，直查DB可确保逻辑安全且性能可控。
 //  2. 写操作（如发起/通过申请）：采用【写库成功后删除缓存】模式。
 //     原因：作为数据生产者，在变更状态后主动失效下游服务（如ContactService）的缓存，保证系统数据的最终一致性。
-type applyService struct {
+type ApplyService struct {
 	repos       *mysql.Repositories
 	cache       myredis.AsyncCacheService
 	cacheHelper *cacheutil.Helper
 }
 
 // NewApplyService 构造函数
-func NewApplyService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *applyService {
-	return &applyService{
+func NewApplyService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *ApplyService {
+	return &ApplyService{
 		repos:       repos,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
@@ -49,7 +49,7 @@ func NewApplyService(repos *mysql.Repositories, cacheService myredis.AsyncCacheS
 // ApplyFriend 申请添加好友
 // userId: 发起申请的用户ID
 // req: 包含目标好友ID和申请信息的请求对象
-func (u *applyService) ApplyFriend(userId string, req applyreq.ApplyFriendRequest) error {
+func (u *ApplyService) ApplyFriend(userId string, req applyreq.ApplyFriendRequest) error {
 	// 1. 参数校验
 	// 校验好友ID是否为空，如果为空则返回参数无效错误，防止后续空指针或逻辑错误
 	if len(req.FriendId) == 0 {
@@ -150,7 +150,7 @@ func (u *applyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 // ApplyGroup 申请加入群组的逻辑处理
 // userId: 申请人的用户ID
 // req: 包含目标群组ID和申请信息的请求对象
-func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest) error {
+func (u *ApplyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest) error {
 	// 1. 参数校验
 	// 检查群组ID是否为空
 	if len(req.GroupId) == 0 {
@@ -311,7 +311,7 @@ func (u *applyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 // page: 页码，从1开始
 // pageSize: 每页数量
 // 返回: 分页好友申请列表响应对象
-func (u *applyService) GetFriendApplyList(userId string, page, pageSize int) (*applyrsp.PagedFriendApplyListRespond, error) {
+func (u *ApplyService) GetFriendApplyList(userId string, page, pageSize int) (*applyrsp.PagedFriendApplyListRespond, error) {
 	// 1. 设置默认分页参数
 	if page < 1 {
 		page = 1
@@ -395,7 +395,7 @@ func (u *applyService) GetFriendApplyList(userId string, page, pageSize int) (*a
 // GetGroupApplyList 获取收到的加群申请列表
 // userId: 操作者ID（必须是管理员或群主）
 // groupId: 目标群组ID
-func (u *applyService) GetGroupApplyList(userId, groupId string, page, pageSize int) (*applyrsp.PagedGroupApplyListRespond, error) {
+func (u *ApplyService) GetGroupApplyList(userId, groupId string, page, pageSize int) (*applyrsp.PagedGroupApplyListRespond, error) {
 	// 1. 权限校验
 	// 检查操作者是否是该群的成员
 	member, err := u.repos.GroupMember.FindByGroupAndUser(groupId, userId)
@@ -487,7 +487,7 @@ func (u *applyService) GetGroupApplyList(userId, groupId string, page, pageSize 
 // PassFriendApply 通过好友申请
 // userId: 操作者ID（即被申请人）
 // applicantId: 申请人ID（即发起好友申请的用户）
-func (u *applyService) PassFriendApply(userId string, applicantId string) error {
+func (u *ApplyService) PassFriendApply(userId string, applicantId string) error {
 	// 1. 查询申请记录
 	// 确认申请是否存在，以及是否是指向当前用户的申请
 	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(applicantId, userId)
@@ -571,7 +571,7 @@ func (u *applyService) PassFriendApply(userId string, applicantId string) error 
 // operatorId: 操作者ID（必须是群主或管理员）
 // groupId: 目标群组ID
 // applicantId: 申请入群的用户ID
-func (u *applyService) PassGroupApply(operatorId, groupId, applicantId string) error {
+func (u *ApplyService) PassGroupApply(operatorId, groupId, applicantId string) error {
 	// 1. 权限校验
 	// 查询操作者在群组中的角色
 	// 防止普通成员或其他未经授权的用户审批入群申请
@@ -673,7 +673,7 @@ func (u *applyService) PassGroupApply(operatorId, groupId, applicantId string) e
 // RefuseFriendApply 拒绝好友申请
 // userId: 操作者ID
 // applicantId: 申请人ID
-func (u *applyService) RefuseFriendApply(userId string, applicantId string) error {
+func (u *ApplyService) RefuseFriendApply(userId string, applicantId string) error {
 	// 1. 查找申请记录
 	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(applicantId, userId)
 	if err != nil {
@@ -697,7 +697,7 @@ func (u *applyService) RefuseFriendApply(userId string, applicantId string) erro
 // operatorId: 操作者ID（必须是群主或管理员）
 // groupId: 目标群组ID
 // applicantId: 申请入群的用户ID
-func (u *applyService) RefuseGroupApply(operatorId, groupId, applicantId string) error {
+func (u *ApplyService) RefuseGroupApply(operatorId, groupId, applicantId string) error {
 	// 1. 权限校验
 	// 查询操作者权限
 	member, err := u.repos.GroupMember.FindByGroupAndUser(groupId, operatorId)
@@ -738,7 +738,7 @@ func (u *applyService) RefuseGroupApply(operatorId, groupId, applicantId string)
 // BlackFriendApply 拉黑好友申请
 // userId: 操作者ID
 // applicantId: 申请人ID
-func (u *applyService) BlackFriendApply(userId string, applicantId string) error {
+func (u *ApplyService) BlackFriendApply(userId string, applicantId string) error {
 	// 1. 查找申请记录
 	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(applicantId, userId)
 	if err != nil {
@@ -768,7 +768,7 @@ func (u *applyService) BlackFriendApply(userId string, applicantId string) error
 // operatorId: 操作者ID（必须是群主或管理员）
 // groupId: 目标群组ID
 // applicantId: 申请入群的用户ID
-func (u *applyService) BlackGroupApply(operatorId, groupId, applicantId string) error {
+func (u *ApplyService) BlackGroupApply(operatorId, groupId, applicantId string) error {
 	// 1. 权限校验
 	member, err := u.repos.GroupMember.FindByGroupAndUser(groupId, operatorId)
 	if err != nil {

@@ -1,6 +1,6 @@
 # 设置 Docker 镜像代理 + Go 模块代理
 # 阶段 1: 构建阶段
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # 设置 Go 模块代理（使用国内镜像）
 ENV GOPROXY=https://goproxy.cn,direct

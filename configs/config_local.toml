@@ -1,0 +1,51 @@
+[mainConfig]
+appName = "chat-server"
+host = "0.0.0.0"
+port = 8001
+
+[mysqlConfig]
+host = "127.0.0.1"
+port = 3307
+user = "root"
+password = "root123456"
+databaseName = "kama_chat"
+
+[redisConfig]
+host = "127.0.0.1"
+port = 6380
+password = ""
+db = 0
+
+[authCodeConfig]
+accessKeyID = "your accessKeyID in alibaba cloud"
+accessKeySecret = "your accessKeySecret in alibaba cloud"
+signName = "阿里云短信测试"
+templateCode = "SMS_154950909"
+
+[logConfig]
+logPath = "your log path"
+
+[kafkaConfig]
+hostPort = "127.0.0.1:9093"
+loginTopic = "login"
+chatTopic = "chat_message"
+logoutTopic = "logout"
+partition = 0
+timeout = 1
+
+[staticSrcConfig]
+staticAvatarPath = "./static/avatars"
+staticFilePath = "./static/files"
+
+[jwtConfig]
+secret = "kama-chat-super-secret-key-change-in-production"
+accessTokenExpiry = 15
+refreshTokenExpiry = 168
+
+[snowflakeConfig]
+machineId = 1
+
+[modelScopeConfig]
+apiKey = ""
+baseUrl = "https://api-inference.modelscope.cn/v1"
+model = "moonshotai/Kimi-K2.5"

@@ -23,9 +23,9 @@ import (
 	"kama_chat_server/pkg/jwt"
 )
 
-// userInfoService 用户业务逻辑实现
+// UserService 用户业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖
-type userInfoService struct {
+type UserService struct {
 	repos       *mysql.Repositories
 	cache       myredis.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
@@ -35,8 +35,8 @@ type userInfoService struct {
 
 // NewUserService 构造函数，注入所有依赖
 // kickClient: 可选的踢人回调函数，用于登录时踢掉旧设备
-func NewUserService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string)) *userInfoService {
-	return &userInfoService{
+func NewUserService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string)) *UserService {
+	return &UserService{
 		repos:       repos,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
@@ -46,7 +46,7 @@ func NewUserService(repos *mysql.Repositories, cacheService myredis.AsyncCacheSe
 }
 
 // checkTelephoneValid 检验电话是否有效
-func (u *userInfoService) checkTelephoneValid(telephone string) bool {
+func (u *UserService) checkTelephoneValid(telephone string) bool {
 	pattern := `^1([38][0-9]|14[579]|5[^4]|16[6]|7[1-35-8]|9[189])\d{8}$`
 	match, err := regexp.MatchString(pattern, telephone)
 	if err != nil {
@@ -56,7 +56,7 @@ func (u *userInfoService) checkTelephoneValid(telephone string) bool {
 }
 
 // checkEmailValid 校验邮箱是否有效
-func (u *userInfoService) checkEmailValid(email string) bool {
+func (u *UserService) checkEmailValid(email string) bool {
 	pattern := `^[^\s@]+@[^\s@]+\.[^\s@]+$`
 	match, err := regexp.MatchString(pattern, email)
 	if err != nil {
@@ -67,7 +67,7 @@ func (u *userInfoService) checkEmailValid(email string) bool {
 
 // buildLoginResponse 构建登录/短信登录的公共响应
 // 包含：状态检查 → 踢旧设备 → 生成双 Token → 存 Redis → 构建响应
-func (u *userInfoService) buildLoginResponse(user *model.UserInfo) (*userrsp.LoginRespond, error) {
+func (u *UserService) buildLoginResponse(user *model.UserInfo) (*userrsp.LoginRespond, error) {
 	// 1. 检查用户状态
 	if user.Status == user_status.DISABLE {
 		return nil, errorx.New(errorx.CodeForbidden, "该账号已被禁用，请联系管理员")
@@ -120,7 +120,7 @@ func (u *userInfoService) buildLoginResponse(user *model.UserInfo) (*userrsp.Log
 }
 
 // Login 登录
-func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespond, error) {
+func (u *UserService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespond, error) {
 	user, err := u.repos.User.FindByTelephone(loginReq.Telephone)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
@@ -137,7 +137,7 @@ func (u *userInfoService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespo
 }
 
 // SmsLogin 验证码登录
-func (u *userInfoService) SmsLogin(req auth.SmsLoginRequest) (*userrsp.LoginRespond, error) {
+func (u *UserService) SmsLogin(req auth.SmsLoginRequest) (*userrsp.LoginRespond, error) {
 	user, err := u.repos.User.FindByTelephone(req.Telephone)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
@@ -166,12 +166,12 @@ func (u *userInfoService) SmsLogin(req auth.SmsLoginRequest) (*userrsp.LoginResp
 }
 
 // SendSmsCode 发送短信验证码 - 验证码登录
-func (u *userInfoService) SendSmsCode(telephone string) error {
+func (u *UserService) SendSmsCode(telephone string) error {
 	return u.smsService.SendVerificationCode(telephone)
 }
 
 // checkTelephoneExist 检查手机号是否存在
-func (u *userInfoService) checkTelephoneExist(telephone string) error {
+func (u *UserService) checkTelephoneExist(telephone string) error {
 	_, err := u.repos.User.FindByTelephone(telephone)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
@@ -186,7 +186,7 @@ func (u *userInfoService) checkTelephoneExist(telephone string) error {
 }
 
 // Register 注册
-func (u *userInfoService) Register(registerReq auth.RegisterRequest) (*userrsp.RegisterRespond, error) {
+func (u *UserService) Register(registerReq auth.RegisterRequest) (*userrsp.RegisterRespond, error) {
 	key := constants.CacheKeyAuthCode + registerReq.Telephone
 	code, err := u.cache.Get(context.Background(), key)
 	if err != nil {
@@ -244,7 +244,7 @@ func (u *userInfoService) Register(registerReq auth.RegisterRequest) (*userrsp.R
 // UpdateUserInfo 修改用户信息 (userId 从 JWT 获取，只能改自己)
 // 使用指针类型区分"未传字段"(nil=不更新)和"清空字段"(""=置空)
 // 警告问题修复：使用数据库事务确保用户信息和会话信息的一致性
-func (u *userInfoService) UpdateUserInfo(userId string, updateReq userreq.UpdateUserInfoRequest) error {
+func (u *UserService) UpdateUserInfo(userId string, updateReq userreq.UpdateUserInfoRequest) error {
 	user, err := u.repos.User.FindByUuid(userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
@@ -315,7 +315,7 @@ func (u *userInfoService) UpdateUserInfo(userId string, updateReq userreq.Update
 
 // GetUserInfo 获取用户完整信息（仅限自己调用）
 // 使用 Cache-Aside 模式 + singleflight 防止缓存击穿
-func (u *userInfoService) GetUserInfo(requesterId, targetId string) (*userrsp.GetUserInfoRespond, error) {
+func (u *UserService) GetUserInfo(requesterId, targetId string) (*userrsp.GetUserInfoRespond, error) {
 	// 权限校验: 只能查看自己的完整信息
 	if requesterId != targetId {
 		return nil, errorx.New(errorx.CodeForbidden, "无权查看他人详细信息")
@@ -361,7 +361,7 @@ func (u *userInfoService) GetUserInfo(requesterId, targetId string) (*userrsp.Ge
 
 // GetPublicUserInfo 获取用户公开信息（查看他人）
 // 使用 Cache-Aside 模式 + singleflight 防止缓存击穿
-func (u *userInfoService) GetPublicUserInfo(targetId string) (*userrsp.PublicUserInfoRespond, error) {
+func (u *UserService) GetPublicUserInfo(targetId string) (*userrsp.PublicUserInfoRespond, error) {
 	key := constants.CacheKeyUserPublicInfo + targetId
 	var rsp userrsp.PublicUserInfoRespond
 

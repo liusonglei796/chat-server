@@ -4,7 +4,7 @@ package handler
 
 import (
 	aireq "kama_chat_server/internal/dto/request/ai"
-	"kama_chat_server/internal/service"
+	aisvc "kama_chat_server/internal/service/ai"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
@@ -12,11 +12,11 @@ import (
 
 // AIHandler AI 请求处理器
 type AIHandler struct {
-	aiSvc service.AIService
+	aiSvc *aisvc.AiService
 }
 
 // NewAIHandler 创建 AI 处理器实例
-func NewAIHandler(aiSvc service.AIService) *AIHandler {
+func NewAIHandler(aiSvc *aisvc.AiService) *AIHandler {
 	return &AIHandler{aiSvc: aiSvc}
 }
 

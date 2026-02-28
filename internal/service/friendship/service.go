@@ -18,16 +18,16 @@ import (
 	"kama_chat_server/pkg/errorx"
 )
 
-// friendshipService 好友关系业务逻辑实现
-type friendshipService struct {
+// FriendshipService 好友关系业务逻辑实现
+type FriendshipService struct {
 	repos       *mysql.Repositories
 	cache       myredis.AsyncCacheService
 	cacheHelper *cacheutil.Helper
 }
 
 // NewFriendshipService 构造函数，注入所有依赖
-func NewFriendshipService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *friendshipService {
-	return &friendshipService{
+func NewFriendshipService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *FriendshipService {
+	return &FriendshipService{
 		repos:       repos,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
@@ -52,7 +52,7 @@ func buildUserInfoRespond(user *model.UserInfo) userrsp.GetUserInfoRespond {
 }
 
 // clearFriendRelationCache 清理好友关系相关的缓存（DRY: DeleteFriend/BlackFriend 共用）
-func (s *friendshipService) clearFriendRelationCache(userId, friendId string) {
+func (s *FriendshipService) clearFriendRelationCache(userId, friendId string) {
 	s.cache.SubmitTask(func() {
 		//从好友set中移除一个好友
 		_ = s.cache.RemoveFromSet(context.Background(), constants.CacheKeyFriendRelUser+userId, friendId)
@@ -61,7 +61,7 @@ func (s *friendshipService) clearFriendRelationCache(userId, friendId string) {
 }
 
 // GetFriendList 获取好友列表（分页）
-func (s *friendshipService) GetFriendList(userId string, page, pageSize int) ([]userrsp.MyUserListRespond, int64, error) {
+func (s *FriendshipService) GetFriendList(userId string, page, pageSize int) ([]userrsp.MyUserListRespond, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -116,7 +116,7 @@ func (s *friendshipService) GetFriendList(userId string, page, pageSize int) ([]
 }
 
 // GetFriendInfo 获取好友详情 (userId 必须与 friendId 是好友关系)
-func (s *friendshipService) GetFriendInfo(userId, friendId string) (friendshiprsp.FriendInfoRespond, error) {
+func (s *FriendshipService) GetFriendInfo(userId, friendId string) (friendshiprsp.FriendInfoRespond, error) {
 	if len(friendId) == 0 {
 		return friendshiprsp.FriendInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "好友ID不能为空")
 	}
@@ -178,7 +178,7 @@ func (s *friendshipService) GetFriendInfo(userId, friendId string) (friendshiprs
 }
 
 // DeleteFriend 删除好友（双向删除）
-func (s *friendshipService) DeleteFriend(userId, friendId string) error {
+func (s *FriendshipService) DeleteFriend(userId, friendId string) error {
 	if userId == friendId {
 		return errorx.New(errorx.CodeInvalidParam, "不能删除自己")
 	}
@@ -220,7 +220,7 @@ func (s *friendshipService) DeleteFriend(userId, friendId string) error {
 }
 
 // BlackFriend 拉黑好友
-func (s *friendshipService) BlackFriend(userId string, friendId string) error {
+func (s *FriendshipService) BlackFriend(userId string, friendId string) error {
 	if userId == friendId {
 		return errorx.New(errorx.CodeInvalidParam, "不能拉黑自己")
 	}
@@ -280,7 +280,7 @@ func (s *friendshipService) BlackFriend(userId string, friendId string) error {
 }
 
 // UnblackFriend 取消拉黑好友
-func (s *friendshipService) UnblackFriend(userId string, friendId string) error {
+func (s *FriendshipService) UnblackFriend(userId string, friendId string) error {
 	if userId == friendId {
 		return errorx.New(errorx.CodeInvalidParam, "参数错误")
 	}
@@ -339,7 +339,7 @@ func (s *friendshipService) UnblackFriend(userId string, friendId string) error 
 }
 
 // UpdateRemark 更新好友备注
-func (s *friendshipService) UpdateRemark(userId, friendId, remark string) error {
+func (s *FriendshipService) UpdateRemark(userId, friendId, remark string) error {
 	if userId == friendId {
 		return errorx.New(errorx.CodeInvalidParam, "不能给自己设置备注")
 	}

@@ -4,7 +4,7 @@ package handler
 
 import (
 	"kama_chat_server/internal/dto/request/auth"
-	"kama_chat_server/internal/service"
+	authsvc "kama_chat_server/internal/service/auth"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/jwt"
 
@@ -14,12 +14,12 @@ import (
 // AuthHandler 认证请求处理器
 // 通过构造函数注入 AuthService，遵循依赖倒置原则
 type AuthHandler struct {
-	authSvc service.AuthService
+	authSvc *authsvc.Service
 }
 
 // NewAuthHandler 创建认证处理器实例
-// authSvc: 认证服务接口
-func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
+// authSvc: 认证服务
+func NewAuthHandler(authSvc *authsvc.Service) *AuthHandler {
 	return &AuthHandler{authSvc: authSvc}
 }
 

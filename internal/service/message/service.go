@@ -24,9 +24,9 @@ import (
 	"kama_chat_server/pkg/errorx"
 )
 
-// messageService 消息业务逻辑实现
+// MessageService 消息业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖，遵循依赖倒置原则
-type messageService struct {
+type MessageService struct {
 	repos *mysql.Repositories
 	cache myredis.AsyncCacheService
 	// pushRecallNotify 撤回通知回调（由 ChatServer.Broker.PushRecallNotify 提供）
@@ -36,8 +36,8 @@ type messageService struct {
 
 // NewMessageService 构造函数，注入所有依赖
 // pushRecallNotify: 可选回调，撤回消息后通过 WebSocket 推送通知
-func NewMessageService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, pushRecallNotify func(messageUuid, receiveId string)) *messageService {
-	return &messageService{
+func NewMessageService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, pushRecallNotify func(messageUuid, receiveId string)) *MessageService {
+	return &MessageService{
 		repos:            repos,
 		cache:            cacheService,
 		pushRecallNotify: pushRecallNotify,
@@ -45,7 +45,7 @@ func NewMessageService(repos *mysql.Repositories, cacheService myredis.AsyncCach
 }
 
 // GetMessageList 获取聊天记录（分页）
-func (m *messageService) GetMessageList(requesterId, partnerId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error) {
+func (m *MessageService) GetMessageList(requesterId, partnerId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error) {
 	// 参数校验
 	if page < 1 {
 		page = 1
@@ -99,7 +99,7 @@ func (m *messageService) GetMessageList(requesterId, partnerId string, page, pag
 }
 
 // GetGroupMessageList 获取群聊消息记录（分页）
-func (m *messageService) GetGroupMessageList(userId, groupId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error) {
+func (m *MessageService) GetGroupMessageList(userId, groupId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error) {
 	// 设置默认分页参数
 	if page < 1 {
 		page = 1
@@ -148,7 +148,7 @@ func (m *messageService) GetGroupMessageList(userId, groupId string, page, pageS
 
 // GetMessageListCursor 获取两个用户之间的聊天记录（游标分页）
 // cursor: 上一页最后一条消息的时间戳（Unix时间戳字符串），为空则从头开始
-func (m *messageService) GetMessageListCursor(requesterId, partnerId, cursor string, pageSize int) ([]messagersp.GetMessageListRespond, string, bool, error) {
+func (m *MessageService) GetMessageListCursor(requesterId, partnerId, cursor string, pageSize int) ([]messagersp.GetMessageListRespond, string, bool, error) {
 	// 参数校验
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
@@ -200,7 +200,7 @@ func (m *messageService) GetMessageListCursor(requesterId, partnerId, cursor str
 
 // GetGroupMessageListCursor 获取群聊消息记录（游标分页）
 // cursor: 上一页最后一条消息的时间戳（Unix时间戳字符串），为空则从头开始
-func (m *messageService) GetGroupMessageListCursor(userId, groupId, cursor string, pageSize int) ([]messagersp.GetMessageListRespond, string, bool, error) {
+func (m *MessageService) GetGroupMessageListCursor(userId, groupId, cursor string, pageSize int) ([]messagersp.GetMessageListRespond, string, bool, error) {
 	// 设置默认分页参数
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
@@ -244,7 +244,7 @@ func (m *messageService) GetGroupMessageListCursor(userId, groupId, cursor strin
 }
 
 // UploadAvatar 上传头像
-func (m *messageService) UploadAvatar(c *gin.Context) (string, error) {
+func (m *MessageService) UploadAvatar(c *gin.Context) (string, error) {
 	if err := c.Request.ParseMultipartForm(constants.FILE_MAX_SIZE); err != nil {
 		zap.L().Error("parse multipart form error", zap.Error(err))
 		return "", errorx.New(errorx.CodeInvalidParam, "文件过大，请上传小于 30MB 的文件")
@@ -279,7 +279,7 @@ func (m *messageService) UploadAvatar(c *gin.Context) (string, error) {
 }
 
 // UploadFile 上传文件
-func (m *messageService) UploadFile(c *gin.Context) ([]string, error) {
+func (m *MessageService) UploadFile(c *gin.Context) ([]string, error) {
 	if err := c.Request.ParseMultipartForm(constants.FILE_MAX_SIZE); err != nil {
 		zap.L().Error("parse multipart form error", zap.Error(err))
 		return nil, errorx.New(errorx.CodeInvalidParam, "文件过大，请上传小于 30MB 的文件")
@@ -326,7 +326,7 @@ func (m *messageService) UploadFile(c *gin.Context) ([]string, error) {
 // dstDir: 目标保存目录
 // allowedMimes: 允许的 MIME 类型列表（可变参数，为空则不校验）
 // 返回: 生成的新文件名, 错误
-func (m *messageService) saveFile(fileHeader *multipart.FileHeader, dstDir string, allowedMimes ...string) (string, error) {
+func (m *MessageService) saveFile(fileHeader *multipart.FileHeader, dstDir string, allowedMimes ...string) (string, error) {
 	// 打开上传的文件，获取文件读取流
 	src, err := fileHeader.Open()
 	if err != nil {
@@ -385,7 +385,7 @@ func (m *messageService) saveFile(fileHeader *multipart.FileHeader, dstDir strin
 
 // RecallMessage 撤回消息
 // 流程：查消息 → 校验身份 → 校验时限 → 更新数据库 → WebSocket 通知对方
-func (m *messageService) RecallMessage(userId string, req messagereq.RecallMessageRequest) error {
+func (m *MessageService) RecallMessage(userId string, req messagereq.RecallMessageRequest) error {
 	// 1. 查询消息是否存在
 	msg, err := m.repos.Message.FindByUuid(req.MessageUuid)
 	if err != nil {
@@ -426,6 +426,6 @@ func (m *messageService) RecallMessage(userId string, req messagereq.RecallMessa
 }
 
 // GetMessageByUuid 根据 UUID 获取消息
-func (m *messageService) GetMessageByUuid(messageId string) (*model.Message, error) {
+func (m *MessageService) GetMessageByUuid(messageId string) (*model.Message, error) {
 	return m.repos.Message.FindByUuid(messageId)
 }

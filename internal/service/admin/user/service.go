@@ -14,23 +14,23 @@ import (
 	"kama_chat_server/pkg/errorx"
 )
 
-// userAdminService 用户管理后台服务
+// UserAdminService 用户管理后台服务
 // 处理用户列表、状态管理、权限管理等管理员功能
-type userAdminService struct {
+type UserAdminService struct {
 	repos *mysql.Repositories
 	cache myredis.AsyncCacheService
 }
 
 // NewUserAdminService 构造函数
-func NewUserAdminService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *userAdminService {
-	return &userAdminService{
+func NewUserAdminService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *UserAdminService {
+	return &UserAdminService{
 		repos: repos,
 		cache: cacheService,
 	}
 }
 
 // GetUserListPaged 分页获取用户列表
-func (s *userAdminService) GetUserListPaged(req adminreq.GetUserListRequest) (*adminrsp.PagedUserListRespond, error) {
+func (s *UserAdminService) GetUserListPaged(req adminreq.GetUserListRequest) (*adminrsp.PagedUserListRespond, error) {
 	users, total, err := s.repos.User.FindAllPaged(req.Page, req.PageSize, req.Keyword, req.Status)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
@@ -57,7 +57,7 @@ func (s *userAdminService) GetUserListPaged(req adminreq.GetUserListRequest) (*a
 
 // BatchUpdateUserStatus 批量更新用户状态
 // Action: enable(启用), disable(禁用), delete(删除)
-func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserStatusRequest) error {
+func (s *UserAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserStatusRequest) error {
 	if len(req.UserUUIDs) == 0 {
 		return nil
 	}
@@ -156,7 +156,7 @@ func (s *userAdminService) BatchUpdateUserStatus(req adminreq.BatchUpdateUserSta
 }
 
 // SetAdmin 设置管理员权限
-func (s *userAdminService) SetAdmin(userUUIDs []string, isAdmin int8) error {
+func (s *UserAdminService) SetAdmin(userUUIDs []string, isAdmin int8) error {
 	if len(userUUIDs) == 0 {
 		return nil
 	}

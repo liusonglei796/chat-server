@@ -14,35 +14,28 @@ import (
 	"kama_chat_server/internal/dao/mysql"
 	aiclient "kama_chat_server/internal/infrastructure/ai"
 	"kama_chat_server/internal/model"
+	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
 
 	aireq "kama_chat_server/internal/dto/request/ai"
 	airsp "kama_chat_server/internal/dto/respond/ai"
 )
 
-const (
-	defaultReplyContextLimit = 20
-	maxReplyContextLimit     = 50
-	defaultSummaryHours      = 24
-	defaultSummaryLimit      = 200
-	maxSummaryLimit          = 500
-	aiRequestTimeout         = 12 * time.Second
-)
-
-type aiService struct {
+// AiService AI 业务服务
+type AiService struct {
 	repos  *mysql.Repositories
 	client aiclient.ChatClient
 	model  string
 }
 
 // NewAIService 创建 AI 业务服务
-func NewAIService(repos *mysql.Repositories, cfg *config.Config) *aiService {
+func NewAIService(repos *mysql.Repositories, cfg *config.Config) *AiService {
 	client, err := aiclient.NewEinoClient(cfg.ModelScopeConfig)
 	if err != nil {
 		zap.L().Warn("init eino client failed, ai service disabled", zap.Error(err))
 	}
 
-	return &aiService{
+	return &AiService{
 		repos:  repos,
 		client: client,
 		model:  cfg.ModelScopeConfig.Model,
@@ -50,7 +43,7 @@ func NewAIService(repos *mysql.Repositories, cfg *config.Config) *aiService {
 }
 
 // ReplySuggestions 智能回复建议
-func (s *aiService) ReplySuggestions(userId string, req aireq.ReplySuggestionsRequest) (*airsp.ReplySuggestionsRespond, error) {
+func (s *AiService) ReplySuggestions(userId string, req aireq.ReplySuggestionsRequest) (*airsp.ReplySuggestionsRespond, error) {
 	if err := s.ensureClientReady(); err != nil {
 		return nil, err
 	}
@@ -61,10 +54,10 @@ func (s *aiService) ReplySuggestions(userId string, req aireq.ReplySuggestionsRe
 	}
 
 	if req.ContextLimit <= 0 {
-		req.ContextLimit = defaultReplyContextLimit
+		req.ContextLimit = constants.DefaultReplyContextLimit
 	}
-	if req.ContextLimit > maxReplyContextLimit {
-		req.ContextLimit = maxReplyContextLimit
+	if req.ContextLimit > constants.MaxReplyContextLimit {
+		req.ContextLimit = constants.MaxReplyContextLimit
 	}
 
 	conversation, err := s.buildConversationContext(userId, targetId, req.ContextLimit)
@@ -80,7 +73,7 @@ func (s *aiService) ReplySuggestions(userId string, req aireq.ReplySuggestionsRe
 	systemPrompt := "你是聊天助手，任务是给出3条可直接发送的中文回复建议。只输出 JSON，格式：{\"suggestions\":[\"...\",\"...\",\"...\"]}。不要输出额外文字。"
 	userPrompt := fmt.Sprintf("聊天上下文：\n%s\n\n用户草稿：%s\n风格：%s\n要求：每条回复不超过40字，语气自然，避免重复。", conversation, strings.TrimSpace(req.Draft), style)
 
-	ctx, cancel := context.WithTimeout(context.Background(), aiRequestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), constants.AIRequestTimeout)
 	defer cancel()
 
 	// 调用 Eino 客户端生成回复建议：
@@ -103,7 +96,7 @@ func (s *aiService) ReplySuggestions(userId string, req aireq.ReplySuggestionsRe
 }
 
 // GroupSummary 群聊总结
-func (s *aiService) GroupSummary(userId string, req aireq.GroupSummaryRequest) (*airsp.GroupSummaryRespond, error) {
+func (s *AiService) GroupSummary(userId string, req aireq.GroupSummaryRequest) (*airsp.GroupSummaryRespond, error) {
 	if err := s.ensureClientReady(); err != nil {
 		return nil, err
 	}
@@ -118,13 +111,13 @@ func (s *aiService) GroupSummary(userId string, req aireq.GroupSummaryRequest) (
 	}
 
 	if req.Hours <= 0 {
-		req.Hours = defaultSummaryHours
+		req.Hours = constants.DefaultSummaryHours
 	}
 	if req.Limit <= 0 {
-		req.Limit = defaultSummaryLimit
+		req.Limit = constants.DefaultSummaryLimit
 	}
-	if req.Limit > maxSummaryLimit {
-		req.Limit = maxSummaryLimit
+	if req.Limit > constants.MaxSummaryLimit {
+		req.Limit = constants.MaxSummaryLimit
 	}
 
 	if _, err := s.repos.GroupMember.FindByGroupAndUser(groupId, userId); err != nil {
@@ -159,7 +152,7 @@ func (s *aiService) GroupSummary(userId string, req aireq.GroupSummaryRequest) (
 	systemPrompt := "你是群聊总结助手。只输出 JSON，格式：{\"summary\":\"...\",\"todos\":[\"...\"],\"decisions\":[\"...\"]}。不要输出额外文字。"
 	userPrompt := fmt.Sprintf("请对以下群聊内容做%s总结，提炼重点、待办和决策：\n%s", style, conversation)
 
-	ctx, cancel := context.WithTimeout(context.Background(), aiRequestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), constants.AIRequestTimeout)
 	defer cancel()
 
 	// 调用 Eino 客户端生成群聊总结：
@@ -179,7 +172,7 @@ func (s *aiService) GroupSummary(userId string, req aireq.GroupSummaryRequest) (
 }
 
 // Translate 多语言翻译
-func (s *aiService) Translate(userId string, req aireq.TranslateRequest) (*airsp.TranslateRespond, error) {
+func (s *AiService) Translate(userId string, req aireq.TranslateRequest) (*airsp.TranslateRespond, error) {
 	if err := s.ensureClientReady(); err != nil {
 		return nil, err
 	}
@@ -198,7 +191,7 @@ func (s *aiService) Translate(userId string, req aireq.TranslateRequest) (*airsp
 	systemPrompt := "你是翻译助手。只输出 JSON，格式：{\"detected_lang\":\"xx\",\"translated_text\":\"...\"}。不要输出额外文字。"
 	userPrompt := fmt.Sprintf("原文：%s\n源语言：%s（若为空请自动识别）\n目标语言：%s\n要求：保持人名、群名和术语不被误译。", text, sourceLang, targetLang)
 
-	ctx, cancel := context.WithTimeout(context.Background(), aiRequestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), constants.AIRequestTimeout)
 	defer cancel()
 
 	// 调用 Eino 客户端执行翻译：
@@ -217,14 +210,14 @@ func (s *aiService) Translate(userId string, req aireq.TranslateRequest) (*airsp
 	return &rsp, nil
 }
 
-func (s *aiService) ensureClientReady() error {
+func (s *AiService) ensureClientReady() error {
 	if s.client == nil {
 		return errorx.New(errorx.CodeServerBusy, "AI 服务未配置，请先设置 MODELSCOPE_API_KEY")
 	}
 	return nil
 }
 
-func (s *aiService) buildConversationContext(userId, targetId string, limit int) (string, error) {
+func (s *AiService) buildConversationContext(userId, targetId string, limit int) (string, error) {
 	if strings.HasPrefix(targetId, "G") {
 		if _, err := s.repos.Session.FindBySendIdAndReceiveId(userId, targetId); err != nil {
 			if errorx.IsNotFound(err) {
@@ -268,7 +261,7 @@ func (s *aiService) buildConversationContext(userId, targetId string, limit int)
 	return s.messagesToContext(result.Messages), nil
 }
 
-func (s *aiService) messagesToContext(messages []model.Message) string {
+func (s *AiService) messagesToContext(messages []model.Message) string {
 	if len(messages) == 0 {
 		return ""
 	}

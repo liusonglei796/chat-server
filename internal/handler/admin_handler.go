@@ -5,17 +5,18 @@ import (
 
 	adminreq "kama_chat_server/internal/dto/request/admin"
 	"kama_chat_server/internal/dto/request/friendship"
-	"kama_chat_server/internal/service"
+	admingroup "kama_chat_server/internal/service/admin/group"
+	adminuser "kama_chat_server/internal/service/admin/user"
 )
 
 // AdminHandler 后台管理请求处理器
 type AdminHandler struct {
-	userAdminSvc  service.UserAdminService
-	groupAdminSvc service.GroupAdminService
+	userAdminSvc  *adminuser.UserAdminService
+	groupAdminSvc *admingroup.GroupAdminService
 }
 
 // NewAdminHandler 创建后台管理处理器实例
-func NewAdminHandler(userAdminSvc service.UserAdminService, groupAdminSvc service.GroupAdminService) *AdminHandler {
+func NewAdminHandler(userAdminSvc *adminuser.UserAdminService, groupAdminSvc *admingroup.GroupAdminService) *AdminHandler {
 	return &AdminHandler{
 		userAdminSvc:  userAdminSvc,
 		groupAdminSvc: groupAdminSvc,

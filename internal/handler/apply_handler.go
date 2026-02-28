@@ -4,7 +4,7 @@ package handler
 
 import (
 	"kama_chat_server/internal/dto/request/apply"
-	"kama_chat_server/internal/service"
+	applysvc "kama_chat_server/internal/service/apply"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
@@ -12,11 +12,11 @@ import (
 
 // ApplyHandler 申请请求处理器
 type ApplyHandler struct {
-	applySvc service.ApplyService
+	applySvc *applysvc.ApplyService
 }
 
 // NewApplyHandler 创建申请处理器实例
-func NewApplyHandler(applySvc service.ApplyService) *ApplyHandler {
+func NewApplyHandler(applySvc *applysvc.ApplyService) *ApplyHandler {
 	return &ApplyHandler{applySvc: applySvc}
 }
 

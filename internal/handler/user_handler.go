@@ -5,7 +5,7 @@ package handler
 import (
 	"kama_chat_server/internal/dto/request/auth"
 	"kama_chat_server/internal/dto/request/user"
-	"kama_chat_server/internal/service"
+	usersvc "kama_chat_server/internal/service/user"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
@@ -14,12 +14,12 @@ import (
 // UserHandler 用户请求处理器
 // 通过构造函数注入 UserService，遵循依赖倒置原则
 type UserHandler struct {
-	userSvc service.UserService
+	userSvc *usersvc.UserService
 }
 
 // NewUserHandler 创建用户处理器实例
-// userSvc: 用户服务接口
-func NewUserHandler(userSvc service.UserService) *UserHandler {
+// userSvc: 用户服务
+func NewUserHandler(userSvc *usersvc.UserService) *UserHandler {
 	return &UserHandler{userSvc: userSvc}
 }
 

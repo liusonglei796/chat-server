@@ -5,7 +5,7 @@ package handler
 import (
 	"kama_chat_server/internal/dto/request/friendship"
 	"kama_chat_server/internal/dto/request/session"
-	"kama_chat_server/internal/service"
+	sessionsvc "kama_chat_server/internal/service/session"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
@@ -14,12 +14,12 @@ import (
 // SessionHandler 会话请求处理器
 // 通过构造函数注入 SessionService，遵循依赖倒置原则
 type SessionHandler struct {
-	sessionSvc service.SessionService
+	sessionSvc *sessionsvc.SessionService
 }
 
 // NewSessionHandler 创建会话处理器实例
-// sessionSvc: 会话服务接口
-func NewSessionHandler(sessionSvc service.SessionService) *SessionHandler {
+// sessionSvc: 会话服务
+func NewSessionHandler(sessionSvc *sessionsvc.SessionService) *SessionHandler {
 	return &SessionHandler{sessionSvc: sessionSvc}
 }
 
