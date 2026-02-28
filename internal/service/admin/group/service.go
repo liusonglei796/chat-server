@@ -6,10 +6,10 @@ import (
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/dao/mysql"
-	myredis "kama_chat_server/internal/dao/redis"
-	cacheutil "kama_chat_server/internal/dao/redis/cache"
 	adminreq "kama_chat_server/internal/dto/request/admin"
 	adminrsp "kama_chat_server/internal/dto/respond/admin"
+	cacheutil "kama_chat_server/internal/infrastructure/cache"
+	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/group/group_status"
 	"kama_chat_server/pkg/errorx"
@@ -19,12 +19,12 @@ import (
 // 处理群组列表、批量删除、状态管理等管理员功能
 type GroupAdminService struct {
 	repos       *mysql.Repositories
-	cache       myredis.AsyncCacheService
+	cache       redisinterface.AsyncCacheService
 	cacheHelper *cacheutil.Helper
 }
 
 // NewGroupAdminService 构造函数
-func NewGroupAdminService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *GroupAdminService {
+func NewGroupAdminService(repos *mysql.Repositories, cacheService redisinterface.AsyncCacheService) *GroupAdminService {
 	return &GroupAdminService{
 		repos:       repos,
 		cache:       cacheService,
@@ -33,8 +33,8 @@ func NewGroupAdminService(repos *mysql.Repositories, cacheService myredis.AsyncC
 }
 
 // GetGroupInfoList 分页获取群组列表
-func (s *GroupAdminService) GetGroupInfoList(req adminreq.GetGroupInfoListRequest) (*adminrsp.GetGroupListWrapper, error) {
-	groupList, total, err := s.repos.Group.GetGroupList(req.Page, req.PageSize)
+func (s *GroupAdminService) GetGroupInfoList(ctx context.Context, req adminreq.GetGroupInfoListRequest) (*adminrsp.GetGroupListWrapper, error) {
+	groupList, total, err := s.repos.Group.GetGroupList(ctx, req.Page, req.PageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -59,7 +59,7 @@ func (s *GroupAdminService) GetGroupInfoList(req adminreq.GetGroupInfoListReques
 }
 
 // DeleteGroups 批量删除群组
-func (s *GroupAdminService) DeleteGroups(groupUUIDs []string) error {
+func (s *GroupAdminService) DeleteGroups(ctx context.Context, groupUUIDs []string) error {
 	if len(groupUUIDs) == 0 {
 		return nil
 	}
@@ -67,25 +67,25 @@ func (s *GroupAdminService) DeleteGroups(groupUUIDs []string) error {
 	// 1. 事务执行删除操作
 	err := s.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 删除群成员
-		if err := txRepos.GroupMember.DeleteByGroupUuids(groupUUIDs); err != nil {
+		if err := txRepos.GroupMember.DeleteByGroupUuids(ctx, groupUUIDs); err != nil {
 			zap.L().Error("Batch delete group members error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		// 软删除群组
-		if err := txRepos.Group.SoftDeleteByUuids(groupUUIDs); err != nil {
+		if err := txRepos.Group.SoftDeleteByUuids(ctx, groupUUIDs); err != nil {
 			zap.L().Error("Batch soft delete groups error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		// 软删除相关会话
-		if err := txRepos.Session.SoftDeleteByUsers(groupUUIDs); err != nil {
+		if err := txRepos.Session.SoftDeleteByUsers(ctx, groupUUIDs); err != nil {
 			zap.L().Error("Batch soft delete sessions error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		// 软删除相关申请
-		if err := txRepos.Apply.SoftDeleteByUsers(groupUUIDs); err != nil {
+		if err := txRepos.Apply.SoftDeleteByUsers(ctx, groupUUIDs); err != nil {
 			zap.L().Error("Batch soft delete contact applies error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -115,7 +115,7 @@ func (s *GroupAdminService) DeleteGroups(groupUUIDs []string) error {
 }
 
 // SetGroupsStatus 批量设置群组状态
-func (s *GroupAdminService) SetGroupsStatus(groupUUIDs []string, status int8) error {
+func (s *GroupAdminService) SetGroupsStatus(ctx context.Context, groupUUIDs []string, status int8) error {
 	if len(groupUUIDs) == 0 {
 		return nil
 	}
@@ -123,11 +123,11 @@ func (s *GroupAdminService) SetGroupsStatus(groupUUIDs []string, status int8) er
 	if status == group_status.DISABLE {
 		// 禁用群组（事务：更新状态 + 删除会话）
 		err := s.repos.Transaction(func(txRepos *mysql.Repositories) error {
-			if err := txRepos.Group.UpdateStatusByUuids(groupUUIDs, status); err != nil {
+			if err := txRepos.Group.UpdateStatusByUuids(ctx, groupUUIDs, status); err != nil {
 				zap.L().Error("Batch update group status error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
-			if err := txRepos.Session.SoftDeleteByUsers(groupUUIDs); err != nil {
+			if err := txRepos.Session.SoftDeleteByUsers(ctx, groupUUIDs); err != nil {
 				zap.L().Error("Batch delete sessions error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
@@ -139,7 +139,7 @@ func (s *GroupAdminService) SetGroupsStatus(groupUUIDs []string, status int8) er
 		}
 	} else {
 		// 非禁用操作，直接更新状态
-		if err := s.repos.Group.UpdateStatusByUuids(groupUUIDs, status); err != nil {
+		if err := s.repos.Group.UpdateStatusByUuids(ctx, groupUUIDs, status); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}

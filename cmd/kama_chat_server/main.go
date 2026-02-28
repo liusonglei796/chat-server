@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -8,7 +9,7 @@ import (
 	"syscall"
 
 	"kama_chat_server/internal/config"
-	mysqldb "kama_chat_server/internal/dao/mysql"
+	mysqlimpl "kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/https_server"
@@ -16,6 +17,7 @@ import (
 	"kama_chat_server/internal/infrastructure/sms"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/internal/service/chat"
+	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/pkg/jwt"
 
 	"go.uber.org/zap"
@@ -32,11 +34,12 @@ func main() {
 	zap.L().Info("日志初始化成功")
 
 	// 3. 初始化数据库
-	repos := mysqldb.Init()
+	repos := mysqlimpl.Init()
 	zap.L().Info("数据库初始化成功")
 
 	// 4. 初始化 Redis
 	cacheService := myredis.Init()
+	var cachePort redisinterface.AsyncCacheService = cacheService
 	zap.L().Info("Redis 初始化成功")
 
 	// 5. 初始化 JWT
@@ -50,7 +53,7 @@ func main() {
 	zap.L().Info("Validator 国际化初始化成功")
 
 	// 7. 初始化 SMS Service (依赖注入缓存服务)
-	smsService, err := sms.Init(cacheService)
+	smsService, err := sms.Init(cachePort)
 	if err != nil {
 		zap.L().Fatal("SMS Service 初始化失败", zap.Error(err))
 	}
@@ -63,14 +66,14 @@ func main() {
 		FriendshipRepo:  repos.Friendship,
 		GroupMemberRepo: repos.GroupMember,
 		SessionRepo:     repos.Session,
-		CacheService:    cacheService,
+		CacheService:    cachePort,
 		UserRepo:        repos.User, // 新增：用户仓库，用于检查用户状态
 	})
 	chatServer.InitKafka()
 	zap.L().Info("ChatServer 初始化成功")
 
 	// 8. 初始化 Service 层 (依赖注入，传入 kickClient 和 pushRecallNotify 回调)
-	services := service.NewServices(repos, cacheService, smsService, chatServer.GetBroker().KickClient, chatServer.GetBroker().PushRecallNotify, conf)
+	services := service.NewServices(repos, cachePort, smsService, chatServer.GetBroker().KickClient, chatServer.GetBroker().PushRecallNotify, conf)
 	zap.L().Info("Service 层初始化成功")
 
 	// 9. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 broker)
@@ -78,7 +81,11 @@ func main() {
 	zap.L().Info("Handler 层初始化成功")
 
 	// 10. 初始化 HTTPS 服务器 (传入 handlers 和管理员校验回调进行依赖注入)
-	engine := https_server.Init(handlers, services.Auth.GetUserIsAdmin, cacheService)
+	// 创建适配器：将 context.Context 版本的 GetUserIsAdmin 适配为 AdminAuthChecker 接口
+	adminChecker := func(userId string) (bool, error) {
+		return services.Auth.GetUserIsAdmin(context.Background(), userId)
+	}
+	engine := https_server.Init(handlers, adminChecker, cachePort)
 	zap.L().Info("HTTPS 服务器初始化成功")
 
 	// 11. 启动服务

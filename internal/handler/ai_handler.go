@@ -23,6 +23,7 @@ func NewAIHandler(aiSvc *aisvc.AiService) *AIHandler {
 // ReplySuggestions 智能回复建议
 // POST /ai/reply-suggestions
 func (h *AIHandler) ReplySuggestions(c *gin.Context) {
+	ctx := c.Request.Context()
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -35,7 +36,7 @@ func (h *AIHandler) ReplySuggestions(c *gin.Context) {
 		return
 	}
 
-	rsp, err := h.aiSvc.ReplySuggestions(userId.(string), req)
+	rsp, err := h.aiSvc.ReplySuggestions(ctx, userId.(string), req)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -46,6 +47,7 @@ func (h *AIHandler) ReplySuggestions(c *gin.Context) {
 // GroupSummary 群聊总结
 // POST /ai/group-summary
 func (h *AIHandler) GroupSummary(c *gin.Context) {
+	ctx := c.Request.Context()
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -58,7 +60,7 @@ func (h *AIHandler) GroupSummary(c *gin.Context) {
 		return
 	}
 
-	rsp, err := h.aiSvc.GroupSummary(userId.(string), req)
+	rsp, err := h.aiSvc.GroupSummary(ctx, userId.(string), req)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -69,6 +71,7 @@ func (h *AIHandler) GroupSummary(c *gin.Context) {
 // Translate 多语言翻译
 // POST /ai/translate
 func (h *AIHandler) Translate(c *gin.Context) {
+	ctx := c.Request.Context()
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -81,7 +84,7 @@ func (h *AIHandler) Translate(c *gin.Context) {
 		return
 	}
 
-	rsp, err := h.aiSvc.Translate(userId.(string), req)
+	rsp, err := h.aiSvc.Translate(ctx, userId.(string), req)
 	if err != nil {
 		HandleError(c, err)
 		return

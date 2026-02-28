@@ -30,6 +30,8 @@ func NewFriendshipHandler(friendshipSvc *friendshipsvc.FriendshipService, groupS
 // 从JWT上下文获取当前用户ID
 // 响应: map[string]interface{} (list, total, page, page_size)
 func (h *FriendshipHandler) GetFriendList(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -52,7 +54,7 @@ func (h *FriendshipHandler) GetFriendList(c *gin.Context) {
 		pageSize = 20
 	}
 
-	data, total, err := h.friendshipSvc.GetFriendList(userId.(string), page, pageSize)
+	data, total, err := h.friendshipSvc.GetFriendList(ctx, userId.(string), page, pageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -70,6 +72,8 @@ func (h *FriendshipHandler) GetFriendList(c *gin.Context) {
 // 从JWT上下文获取当前用户ID
 // 响应: map[string]interface{} (list, total, page, page_size)
 func (h *FriendshipHandler) LoadMyJoinedGroup(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -93,7 +97,7 @@ func (h *FriendshipHandler) LoadMyJoinedGroup(c *gin.Context) {
 	}
 
 	// 通过 GroupService 查询（基于 GroupMember 表）
-	data, total, err := h.groupSvc.GetGroupListByMember(userId.(string), page, pageSize)
+	data, total, err := h.groupSvc.GetGroupListByMember(ctx, userId.(string), page, pageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -112,6 +116,8 @@ func (h *FriendshipHandler) LoadMyJoinedGroup(c *gin.Context) {
 // 响应: friendshiprsp.FriendInfoRespond
 // 安全: 从JWT上下文获取当前用户ID，校验好友关系
 func (h *FriendshipHandler) GetFriendInfo(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -123,7 +129,7 @@ func (h *FriendshipHandler) GetFriendInfo(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.friendshipSvc.GetFriendInfo(userId.(string), req.FriendId)
+	data, err := h.friendshipSvc.GetFriendInfo(ctx, userId.(string), req.FriendId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -137,6 +143,8 @@ func (h *FriendshipHandler) GetFriendInfo(c *gin.Context) {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
 func (h *FriendshipHandler) DeleteFriend(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -156,7 +164,7 @@ func (h *FriendshipHandler) DeleteFriend(c *gin.Context) {
 
 	// 批量删除：遍历所有好友
 	for _, uuid := range req.UuidList {
-		if err := h.friendshipSvc.DeleteFriend(userId.(string), uuid); err != nil {
+		if err := h.friendshipSvc.DeleteFriend(ctx, userId.(string), uuid); err != nil {
 			HandleError(c, err)
 			return
 		}
@@ -170,6 +178,8 @@ func (h *FriendshipHandler) DeleteFriend(c *gin.Context) {
 // 请求体: friendship.BlockFriendRequest
 // 响应: nil
 func (h *FriendshipHandler) BlockFriend(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -182,7 +192,7 @@ func (h *FriendshipHandler) BlockFriend(c *gin.Context) {
 		return
 	}
 
-	if err := h.friendshipSvc.BlackFriend(userId.(string), req.FriendId); err != nil {
+	if err := h.friendshipSvc.BlackFriend(ctx, userId.(string), req.FriendId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -195,6 +205,8 @@ func (h *FriendshipHandler) BlockFriend(c *gin.Context) {
 // 请求体: friendship.BlockFriendRequest
 // 响应: nil
 func (h *FriendshipHandler) UnblockFriend(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -207,7 +219,7 @@ func (h *FriendshipHandler) UnblockFriend(c *gin.Context) {
 		return
 	}
 
-	if err := h.friendshipSvc.UnblackFriend(userId.(string), req.FriendId); err != nil {
+	if err := h.friendshipSvc.UnblackFriend(ctx, userId.(string), req.FriendId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -221,6 +233,8 @@ func (h *FriendshipHandler) UnblockFriend(c *gin.Context) {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验好友关系
 func (h *FriendshipHandler) UpdateRemark(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -233,7 +247,7 @@ func (h *FriendshipHandler) UpdateRemark(c *gin.Context) {
 		return
 	}
 
-	if err := h.friendshipSvc.UpdateRemark(userId.(string), req.FriendId, req.Remark); err != nil {
+	if err := h.friendshipSvc.UpdateRemark(ctx, userId.(string), req.FriendId, req.Remark); err != nil {
 		HandleError(c, err)
 		return
 	}

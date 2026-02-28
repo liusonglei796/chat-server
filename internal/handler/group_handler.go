@@ -29,6 +29,8 @@ func NewGroupHandler(groupSvc *groupsvc.GroupService) *GroupHandler {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID作为群主
 func (h *GroupHandler) CreateGroup(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	ownerId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -40,7 +42,7 @@ func (h *GroupHandler) CreateGroup(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.groupSvc.CreateGroup(ownerId.(string), req); err != nil {
+	if err := h.groupSvc.CreateGroup(ctx, ownerId.(string), req); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -52,6 +54,8 @@ func (h *GroupHandler) CreateGroup(c *gin.Context) {
 // 从JWT上下文获取当前用户ID
 // 响应: map[string]interface{} (list, total, page, page_size)
 func (h *GroupHandler) LoadMyGroup(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	// 从JWT中间件获取当前用户ID
 	userId, exists := c.Get("user_id")
 	if !exists {
@@ -73,7 +77,7 @@ func (h *GroupHandler) LoadMyGroup(c *gin.Context) {
 		}
 	}
 
-	data, total, err := h.groupSvc.LoadMyGroup(userId.(string), page, pageSize)
+	data, total, err := h.groupSvc.LoadMyGroup(ctx, userId.(string), page, pageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -91,12 +95,14 @@ func (h *GroupHandler) LoadMyGroup(c *gin.Context) {
 // 查询参数: group.CheckGroupAddModeRequest
 // 响应: int8 (0=直接加入, 1=需要审核)
 func (h *GroupHandler) CheckGroupAddMode(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	var req group.CheckGroupAddModeRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	addMode, err := h.groupSvc.CheckGroupAddMode(req.GroupId)
+	addMode, err := h.groupSvc.CheckGroupAddMode(ctx, req.GroupId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -110,6 +116,8 @@ func (h *GroupHandler) CheckGroupAddMode(c *gin.Context) {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
 func (h *GroupHandler) LeaveGroup(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -121,7 +129,7 @@ func (h *GroupHandler) LeaveGroup(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.groupSvc.LeaveGroup(userId.(string), req.GroupId); err != nil {
+	if err := h.groupSvc.LeaveGroup(ctx, userId.(string), req.GroupId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -134,6 +142,8 @@ func (h *GroupHandler) LeaveGroup(c *gin.Context) {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验群主权限
 func (h *GroupHandler) DismissGroup(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	operatorId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -145,7 +155,7 @@ func (h *GroupHandler) DismissGroup(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.groupSvc.DismissGroup(operatorId.(string), req.GroupId); err != nil {
+	if err := h.groupSvc.DismissGroup(ctx, operatorId.(string), req.GroupId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -158,6 +168,8 @@ func (h *GroupHandler) DismissGroup(c *gin.Context) {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验管理员权限
 func (h *GroupHandler) UpdateGroupInfo(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	operatorId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -169,7 +181,7 @@ func (h *GroupHandler) UpdateGroupInfo(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.groupSvc.UpdateGroupInfo(operatorId.(string), req); err != nil {
+	if err := h.groupSvc.UpdateGroupInfo(ctx, operatorId.(string), req); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -182,6 +194,8 @@ func (h *GroupHandler) UpdateGroupInfo(c *gin.Context) {
 // 响应: map[string]interface{} (list, total, page, page_size)
 // 安全: 从JWT上下文获取当前用户ID，Service层校验成员身份
 func (h *GroupHandler) GetGroupMemberList(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -204,7 +218,7 @@ func (h *GroupHandler) GetGroupMemberList(c *gin.Context) {
 		pageSize = 20
 	}
 
-	data, total, err := h.groupSvc.GetGroupMemberList(userId.(string), req.GroupId, page, pageSize)
+	data, total, err := h.groupSvc.GetGroupMemberList(ctx, userId.(string), req.GroupId, page, pageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -223,6 +237,8 @@ func (h *GroupHandler) GetGroupMemberList(c *gin.Context) {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验管理员权限
 func (h *GroupHandler) RemoveGroupMembers(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	operatorId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -234,7 +250,7 @@ func (h *GroupHandler) RemoveGroupMembers(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.groupSvc.RemoveGroupMembers(operatorId.(string), req); err != nil {
+	if err := h.groupSvc.RemoveGroupMembers(ctx, operatorId.(string), req); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -247,6 +263,8 @@ func (h *GroupHandler) RemoveGroupMembers(c *gin.Context) {
 // 响应: grouprsp.PublicGroupInfoRespond
 // 安全: 从JWT上下文获取当前用户ID，Service层校验群成员身份
 func (h *GroupHandler) GetGroupDetail(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -258,7 +276,7 @@ func (h *GroupHandler) GetGroupDetail(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.groupSvc.GetGroupDetail(userId.(string), req.GroupId)
+	data, err := h.groupSvc.GetGroupDetail(ctx, userId.(string), req.GroupId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -272,6 +290,8 @@ func (h *GroupHandler) GetGroupDetail(c *gin.Context) {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验管理员权限
 func (h *GroupHandler) MuteMember(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	operatorId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -284,7 +304,7 @@ func (h *GroupHandler) MuteMember(c *gin.Context) {
 		return
 	}
 
-	if err := h.groupSvc.MuteMember(operatorId.(string), req); err != nil {
+	if err := h.groupSvc.MuteMember(ctx, operatorId.(string), req); err != nil {
 		HandleError(c, err)
 		return
 	}

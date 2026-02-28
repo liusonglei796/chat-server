@@ -3,14 +3,13 @@
 package middleware
 
 import (
-	"context"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	myredis "kama_chat_server/internal/dao/redis"
+	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/pkg/errorx"
 )
 
@@ -24,7 +23,7 @@ type RateLimitKeyFunc func(c *gin.Context) string
 // keyFunc: 从请求中提取限流标识的函数
 // maxRequests: 窗口内允许的最大请求数
 // window: 窗口时间长度
-func RateLimit(cache myredis.CacheService, keyPrefix string, keyFunc RateLimitKeyFunc, maxRequests int64, window time.Duration) gin.HandlerFunc {
+func RateLimit(cache redisinterface.CacheService, keyPrefix string, keyFunc RateLimitKeyFunc, maxRequests int64, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		identifier := keyFunc(c)
 		if identifier == "" {
@@ -33,7 +32,7 @@ func RateLimit(cache myredis.CacheService, keyPrefix string, keyFunc RateLimitKe
 		}
 
 		key := keyPrefix + identifier
-		ctx := context.Background()
+		ctx := c.Request.Context()
 
 		// 原子递增
 		count, err := cache.Incr(ctx, key)

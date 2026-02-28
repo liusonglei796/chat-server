@@ -27,6 +27,7 @@ func NewAuthHandler(authSvc *authsvc.Service) *AuthHandler {
 // POST /auth/refresh
 // 请求体: auth.RefreshTokenRequest
 // 响应: { access_token: string }
+//
 // 功能:
 //   - 验证 Refresh Token 是否有效
 //   - 验证 Token ID 是否与 Redis 中存储的一致（单点互踢）
@@ -37,6 +38,8 @@ func NewAuthHandler(authSvc *authsvc.Service) *AuthHandler {
 //   - 如果用户在其他设备登录，会覆盖旧的 Token ID
 //   - 使用旧 Token ID 刷新时会被拒绝
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	var req auth.RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
@@ -56,7 +59,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	}
 
 	// 3. 通过 Service 层验证 Token ID，实现单点互踢（遵循依赖倒置原则）
-	valid, err := h.authSvc.ValidateTokenID(claims.UserID, claims.TokenID)
+	valid, err := h.authSvc.ValidateTokenID(ctx, claims.UserID, claims.TokenID)
 	if err != nil {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "登录状态已失效，请重新登录"))
 		return
@@ -69,7 +72,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	}
 
 	// 5. 获取用户最新的管理员状态（确保权限变更能及时生效）
-	isAdmin, err := h.authSvc.GetUserIsAdmin(claims.UserID)
+	isAdmin, err := h.authSvc.GetUserIsAdmin(ctx, claims.UserID)
 	if err != nil {
 		HandleError(c, err)
 		return

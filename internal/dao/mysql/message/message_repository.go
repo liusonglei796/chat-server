@@ -3,6 +3,7 @@
 package message
 
 import (
+	"context"
 	"strconv"
 	"time"
 
@@ -31,7 +32,7 @@ func NewMessageRepository(db *gorm.DB) *messageRepository {
 // page: 页码（从1开始）
 // pageSize: 每页数量
 // 返回: 消息列表、总数和错误
-func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, page, pageSize int) ([]model.Message, int64, error) {
+func (r *messageRepository) FindByUserIdsPaged(ctx context.Context, userOneId, userTwoId string, page, pageSize int) ([]model.Message, int64, error) {
 	var messages []model.Message
 	var total int64
 
@@ -46,7 +47,7 @@ func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, page
 	condition := "(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)"
 
 	// 统计总数
-	if err := r.db.Model(&model.Message{}).Where(condition,
+	if err := r.db.WithContext(ctx).Model(&model.Message{}).Where(condition,
 		userOneId, userTwoId, userTwoId, userOneId).Count(&total).Error; err != nil {
 		return nil, 0, dberr.WrapDBErrorf(err, "统计私聊消息数量 user1=%s user2=%s", userOneId, userTwoId)
 	}
@@ -54,7 +55,7 @@ func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, page
 	// 计算偏移量
 	offset := (page - 1) * pageSize
 	// 使用 OR 条件查找双向消息，按时间倒序排列（最新的在前）
-	if err := r.db.Where(condition,
+	if err := r.db.WithContext(ctx).Where(condition,
 		userOneId, userTwoId, userTwoId, userOneId).
 		Order("created_at DESC").
 		Offset(offset).
@@ -70,7 +71,7 @@ func (r *messageRepository) FindByUserIdsPaged(userOneId, userTwoId string, page
 // page: 页码（从1开始）
 // pageSize: 每页数量
 // 返回: 消息列表、总数和错误
-func (r *messageRepository) FindByGroupIdPaged(receiveId string, page, pageSize int) ([]model.Message, int64, error) {
+func (r *messageRepository) FindByGroupIdPaged(ctx context.Context, receiveId string, page, pageSize int) ([]model.Message, int64, error) {
 	var messages []model.Message
 	var total int64
 
@@ -83,13 +84,13 @@ func (r *messageRepository) FindByGroupIdPaged(receiveId string, page, pageSize 
 	}
 
 	// 统计总数
-	if err := r.db.Model(&model.Message{}).Where("receive_id = ?", receiveId).Count(&total).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&model.Message{}).Where("receive_id = ?", receiveId).Count(&total).Error; err != nil {
 		return nil, 0, dberr.WrapDBErrorf(err, "统计群消息数量 receive_id=%s", receiveId)
 	}
 
 	// 计算偏移量并分页查询，按时间倒序（最新的在前）
 	offset := (page - 1) * pageSize
-	if err := r.db.Where("receive_id = ?", receiveId).
+	if err := r.db.WithContext(ctx).Where("receive_id = ?", receiveId).
 		Order("created_at DESC").
 		Offset(offset).
 		Limit(pageSize).
@@ -103,8 +104,8 @@ func (r *messageRepository) FindByGroupIdPaged(receiveId string, page, pageSize 
 // uuid: 消息唯一标识
 // status: 新状态值
 // 返回: 操作错误
-func (r *messageRepository) UpdateStatus(uuid string, status int8) error {
-	if err := r.db.Model(&model.Message{}).Where("uuid = ?", uuid).Update("status", status).Error; err != nil {
+func (r *messageRepository) UpdateStatus(ctx context.Context, uuid string, status int8) error {
+	if err := r.db.WithContext(ctx).Model(&model.Message{}).Where("uuid = ?", uuid).Update("status", status).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "更新消息状态 uuid=%s", uuid)
 	}
 	return nil
@@ -113,8 +114,8 @@ func (r *messageRepository) UpdateStatus(uuid string, status int8) error {
 // Create 创建新消息
 // message: 消息结构体
 // 返回: 操作错误
-func (r *messageRepository) Create(message *model.Message) error {
-	if err := r.db.Create(message).Error; err != nil {
+func (r *messageRepository) Create(ctx context.Context, message *model.Message) error {
+	if err := r.db.WithContext(ctx).Create(message).Error; err != nil {
 		return dberr.WrapDBError(err, "创建消息")
 	}
 	return nil
@@ -123,9 +124,9 @@ func (r *messageRepository) Create(message *model.Message) error {
 // FindByUuid 根据消息UUID查找消息
 // uuid: 消息唯一标识
 // 返回: 消息实体和错误
-func (r *messageRepository) FindByUuid(uuid string) (*model.Message, error) {
+func (r *messageRepository) FindByUuid(ctx context.Context, uuid string) (*model.Message, error) {
 	var msg model.Message
-	if err := r.db.Where("uuid = ?", uuid).First(&msg).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("uuid = ?", uuid).First(&msg).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errorx.New(errorx.CodeNotFound, "消息不存在")
 		}
@@ -139,8 +140,8 @@ func (r *messageRepository) FindByUuid(uuid string) (*model.Message, error) {
 // content: 新内容
 // msgType: 新消息类型
 // 返回: 操作错误
-func (r *messageRepository) UpdateContent(uuid, content string, msgType int8) error {
-	if err := r.db.Model(&model.Message{}).Where("uuid = ?", uuid).
+func (r *messageRepository) UpdateContent(ctx context.Context, uuid, content string, msgType int8) error {
+	if err := r.db.WithContext(ctx).Model(&model.Message{}).Where("uuid = ?", uuid).
 		Updates(map[string]interface{}{
 			"content": content,
 			"type":    msgType,
@@ -155,7 +156,7 @@ func (r *messageRepository) UpdateContent(uuid, content string, msgType int8) er
 // cursor: 游标时间戳（上一页最后一条消息的 created_at Unix 时间戳）
 // pageSize: 每页数量
 // 返回: 消息列表、下一页游标、是否有更多数据、错误
-func (r *messageRepository) FindByUserIdsCursor(userOneId, userTwoId, cursor string, pageSize int) (*model.CursorPageMessageResult, error) {
+func (r *messageRepository) FindByUserIdsCursor(ctx context.Context, userOneId, userTwoId, cursor string, pageSize int) (*model.CursorPageMessageResult, error) {
 	var messages []model.Message
 
 	// 校验分页参数
@@ -166,7 +167,7 @@ func (r *messageRepository) FindByUserIdsCursor(userOneId, userTwoId, cursor str
 	condition := "(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)"
 
 	// 构建查询
-	query := r.db.Where(condition, userOneId, userTwoId, userTwoId, userOneId)
+	query := r.db.WithContext(ctx).Where(condition, userOneId, userTwoId, userTwoId, userOneId)
 
 	// 如果有游标，基于游标时间戳查询
 	if cursor != "" {
@@ -213,7 +214,7 @@ func (r *messageRepository) FindByUserIdsCursor(userOneId, userTwoId, cursor str
 // cursor: 游标时间戳（上一页最后一条消息的 created_at Unix 时间戳）
 // pageSize: 每页数量
 // 返回: 消息列表、下一页游标、是否有更多数据、错误
-func (r *messageRepository) FindByGroupIdCursor(receiveId, cursor string, pageSize int) (*model.CursorPageMessageResult, error) {
+func (r *messageRepository) FindByGroupIdCursor(ctx context.Context, receiveId, cursor string, pageSize int) (*model.CursorPageMessageResult, error) {
 	var messages []model.Message
 
 	// 校验分页参数
@@ -222,7 +223,7 @@ func (r *messageRepository) FindByGroupIdCursor(receiveId, cursor string, pageSi
 	}
 
 	// 构建查询
-	query := r.db.Where("receive_id = ?", receiveId)
+	query := r.db.WithContext(ctx).Where("receive_id = ?", receiveId)
 
 	// 如果有游标，基于游标时间戳查询
 	if cursor != "" {

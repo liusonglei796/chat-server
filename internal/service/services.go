@@ -4,7 +4,6 @@ package service
 import (
 	"kama_chat_server/internal/config"
 	"kama_chat_server/internal/dao/mysql"
-	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/infrastructure/sms"
 	admingroup "kama_chat_server/internal/service/admin/group"
 	adminuser "kama_chat_server/internal/service/admin/user"
@@ -14,6 +13,7 @@ import (
 	"kama_chat_server/internal/service/friendship"
 	"kama_chat_server/internal/service/group"
 	"kama_chat_server/internal/service/message"
+	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/internal/service/session"
 	"kama_chat_server/internal/service/user"
 )
@@ -38,7 +38,7 @@ type Services struct {
 // NewServices 创建并注入所有 Service 实例
 // kickClient: 可选的踢人回调函数，由 ChatServer.Broker.KickClient 提供
 // pushRecallNotify: 可选的撤回通知回调，由 ChatServer.Broker.PushRecallNotify 提供
-func NewServices(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string), pushRecallNotify func(messageUuid, receiveId string), cfg *config.Config) *Services {
+func NewServices(repos *mysql.Repositories, cacheService redisinterface.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string), pushRecallNotify func(messageUuid, receiveId string), cfg *config.Config) *Services {
 	sessionSvc := session.NewSessionService(repos, cacheService)
 	userSvc := user.NewUserService(repos, cacheService, smsService, kickClient)
 	groupSvc := group.NewGroupService(repos, cacheService)

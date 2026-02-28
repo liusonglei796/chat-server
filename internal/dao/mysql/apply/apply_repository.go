@@ -3,6 +3,7 @@
 package apply
 
 import (
+	"context"
 	"kama_chat_server/internal/dao/mysql/dberr"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/enum/apply/apply_status"
@@ -24,9 +25,9 @@ func NewApplyRepository(db *gorm.DB) *applyRepository {
 // 用于检查是否已存在申请记录
 // applicantId: 申请人 UUID
 // targetId: 目标 UUID（用户或群组）
-func (r *applyRepository) FindByApplicantIdAndTargetId(applicantId, targetId string) (*model.Apply, error) {
+func (r *applyRepository) FindByApplicantIdAndTargetId(ctx context.Context, applicantId, targetId string) (*model.Apply, error) {
 	var apply model.Apply
-	if err := r.db.Where("applicant_id = ? AND target_id = ?", applicantId, targetId).First(&apply).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("applicant_id = ? AND target_id = ?", applicantId, targetId).First(&apply).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "查询申请 applicant_id=%s target_id=%s", applicantId, targetId)
 	}
 	return &apply, nil
@@ -37,7 +38,7 @@ func (r *applyRepository) FindByApplicantIdAndTargetId(applicantId, targetId str
 // page: 页码（从1开始）
 // pageSize: 每页数量
 // 返回: 申请列表、总数、错误
-func (r *applyRepository) FindByTargetIdPendingPaged(targetId string, page, pageSize int) ([]model.Apply, int64, error) {
+func (r *applyRepository) FindByTargetIdPendingPaged(ctx context.Context, targetId string, page, pageSize int) ([]model.Apply, int64, error) {
 	var applies []model.Apply
 	var total int64
 
@@ -50,7 +51,7 @@ func (r *applyRepository) FindByTargetIdPendingPaged(targetId string, page, page
 	}
 
 	// 构建查询条件
-	query := r.db.Model(&model.Apply{}).Where("target_id = ? AND status = ?", targetId, apply_status.PENDING)
+	query := r.db.WithContext(ctx).Model(&model.Apply{}).Where("target_id = ? AND status = ?", targetId, apply_status.PENDING)
 
 	// 先统计总数
 	if err := query.Count(&total).Error; err != nil {
@@ -59,7 +60,7 @@ func (r *applyRepository) FindByTargetIdPendingPaged(targetId string, page, page
 
 	// 计算偏移量并分页查询，按申请时间倒序（最新的在前）
 	offset := (page - 1) * pageSize
-	if err := r.db.Where("target_id = ? AND status = ?", targetId, apply_status.PENDING).
+	if err := r.db.WithContext(ctx).Where("target_id = ? AND status = ?", targetId, apply_status.PENDING).
 		Order("last_apply_at DESC").
 		Offset(offset).
 		Limit(pageSize).
@@ -71,24 +72,24 @@ func (r *applyRepository) FindByTargetIdPendingPaged(targetId string, page, page
 }
 
 // CreateApply 创建新的申请记录
-func (r *applyRepository) CreateApply(apply *model.Apply) error {
-	if err := r.db.Create(apply).Error; err != nil {
+func (r *applyRepository) CreateApply(ctx context.Context, apply *model.Apply) error {
+	if err := r.db.WithContext(ctx).Create(apply).Error; err != nil {
 		return dberr.WrapDBError(err, "创建联系人申请")
 	}
 	return nil
 }
 
 // Update 更新申请记录（全字段更新）
-func (r *applyRepository) Update(apply *model.Apply) error {
-	if err := r.db.Save(apply).Error; err != nil {
+func (r *applyRepository) Update(ctx context.Context, apply *model.Apply) error {
+	if err := r.db.WithContext(ctx).Save(apply).Error; err != nil {
 		return dberr.WrapDBError(err, "更新联系人申请")
 	}
 	return nil
 }
 
 // SoftDelete 软删除申请记录
-func (r *applyRepository) SoftDelete(applicantId, targetId string) error {
-	if err := r.db.Where("applicant_id = ? AND target_id = ?", applicantId, targetId).Delete(&model.Apply{}).Error; err != nil {
+func (r *applyRepository) SoftDelete(ctx context.Context, applicantId, targetId string) error {
+	if err := r.db.WithContext(ctx).Where("applicant_id = ? AND target_id = ?", applicantId, targetId).Delete(&model.Apply{}).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "删除申请 applicant_id=%s target_id=%s", applicantId, targetId)
 	}
 	return nil
@@ -96,12 +97,12 @@ func (r *applyRepository) SoftDelete(applicantId, targetId string) error {
 
 // SoftDeleteByUsers 批量软删除指定用户的所有申请
 // 删除用户发出的和收到的所有申请
-func (r *applyRepository) SoftDeleteByUsers(userUuids []string) error {
+func (r *applyRepository) SoftDeleteByUsers(ctx context.Context, userUuids []string) error {
 	if len(userUuids) == 0 {
 		return nil
 	}
 	// 使用 OR 条件删除用户发出和收到的所有申请
-	if err := r.db.Where("applicant_id IN ? OR target_id IN ?", userUuids, userUuids).Delete(&model.Apply{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("applicant_id IN ? OR target_id IN ?", userUuids, userUuids).Delete(&model.Apply{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除联系人申请")
 	}
 	return nil

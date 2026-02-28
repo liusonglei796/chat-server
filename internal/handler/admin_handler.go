@@ -35,7 +35,8 @@ func (h *AdminHandler) GetUserListPaged(c *gin.Context) {
 		return
 	}
 
-	data, err := h.userAdminSvc.GetUserListPaged(req)
+	ctx := c.Request.Context()
+	data, err := h.userAdminSvc.GetUserListPaged(ctx, req)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -53,7 +54,8 @@ func (h *AdminHandler) BatchUpdateUserStatus(c *gin.Context) {
 		return
 	}
 
-	if err := h.userAdminSvc.BatchUpdateUserStatus(req); err != nil {
+	ctx := c.Request.Context()
+	if err := h.userAdminSvc.BatchUpdateUserStatus(ctx, req); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -70,7 +72,8 @@ func (h *AdminHandler) SetAdmin(c *gin.Context) {
 		return
 	}
 
-	if err := h.userAdminSvc.SetAdmin(req.UserUUIDs, req.IsAdmin); err != nil {
+	ctx := c.Request.Context()
+	if err := h.userAdminSvc.SetAdmin(ctx, req.UserUUIDs, req.IsAdmin); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -89,7 +92,8 @@ func (h *AdminHandler) GetGroupInfoList(c *gin.Context) {
 		return
 	}
 
-	data, err := h.groupAdminSvc.GetGroupInfoList(req)
+	ctx := c.Request.Context()
+	data, err := h.groupAdminSvc.GetGroupInfoList(ctx, req)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -107,7 +111,8 @@ func (h *AdminHandler) DeleteGroups(c *gin.Context) {
 		return
 	}
 
-	if err := h.groupAdminSvc.DeleteGroups(req.UuidList); err != nil {
+	ctx := c.Request.Context()
+	if err := h.groupAdminSvc.DeleteGroups(ctx, req.UuidList); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -135,7 +140,8 @@ func (h *AdminHandler) SetGroupsStatus(c *gin.Context) {
 		status = 0
 	}
 
-	if err := h.groupAdminSvc.SetGroupsStatus(req.GroupUUIDs, status); err != nil {
+	ctx := c.Request.Context()
+	if err := h.groupAdminSvc.SetGroupsStatus(ctx, req.GroupUUIDs, status); err != nil {
 		HandleError(c, err)
 		return
 	}

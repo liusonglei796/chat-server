@@ -26,6 +26,8 @@ func NewApplyHandler(applySvc *applysvc.ApplyService) *ApplyHandler {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
 func (h *ApplyHandler) ApplyFriend(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -37,7 +39,7 @@ func (h *ApplyHandler) ApplyFriend(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.applySvc.ApplyFriend(userId.(string), req); err != nil {
+	if err := h.applySvc.ApplyFriend(ctx, userId.(string), req); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -50,6 +52,8 @@ func (h *ApplyHandler) ApplyFriend(c *gin.Context) {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
 func (h *ApplyHandler) ApplyGroup(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -61,7 +65,7 @@ func (h *ApplyHandler) ApplyGroup(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.applySvc.ApplyGroup(userId.(string), req); err != nil {
+	if err := h.applySvc.ApplyGroup(ctx, userId.(string), req); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -73,6 +77,8 @@ func (h *ApplyHandler) ApplyGroup(c *gin.Context) {
 // 从JWT上下文获取当前用户ID
 // 响应: respond.PagedFriendApplyListRespond
 func (h *ApplyHandler) GetFriendApplyList(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -85,7 +91,7 @@ func (h *ApplyHandler) GetFriendApplyList(c *gin.Context) {
 		return
 	}
 
-	data, err := h.applySvc.GetFriendApplyList(userId.(string), req.Page, req.PageSize)
+	data, err := h.applySvc.GetFriendApplyList(ctx, userId.(string), req.Page, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -98,6 +104,8 @@ func (h *ApplyHandler) GetFriendApplyList(c *gin.Context) {
 // 查询参数: apply.GetGroupApplyListRequest
 // 响应: respond.PagedGroupApplyListRespond
 func (h *ApplyHandler) GetGroupApplyList(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -109,7 +117,7 @@ func (h *ApplyHandler) GetGroupApplyList(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.applySvc.GetGroupApplyList(userId.(string), req.GroupId, req.Page, req.PageSize)
+	data, err := h.applySvc.GetGroupApplyList(ctx, userId.(string), req.GroupId, req.Page, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -122,6 +130,8 @@ func (h *ApplyHandler) GetGroupApplyList(c *gin.Context) {
 // 请求体: apply.HandleFriendApplyRequest
 // 响应: nil
 func (h *ApplyHandler) PassFriendApply(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -133,7 +143,7 @@ func (h *ApplyHandler) PassFriendApply(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.applySvc.PassFriendApply(userId.(string), req.ApplicantId); err != nil {
+	if err := h.applySvc.PassFriendApply(ctx, userId.(string), req.ApplicantId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -146,6 +156,8 @@ func (h *ApplyHandler) PassFriendApply(c *gin.Context) {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验审批权限
 func (h *ApplyHandler) PassGroupApply(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	operatorId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -157,7 +169,7 @@ func (h *ApplyHandler) PassGroupApply(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.applySvc.PassGroupApply(operatorId.(string), req.GroupId, req.ApplicantId); err != nil {
+	if err := h.applySvc.PassGroupApply(ctx, operatorId.(string), req.GroupId, req.ApplicantId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -169,6 +181,8 @@ func (h *ApplyHandler) PassGroupApply(c *gin.Context) {
 // 请求体: apply.HandleFriendApplyRequest
 // 响应: nil
 func (h *ApplyHandler) RefuseFriendApply(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -181,7 +195,7 @@ func (h *ApplyHandler) RefuseFriendApply(c *gin.Context) {
 		return
 	}
 
-	if err := h.applySvc.RefuseFriendApply(userId.(string), req.ApplicantId); err != nil {
+	if err := h.applySvc.RefuseFriendApply(ctx, userId.(string), req.ApplicantId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -194,6 +208,8 @@ func (h *ApplyHandler) RefuseFriendApply(c *gin.Context) {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验审批权限
 func (h *ApplyHandler) RefuseGroupApply(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	operatorId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -205,7 +221,7 @@ func (h *ApplyHandler) RefuseGroupApply(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.applySvc.RefuseGroupApply(operatorId.(string), req.GroupId, req.ApplicantId); err != nil {
+	if err := h.applySvc.RefuseGroupApply(ctx, operatorId.(string), req.GroupId, req.ApplicantId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -217,6 +233,8 @@ func (h *ApplyHandler) RefuseGroupApply(c *gin.Context) {
 // 请求体: apply.HandleFriendApplyRequest
 // 响应: nil
 func (h *ApplyHandler) BlackFriendApply(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -228,7 +246,7 @@ func (h *ApplyHandler) BlackFriendApply(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.applySvc.BlackFriendApply(userId.(string), req.ApplicantId); err != nil {
+	if err := h.applySvc.BlackFriendApply(ctx, userId.(string), req.ApplicantId); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -240,6 +258,8 @@ func (h *ApplyHandler) BlackFriendApply(c *gin.Context) {
 // 请求体: apply.HandleGroupApplyRequest
 // 响应: nil
 func (h *ApplyHandler) BlackGroupApply(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -251,7 +271,7 @@ func (h *ApplyHandler) BlackGroupApply(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.applySvc.BlackGroupApply(userId.(string), req.GroupId, req.ApplicantId); err != nil {
+	if err := h.applySvc.BlackGroupApply(ctx, userId.(string), req.GroupId, req.ApplicantId); err != nil {
 		HandleError(c, err)
 		return
 	}

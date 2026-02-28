@@ -43,7 +43,7 @@ func NewAIService(repos *mysql.Repositories, cfg *config.Config) *AiService {
 }
 
 // ReplySuggestions 智能回复建议
-func (s *AiService) ReplySuggestions(userId string, req aireq.ReplySuggestionsRequest) (*airsp.ReplySuggestionsRespond, error) {
+func (s *AiService) ReplySuggestions(ctx context.Context, userId string, req aireq.ReplySuggestionsRequest) (*airsp.ReplySuggestionsRespond, error) {
 	if err := s.ensureClientReady(); err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (s *AiService) ReplySuggestions(userId string, req aireq.ReplySuggestionsRe
 		req.ContextLimit = constants.MaxReplyContextLimit
 	}
 
-	conversation, err := s.buildConversationContext(userId, targetId, req.ContextLimit)
+	conversation, err := s.buildConversationContext(ctx, userId, targetId, req.ContextLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -73,12 +73,12 @@ func (s *AiService) ReplySuggestions(userId string, req aireq.ReplySuggestionsRe
 	systemPrompt := "你是聊天助手，任务是给出3条可直接发送的中文回复建议。只输出 JSON，格式：{\"suggestions\":[\"...\",\"...\",\"...\"]}。不要输出额外文字。"
 	userPrompt := fmt.Sprintf("聊天上下文：\n%s\n\n用户草稿：%s\n风格：%s\n要求：每条回复不超过40字，语气自然，避免重复。", conversation, strings.TrimSpace(req.Draft), style)
 
-	ctx, cancel := context.WithTimeout(context.Background(), constants.AIRequestTimeout)
+	aiCtx, cancel := context.WithTimeout(ctx, constants.AIRequestTimeout)
 	defer cancel()
 
 	// 调用 Eino 客户端生成回复建议：
 	// systemPrompt 约束输出必须是 JSON；userPrompt 提供聊天上下文、草稿和风格。
-	out, err := s.client.Generate(ctx, systemPrompt, userPrompt)
+	out, err := s.client.Generate(aiCtx, systemPrompt, userPrompt)
 	if err != nil {
 		zap.L().Error("ai reply suggestions failed", zap.Error(err), zap.String("user_id", userId), zap.String("target_id", targetId))
 		return nil, errorx.ErrServerBusy
@@ -96,7 +96,7 @@ func (s *AiService) ReplySuggestions(userId string, req aireq.ReplySuggestionsRe
 }
 
 // GroupSummary 群聊总结
-func (s *AiService) GroupSummary(userId string, req aireq.GroupSummaryRequest) (*airsp.GroupSummaryRespond, error) {
+func (s *AiService) GroupSummary(ctx context.Context, userId string, req aireq.GroupSummaryRequest) (*airsp.GroupSummaryRespond, error) {
 	if err := s.ensureClientReady(); err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func (s *AiService) GroupSummary(userId string, req aireq.GroupSummaryRequest) (
 		req.Limit = constants.MaxSummaryLimit
 	}
 
-	if _, err := s.repos.GroupMember.FindByGroupAndUser(groupId, userId); err != nil {
+	if _, err := s.repos.GroupMember.FindByGroupAndUser(ctx, groupId, userId); err != nil {
 		if errorx.IsNotFound(err) {
 			return nil, errorx.New(errorx.CodeForbidden, "你不是该群成员")
 		}
@@ -128,7 +128,7 @@ func (s *AiService) GroupSummary(userId string, req aireq.GroupSummaryRequest) (
 		return nil, errorx.ErrServerBusy
 	}
 
-	result, err := s.repos.Message.FindByGroupIdCursor(groupId, "", req.Limit)
+	result, err := s.repos.Message.FindByGroupIdCursor(ctx, groupId, "", req.Limit)
 	if err != nil {
 		zap.L().Error("load group messages failed", zap.Error(err), zap.String("group_id", groupId))
 		return nil, errorx.ErrServerBusy
@@ -152,12 +152,12 @@ func (s *AiService) GroupSummary(userId string, req aireq.GroupSummaryRequest) (
 	systemPrompt := "你是群聊总结助手。只输出 JSON，格式：{\"summary\":\"...\",\"todos\":[\"...\"],\"decisions\":[\"...\"]}。不要输出额外文字。"
 	userPrompt := fmt.Sprintf("请对以下群聊内容做%s总结，提炼重点、待办和决策：\n%s", style, conversation)
 
-	ctx, cancel := context.WithTimeout(context.Background(), constants.AIRequestTimeout)
+	aiCtx, cancel := context.WithTimeout(ctx, constants.AIRequestTimeout)
 	defer cancel()
 
 	// 调用 Eino 客户端生成群聊总结：
 	// 模型返回 JSON（summary/todos/decisions），再由 parseGroupSummary 做结构化解析。
-	out, err := s.client.Generate(ctx, systemPrompt, userPrompt)
+	out, err := s.client.Generate(aiCtx, systemPrompt, userPrompt)
 	if err != nil {
 		zap.L().Error("ai group summary failed", zap.Error(err), zap.String("group_id", groupId), zap.String("user_id", userId))
 		return nil, errorx.ErrServerBusy
@@ -172,7 +172,7 @@ func (s *AiService) GroupSummary(userId string, req aireq.GroupSummaryRequest) (
 }
 
 // Translate 多语言翻译
-func (s *AiService) Translate(userId string, req aireq.TranslateRequest) (*airsp.TranslateRespond, error) {
+func (s *AiService) Translate(ctx context.Context, userId string, req aireq.TranslateRequest) (*airsp.TranslateRespond, error) {
 	if err := s.ensureClientReady(); err != nil {
 		return nil, err
 	}
@@ -191,12 +191,12 @@ func (s *AiService) Translate(userId string, req aireq.TranslateRequest) (*airsp
 	systemPrompt := "你是翻译助手。只输出 JSON，格式：{\"detected_lang\":\"xx\",\"translated_text\":\"...\"}。不要输出额外文字。"
 	userPrompt := fmt.Sprintf("原文：%s\n源语言：%s（若为空请自动识别）\n目标语言：%s\n要求：保持人名、群名和术语不被误译。", text, sourceLang, targetLang)
 
-	ctx, cancel := context.WithTimeout(context.Background(), constants.AIRequestTimeout)
+	aiCtx, cancel := context.WithTimeout(ctx, constants.AIRequestTimeout)
 	defer cancel()
 
 	// 调用 Eino 客户端执行翻译：
 	// 模型按约定返回 detected_lang 和 translated_text 两个字段。
-	out, err := s.client.Generate(ctx, systemPrompt, userPrompt)
+	out, err := s.client.Generate(aiCtx, systemPrompt, userPrompt)
 	if err != nil {
 		zap.L().Error("ai translate failed", zap.Error(err), zap.String("user_id", userId))
 		return nil, errorx.ErrServerBusy
@@ -217,9 +217,9 @@ func (s *AiService) ensureClientReady() error {
 	return nil
 }
 
-func (s *AiService) buildConversationContext(userId, targetId string, limit int) (string, error) {
+func (s *AiService) buildConversationContext(ctx context.Context, userId, targetId string, limit int) (string, error) {
 	if strings.HasPrefix(targetId, "G") {
-		if _, err := s.repos.Session.FindBySendIdAndReceiveId(userId, targetId); err != nil {
+		if _, err := s.repos.Session.FindBySendIdAndReceiveId(ctx, userId, targetId); err != nil {
 			if errorx.IsNotFound(err) {
 				return "", errorx.New(errorx.CodeForbidden, "你没有该群会话记录")
 			}
@@ -227,7 +227,7 @@ func (s *AiService) buildConversationContext(userId, targetId string, limit int)
 			return "", errorx.ErrServerBusy
 		}
 
-		result, err := s.repos.Message.FindByGroupIdCursor(targetId, "", limit)
+		result, err := s.repos.Message.FindByGroupIdCursor(ctx, targetId, "", limit)
 		if err != nil {
 			zap.L().Error("load group context failed", zap.Error(err), zap.String("group_id", targetId))
 			return "", errorx.ErrServerBusy
@@ -236,7 +236,7 @@ func (s *AiService) buildConversationContext(userId, targetId string, limit int)
 	}
 
 	if targetId != userId {
-		isFriend, err := s.repos.Friendship.IsFriend(userId, targetId)
+		isFriend, err := s.repos.Friendship.IsFriend(ctx, userId, targetId)
 		if err != nil {
 			zap.L().Error("check friend relationship failed", zap.Error(err), zap.String("user_id", userId), zap.String("target_id", targetId))
 			return "", errorx.ErrServerBusy
@@ -252,7 +252,7 @@ func (s *AiService) buildConversationContext(userId, targetId string, limit int)
 		userOneId, userTwoId = userTwoId, userOneId
 	}
 
-	result, err := s.repos.Message.FindByUserIdsCursor(userOneId, userTwoId, "", limit)
+	result, err := s.repos.Message.FindByUserIdsCursor(ctx, userOneId, userTwoId, "", limit)
 	if err != nil {
 		zap.L().Error("load private context failed", zap.Error(err), zap.String("user_one", userOneId), zap.String("user_two", userTwoId))
 		return "", errorx.ErrServerBusy

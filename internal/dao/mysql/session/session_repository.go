@@ -3,6 +3,7 @@
 package session
 
 import (
+	"context"
 	"strconv"
 	"time"
 
@@ -24,9 +25,9 @@ func NewSessionRepository(db *gorm.DB) *sessionRepository {
 }
 
 // FindByUuid 根据会话UUID查找会话
-func (r *sessionRepository) FindByUuid(uuid string) (*model.Session, error) {
+func (r *sessionRepository) FindByUuid(ctx context.Context, uuid string) (*model.Session, error) {
 	var session model.Session
-	if err := r.db.Where("uuid = ?", uuid).First(&session).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("uuid = ?", uuid).First(&session).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "查询会话 uuid=%s", uuid)
 	}
 	return &session, nil
@@ -34,9 +35,9 @@ func (r *sessionRepository) FindByUuid(uuid string) (*model.Session, error) {
 
 // FindBySendIdAndReceiveId 根据发送者和接收者查找会话
 // 用于查找两个实体之间是否已存在会话
-func (r *sessionRepository) FindBySendIdAndReceiveId(sendId, receiveId string) (*model.Session, error) {
+func (r *sessionRepository) FindBySendIdAndReceiveId(ctx context.Context, sendId, receiveId string) (*model.Session, error) {
 	var session model.Session
-	if err := r.db.Where("send_id = ? AND receive_id = ?", sendId, receiveId).First(&session).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("send_id = ? AND receive_id = ?", sendId, receiveId).First(&session).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "查询会话 send_id=%s receive_id=%s", sendId, receiveId)
 	}
 	return &session, nil
@@ -49,11 +50,11 @@ func (r *sessionRepository) FindBySendIdAndReceiveId(sendId, receiveId string) (
 //  1. 置顶会话优先显示（is_pinned = true 排在前面）
 //  2. 置顶会话内部按最后消息时间倒序
 //  3. 非置顶会话按最后消息时间倒序
-func (r *sessionRepository) FindBySendIdAndTypePaged(sendId string, receiveIdPrefix string, page, pageSize int) ([]model.Session, int64, error) {
+func (r *sessionRepository) FindBySendIdAndTypePaged(ctx context.Context, sendId string, receiveIdPrefix string, page, pageSize int) ([]model.Session, int64, error) {
 	var sessions []model.Session
 	var total int64
 
-	condition := r.db.Model(&model.Session{}).Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%")
+	condition := r.db.WithContext(ctx).Model(&model.Session{}).Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%")
 
 	// 统计总数
 	if err := condition.Count(&total).Error; err != nil {
@@ -62,7 +63,7 @@ func (r *sessionRepository) FindBySendIdAndTypePaged(sendId string, receiveIdPre
 
 	// 分页查询：先按置顶状态倒序，再按最后消息时间倒序
 	offset := (page - 1) * pageSize
-	if err := r.db.Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%").
+	if err := r.db.WithContext(ctx).Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%").
 		Order("is_pinned DESC, last_message_at DESC").
 		Offset(offset).
 		Limit(pageSize).
@@ -80,7 +81,7 @@ func (r *sessionRepository) FindBySendIdAndTypePaged(sendId string, receiveIdPre
 //  1. 置顶会话优先显示（is_pinned = true 排在前面）
 //  2. 置顶会话内部按最后消息时间倒序
 //  3. 非置顶会话按最后消息时间倒序
-func (r *sessionRepository) FindBySendIdAndTypeCursor(sendId string, receiveIdPrefix, cursor string, pageSize int) (*model.CursorPageSessionResult, error) {
+func (r *sessionRepository) FindBySendIdAndTypeCursor(ctx context.Context, sendId string, receiveIdPrefix, cursor string, pageSize int) (*model.CursorPageSessionResult, error) {
 	var sessions []model.Session
 
 	// 校验分页参数
@@ -89,7 +90,7 @@ func (r *sessionRepository) FindBySendIdAndTypeCursor(sendId string, receiveIdPr
 	}
 
 	// 构建查询
-	query := r.db.Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%")
+	query := r.db.WithContext(ctx).Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%")
 
 	// 如果有游标，基于游标时间戳查询
 	// 游标逻辑：查询 last_message_at < cursor 的数据
@@ -136,19 +137,19 @@ func (r *sessionRepository) FindBySendIdAndTypeCursor(sendId string, receiveIdPr
 }
 
 // CreateSession 创建会话
-func (r *sessionRepository) CreateSession(session *model.Session) error {
-	if err := r.db.Create(session).Error; err != nil {
+func (r *sessionRepository) CreateSession(ctx context.Context, session *model.Session) error {
+	if err := r.db.WithContext(ctx).Create(session).Error; err != nil {
 		return dberr.WrapDBError(err, "创建会话")
 	}
 	return nil
 }
 
 // SoftDeleteByUuids 批量软删除会话（按照会话ID）
-func (r *sessionRepository) SoftDeleteByUuids(uuids []string) error {
+func (r *sessionRepository) SoftDeleteByUuids(ctx context.Context, uuids []string) error {
 	if len(uuids) == 0 {
 		return nil
 	}
-	if err := r.db.Where("uuid IN ?", uuids).Delete(&model.Session{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("uuid IN ?", uuids).Delete(&model.Session{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除会话")
 	}
 	return nil
@@ -156,11 +157,11 @@ func (r *sessionRepository) SoftDeleteByUuids(uuids []string) error {
 
 // SoftDeleteByUsers 批量软删除指定用户的所有会话
 // 删除用户发起的和接收的所有会话
-func (r *sessionRepository) SoftDeleteByUsers(userUuids []string) error {
+func (r *sessionRepository) SoftDeleteByUsers(ctx context.Context, userUuids []string) error {
 	if len(userUuids) == 0 {
 		return nil
 	}
-	if err := r.db.Where("send_id IN ? OR receive_id IN ?", userUuids, userUuids).Delete(&model.Session{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("send_id IN ? OR receive_id IN ?", userUuids, userUuids).Delete(&model.Session{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除会话")
 	}
 	return nil
@@ -190,8 +191,8 @@ func (r *sessionRepository) SoftDeleteByUsers(userUuids []string) error {
 //	    "avatar": "https://example.com/new-avatar.jpg",
 //	}
 //	err := sessionRepo.UpdateByReceiveId("group-uuid", sessionUpdates)
-func (r *sessionRepository) UpdateByReceiveId(receiveId string, updates map[string]interface{}) error {
-	if err := r.db.Model(&model.Session{}).Where("receive_id = ?", receiveId).Updates(updates).Error; err != nil {
+func (r *sessionRepository) UpdateByReceiveId(ctx context.Context, receiveId string, updates map[string]interface{}) error {
+	if err := r.db.WithContext(ctx).Model(&model.Session{}).Where("receive_id = ?", receiveId).Updates(updates).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "批量更新会话 receive_id=%s", receiveId)
 	}
 	return nil
@@ -199,13 +200,13 @@ func (r *sessionRepository) UpdateByReceiveId(receiveId string, updates map[stri
 
 // UpdateLastMessage 更新会话的最后一条消息信息
 // 用于发送消息后同步更新会话列表显示的最新消息
-func (r *sessionRepository) UpdateLastMessage(sendId, receiveId, content string, msgType int8, msgTime time.Time) error {
+func (r *sessionRepository) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time) error {
 	updates := map[string]interface{}{
 		"last_message":      content,
 		"last_message_at":   msgTime,
 		"last_message_type": msgType,
 	}
-	if err := r.db.Model(&model.Session{}).
+	if err := r.db.WithContext(ctx).Model(&model.Session{}).
 		Where("send_id = ? AND receive_id = ?", sendId, receiveId).
 		Updates(updates).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "更新会话最后消息 send_id=%s receive_id=%s", sendId, receiveId)
@@ -214,8 +215,8 @@ func (r *sessionRepository) UpdateLastMessage(sendId, receiveId, content string,
 }
 
 // UpdatePinStatus 更新会话置顶状态
-func (r *sessionRepository) UpdatePinStatus(uuid string, isPinned bool) error {
-	if err := r.db.Model(&model.Session{}).Where("uuid = ?", uuid).
+func (r *sessionRepository) UpdatePinStatus(ctx context.Context, uuid string, isPinned bool) error {
+	if err := r.db.WithContext(ctx).Model(&model.Session{}).Where("uuid = ?", uuid).
 		Update("is_pinned", isPinned).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "更新会话置顶状态 uuid=%s", uuid)
 	}

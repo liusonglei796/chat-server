@@ -7,11 +7,11 @@ import (
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/dao/mysql"
-	myredis "kama_chat_server/internal/dao/redis"
-	cacheutil "kama_chat_server/internal/dao/redis/cache"
 	friendshiprsp "kama_chat_server/internal/dto/respond/friendship"
 	userrsp "kama_chat_server/internal/dto/respond/user"
+	cacheutil "kama_chat_server/internal/infrastructure/cache"
 	"kama_chat_server/internal/model"
+	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
 	"kama_chat_server/pkg/enum/user/user_status"
@@ -21,12 +21,12 @@ import (
 // FriendshipService 好友关系业务逻辑实现
 type FriendshipService struct {
 	repos       *mysql.Repositories
-	cache       myredis.AsyncCacheService
+	cache       redisinterface.AsyncCacheService
 	cacheHelper *cacheutil.Helper
 }
 
 // NewFriendshipService 构造函数，注入所有依赖
-func NewFriendshipService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *FriendshipService {
+func NewFriendshipService(repos *mysql.Repositories, cacheService redisinterface.AsyncCacheService) *FriendshipService {
 	return &FriendshipService{
 		repos:       repos,
 		cache:       cacheService,
@@ -61,7 +61,7 @@ func (s *FriendshipService) clearFriendRelationCache(userId, friendId string) {
 }
 
 // GetFriendList 获取好友列表（分页）
-func (s *FriendshipService) GetFriendList(userId string, page, pageSize int) ([]userrsp.MyUserListRespond, int64, error) {
+func (s *FriendshipService) GetFriendList(ctx context.Context, userId string, page, pageSize int) ([]userrsp.MyUserListRespond, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -70,7 +70,7 @@ func (s *FriendshipService) GetFriendList(userId string, page, pageSize int) ([]
 	}
 
 	// 从数据库分页查询好友关系
-	friendships, total, err := s.repos.Friendship.FindFriendsByUserId(userId, page, pageSize)
+	friendships, total, err := s.repos.Friendship.FindFriendsByUserId(ctx, userId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find friendship list error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -91,7 +91,7 @@ func (s *FriendshipService) GetFriendList(userId string, page, pageSize int) ([]
 			context.Background(),
 			cacheKey,
 			func() (interface{}, error) {
-				user, err := s.repos.User.FindByUuid(friendId)
+				user, err := s.repos.User.FindByUuid(ctx, friendId)
 				if err != nil {
 					return nil, err
 				}
@@ -116,12 +116,12 @@ func (s *FriendshipService) GetFriendList(userId string, page, pageSize int) ([]
 }
 
 // GetFriendInfo 获取好友详情 (userId 必须与 friendId 是好友关系)
-func (s *FriendshipService) GetFriendInfo(userId, friendId string) (friendshiprsp.FriendInfoRespond, error) {
+func (s *FriendshipService) GetFriendInfo(ctx context.Context, userId, friendId string) (friendshiprsp.FriendInfoRespond, error) {
 	if len(friendId) == 0 {
 		return friendshiprsp.FriendInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "好友ID不能为空")
 	}
 
-	isFriend, err := s.repos.Friendship.IsFriend(userId, friendId)
+	isFriend, err := s.repos.Friendship.IsFriend(ctx, userId, friendId)
 	if err != nil {
 		zap.L().Error("Check friend relationship error", zap.Error(err))
 		return friendshiprsp.FriendInfoRespond{}, errorx.ErrServerBusy
@@ -137,7 +137,7 @@ func (s *FriendshipService) GetFriendInfo(userId, friendId string) (friendshiprs
 		context.Background(),
 		cacheKey,
 		func() (interface{}, error) {
-			user, err := s.repos.User.FindByUuid(friendId)
+			user, err := s.repos.User.FindByUuid(ctx, friendId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeUserNotExist, "该用户不存在")
@@ -159,7 +159,7 @@ func (s *FriendshipService) GetFriendInfo(userId, friendId string) (friendshiprs
 
 	// 获取好友备注（从 Friendship 记录中获取）
 	var remark string
-	fs, err := s.repos.Friendship.FindByUserIdAndFriendId(userId, friendId)
+	fs, err := s.repos.Friendship.FindByUserIdAndFriendId(ctx, userId, friendId)
 	if err == nil {
 		remark = fs.Remark
 	}
@@ -178,12 +178,12 @@ func (s *FriendshipService) GetFriendInfo(userId, friendId string) (friendshiprs
 }
 
 // DeleteFriend 删除好友（双向删除）
-func (s *FriendshipService) DeleteFriend(userId, friendId string) error {
+func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId string) error {
 	if userId == friendId {
 		return errorx.New(errorx.CodeInvalidParam, "不能删除自己")
 	}
 
-	isFriend, err := s.repos.Friendship.IsFriend(userId, friendId)
+	isFriend, err := s.repos.Friendship.IsFriend(ctx, userId, friendId)
 	if err != nil {
 		zap.L().Error("Check friend relationship error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -193,16 +193,16 @@ func (s *FriendshipService) DeleteFriend(userId, friendId string) error {
 	}
 
 	err = s.repos.Transaction(func(txRepos *mysql.Repositories) error {
-		if err := txRepos.Friendship.SoftDelete(userId, friendId); err != nil {
+		if err := txRepos.Friendship.SoftDelete(ctx, userId, friendId); err != nil {
 			zap.L().Error("Delete friendship error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		// 双向删除申请记录（非关键）
-		if err := txRepos.Apply.SoftDelete(userId, friendId); err != nil {
+		if err := txRepos.Apply.SoftDelete(ctx, userId, friendId); err != nil {
 			zap.L().Warn("Delete apply record error (non-critical)", zap.Error(err))
 		}
-		if err := txRepos.Apply.SoftDelete(friendId, userId); err != nil {
+		if err := txRepos.Apply.SoftDelete(ctx, friendId, userId); err != nil {
 			zap.L().Warn("Delete reverse apply record error (non-critical)", zap.Error(err))
 		}
 
@@ -220,13 +220,13 @@ func (s *FriendshipService) DeleteFriend(userId, friendId string) error {
 }
 
 // BlackFriend 拉黑好友
-func (s *FriendshipService) BlackFriend(userId string, friendId string) error {
+func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, friendId string) error {
 	if userId == friendId {
 		return errorx.New(errorx.CodeInvalidParam, "不能拉黑自己")
 	}
 
 	err := s.repos.Transaction(func(txRepos *mysql.Repositories) error {
-		myFs, err := txRepos.Friendship.FindByUserIdAndFriendId(userId, friendId)
+		myFs, err := txRepos.Friendship.FindByUserIdAndFriendId(ctx, userId, friendId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return errorx.New(errorx.CodeForbidden, "你们还不是好友，无法拉黑")
@@ -238,26 +238,26 @@ func (s *FriendshipService) BlackFriend(userId string, friendId string) error {
 			return errorx.New(errorx.CodeInvalidParam, "当前状态不允许拉黑")
 		}
 
-		if err := txRepos.Friendship.UpdateStatus(userId, friendId, friendship_status.BLACK); err != nil {
+		if err := txRepos.Friendship.UpdateStatus(ctx, userId, friendId, friendship_status.BLACK); err != nil {
 			zap.L().Error("Update status to BLACK error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		if err := txRepos.Friendship.UpdateStatus(friendId, userId, friendship_status.BE_BLACK); err != nil {
+		if err := txRepos.Friendship.UpdateStatus(ctx, friendId, userId, friendship_status.BE_BLACK); err != nil {
 			zap.L().Error("Update status to BE_BLACK error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		// 软删除双方的私聊会话
 		sessionsToDelete := make([]string, 0, 2)
-		if sess, err := txRepos.Session.FindBySendIdAndReceiveId(userId, friendId); err == nil && sess != nil {
+		if sess, err := txRepos.Session.FindBySendIdAndReceiveId(ctx, userId, friendId); err == nil && sess != nil {
 			sessionsToDelete = append(sessionsToDelete, sess.Uuid)
 		}
-		if sess, err := txRepos.Session.FindBySendIdAndReceiveId(friendId, userId); err == nil && sess != nil {
+		if sess, err := txRepos.Session.FindBySendIdAndReceiveId(ctx, friendId, userId); err == nil && sess != nil {
 			sessionsToDelete = append(sessionsToDelete, sess.Uuid)
 		}
 		if len(sessionsToDelete) > 0 {
-			if err := txRepos.Session.SoftDeleteByUuids(sessionsToDelete); err != nil {
+			if err := txRepos.Session.SoftDeleteByUuids(ctx, sessionsToDelete); err != nil {
 				zap.L().Error("拉黑时清理会话失败", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
@@ -280,13 +280,13 @@ func (s *FriendshipService) BlackFriend(userId string, friendId string) error {
 }
 
 // UnblackFriend 取消拉黑好友
-func (s *FriendshipService) UnblackFriend(userId string, friendId string) error {
+func (s *FriendshipService) UnblackFriend(ctx context.Context, userId string, friendId string) error {
 	if userId == friendId {
 		return errorx.New(errorx.CodeInvalidParam, "参数错误")
 	}
 
 	err := s.repos.Transaction(func(txRepos *mysql.Repositories) error {
-		myFs, err := txRepos.Friendship.FindByUserIdAndFriendId(userId, friendId)
+		myFs, err := txRepos.Friendship.FindByUserIdAndFriendId(ctx, userId, friendId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return errorx.New(errorx.CodeNotFound, "好友关系不存在")
@@ -298,7 +298,7 @@ func (s *FriendshipService) UnblackFriend(userId string, friendId string) error 
 			return errorx.New(errorx.CodeInvalidParam, "未拉黑该好友，无需解除拉黑")
 		}
 
-		theirFs, err := txRepos.Friendship.FindByUserIdAndFriendId(friendId, userId)
+		theirFs, err := txRepos.Friendship.FindByUserIdAndFriendId(ctx, friendId, userId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return errorx.New(errorx.CodeNotFound, "对方好友关系不存在")
@@ -310,11 +310,11 @@ func (s *FriendshipService) UnblackFriend(userId string, friendId string) error 
 			return errorx.New(errorx.CodeInvalidParam, "数据状态异常，请联系管理员")
 		}
 
-		if err := txRepos.Friendship.UpdateStatus(userId, friendId, friendship_status.NORMAL); err != nil {
+		if err := txRepos.Friendship.UpdateStatus(ctx, userId, friendId, friendship_status.NORMAL); err != nil {
 			zap.L().Error("Update friendship status error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
-		if err := txRepos.Friendship.UpdateStatus(friendId, userId, friendship_status.NORMAL); err != nil {
+		if err := txRepos.Friendship.UpdateStatus(ctx, friendId, userId, friendship_status.NORMAL); err != nil {
 			zap.L().Error("Update reverse friendship status error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -339,13 +339,13 @@ func (s *FriendshipService) UnblackFriend(userId string, friendId string) error 
 }
 
 // UpdateRemark 更新好友备注
-func (s *FriendshipService) UpdateRemark(userId, friendId, remark string) error {
+func (s *FriendshipService) UpdateRemark(ctx context.Context, userId, friendId, remark string) error {
 	if userId == friendId {
 		return errorx.New(errorx.CodeInvalidParam, "不能给自己设置备注")
 	}
 
 	// 校验好友关系
-	isFriend, err := s.repos.Friendship.IsFriend(userId, friendId)
+	isFriend, err := s.repos.Friendship.IsFriend(ctx, userId, friendId)
 	if err != nil {
 		zap.L().Error("Check friend relationship error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -354,7 +354,7 @@ func (s *FriendshipService) UpdateRemark(userId, friendId, remark string) error 
 		return errorx.New(errorx.CodeForbidden, "你们还不是好友")
 	}
 
-	if err := s.repos.Friendship.UpdateRemark(userId, friendId, remark); err != nil {
+	if err := s.repos.Friendship.UpdateRemark(ctx, userId, friendId, remark); err != nil {
 		zap.L().Error("Update remark error",
 			zap.String("user_id", userId),
 			zap.String("friend_id", friendId),

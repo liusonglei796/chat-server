@@ -28,6 +28,8 @@ func NewUserHandler(userSvc *usersvc.UserService) *UserHandler {
 // 请求体: auth.RegisterRequest
 // 响应: respond.RegisterRespond (用户信息)
 func (h *UserHandler) Register(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	// 1. 绑定并验证请求参数
 	var req auth.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -38,7 +40,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 	// fmt.Println(req) // DEBUG: 调试输出，生产环境必须删除
 
 	// 2. 调用 Service 层处理业务逻辑
-	data, err := h.userSvc.Register(req)
+	data, err := h.userSvc.Register(ctx, req)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -53,12 +55,14 @@ func (h *UserHandler) Register(c *gin.Context) {
 // 请求体: auth.LoginRequest
 // 响应: respond.LoginRespond (用户信息 + JWT Token)
 func (h *UserHandler) Login(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	var req auth.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.userSvc.Login(req)
+	data, err := h.userSvc.Login(ctx, req)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -71,12 +75,14 @@ func (h *UserHandler) Login(c *gin.Context) {
 // 请求体: auth.SmsLoginRequest
 // 响应: respond.LoginRespond (用户信息 + JWT Token)
 func (h *UserHandler) SmsLogin(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	var req auth.SmsLoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.userSvc.SmsLogin(req)
+	data, err := h.userSvc.SmsLogin(ctx, req)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -90,6 +96,8 @@ func (h *UserHandler) SmsLogin(c *gin.Context) {
 // 响应: nil (无返回数据)
 // 安全: 从JWT上下文获取当前用户ID，只能修改自己的信息
 func (h *UserHandler) UpdateUserInfo(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -101,7 +109,7 @@ func (h *UserHandler) UpdateUserInfo(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.userSvc.UpdateUserInfo(userId.(string), req); err != nil {
+	if err := h.userSvc.UpdateUserInfo(ctx, userId.(string), req); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -113,13 +121,15 @@ func (h *UserHandler) UpdateUserInfo(c *gin.Context) {
 // 安全: 从JWT上下文获取当前用户ID
 // 响应: respond.GetUserInfoRespond
 func (h *UserHandler) GetUserInfo(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
 
-	data, err := h.userSvc.GetUserInfo(userId.(string), userId.(string))
+	data, err := h.userSvc.GetUserInfo(ctx, userId.(string), userId.(string))
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -132,12 +142,14 @@ func (h *UserHandler) GetUserInfo(c *gin.Context) {
 // 查询参数: user.GetUserInfoRequest
 // 响应: respond.PublicUserInfoRespond
 func (h *UserHandler) GetPublicUserInfo(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	var req user.GetUserInfoRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.userSvc.GetPublicUserInfo(req.Uuid)
+	data, err := h.userSvc.GetPublicUserInfo(ctx, req.Uuid)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -150,12 +162,14 @@ func (h *UserHandler) GetPublicUserInfo(c *gin.Context) {
 // 请求体: auth.SendSmsCodeRequest
 // 响应: nil
 func (h *UserHandler) SendSmsCode(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	var req auth.SendSmsCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.userSvc.SendSmsCode(req.Telephone); err != nil {
+	if err := h.userSvc.SendSmsCode(ctx, req.Telephone); err != nil {
 		HandleError(c, err)
 		return
 	}

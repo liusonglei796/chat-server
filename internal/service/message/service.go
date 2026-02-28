@@ -1,6 +1,7 @@
 package message
 
 import (
+	"context"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -14,11 +15,11 @@ import (
 
 	"kama_chat_server/internal/config"
 	"kama_chat_server/internal/dao/mysql"
-	myredis "kama_chat_server/internal/dao/redis"
 	messagereq "kama_chat_server/internal/dto/request/message"
 	messagersp "kama_chat_server/internal/dto/respond/message"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
+	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/pkg/constants"
 	msgtype "kama_chat_server/pkg/enum/message/message_type"
 	"kama_chat_server/pkg/errorx"
@@ -28,7 +29,7 @@ import (
 // 通过构造函数注入 Repository 和 Cache 依赖，遵循依赖倒置原则
 type MessageService struct {
 	repos *mysql.Repositories
-	cache myredis.AsyncCacheService
+	cache redisinterface.AsyncCacheService
 	// pushRecallNotify 撤回通知回调（由 ChatServer.Broker.PushRecallNotify 提供）
 	// 用于在撤回成功后通过 WebSocket 实时通知对方
 	pushRecallNotify func(messageUuid, receiveId string)
@@ -36,7 +37,7 @@ type MessageService struct {
 
 // NewMessageService 构造函数，注入所有依赖
 // pushRecallNotify: 可选回调，撤回消息后通过 WebSocket 推送通知
-func NewMessageService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, pushRecallNotify func(messageUuid, receiveId string)) *MessageService {
+func NewMessageService(repos *mysql.Repositories, cacheService redisinterface.AsyncCacheService, pushRecallNotify func(messageUuid, receiveId string)) *MessageService {
 	return &MessageService{
 		repos:            repos,
 		cache:            cacheService,
@@ -45,7 +46,7 @@ func NewMessageService(repos *mysql.Repositories, cacheService myredis.AsyncCach
 }
 
 // GetMessageList 获取聊天记录（分页）
-func (m *MessageService) GetMessageList(requesterId, partnerId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error) {
+func (m *MessageService) GetMessageList(ctx context.Context, requesterId, partnerId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error) {
 	// 参数校验
 	if page < 1 {
 		page = 1
@@ -55,7 +56,7 @@ func (m *MessageService) GetMessageList(requesterId, partnerId string, page, pag
 	}
 
 	// 权限校验: 必须是好友关系才能查看聊天记录
-	isFriend, err := m.repos.Friendship.IsFriend(requesterId, partnerId)
+	isFriend, err := m.repos.Friendship.IsFriend(ctx, requesterId, partnerId)
 	if err != nil {
 		zap.L().Error("check friend relationship error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -72,7 +73,7 @@ func (m *MessageService) GetMessageList(requesterId, partnerId string, page, pag
 	}
 
 	// 查数据库（带分页）
-	messageList, total, err := m.repos.Message.FindByUserIdsPaged(userOneId, partnerId, page, pageSize)
+	messageList, total, err := m.repos.Message.FindByUserIdsPaged(ctx, userOneId, partnerId, page, pageSize)
 	if err != nil {
 		zap.L().Error("find messages by user ids error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -99,7 +100,7 @@ func (m *MessageService) GetMessageList(requesterId, partnerId string, page, pag
 }
 
 // GetGroupMessageList 获取群聊消息记录（分页）
-func (m *MessageService) GetGroupMessageList(userId, groupId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error) {
+func (m *MessageService) GetGroupMessageList(ctx context.Context, userId, groupId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error) {
 	// 设置默认分页参数
 	if page < 1 {
 		page = 1
@@ -110,7 +111,7 @@ func (m *MessageService) GetGroupMessageList(userId, groupId string, page, pageS
 
 	// 权限校验: 只要有 Session 记录(未删除)即可查看历史消息，不仅仅是当前成员
 	// 这样可以支持"退群后查看历史消息"的需求
-	_, err := m.repos.Session.FindBySendIdAndReceiveId(userId, groupId)
+	_, err := m.repos.Session.FindBySendIdAndReceiveId(ctx, userId, groupId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return nil, 0, errorx.New(errorx.CodeForbidden, "您没有该群的会话记录")
@@ -120,7 +121,7 @@ func (m *MessageService) GetGroupMessageList(userId, groupId string, page, pageS
 	}
 
 	// 分页查询数据库
-	messageList, total, err := m.repos.Message.FindByGroupIdPaged(groupId, page, pageSize)
+	messageList, total, err := m.repos.Message.FindByGroupIdPaged(ctx, groupId, page, pageSize)
 	if err != nil {
 		zap.L().Error("find group messages error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -148,14 +149,14 @@ func (m *MessageService) GetGroupMessageList(userId, groupId string, page, pageS
 
 // GetMessageListCursor 获取两个用户之间的聊天记录（游标分页）
 // cursor: 上一页最后一条消息的时间戳（Unix时间戳字符串），为空则从头开始
-func (m *MessageService) GetMessageListCursor(requesterId, partnerId, cursor string, pageSize int) ([]messagersp.GetMessageListRespond, string, bool, error) {
+func (m *MessageService) GetMessageListCursor(ctx context.Context, requesterId, partnerId, cursor string, pageSize int) ([]messagersp.GetMessageListRespond, string, bool, error) {
 	// 参数校验
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
 
 	// 权限校验: 必须是好友关系才能查看聊天记录
-	isFriend, err := m.repos.Friendship.IsFriend(requesterId, partnerId)
+	isFriend, err := m.repos.Friendship.IsFriend(ctx, requesterId, partnerId)
 	if err != nil {
 		zap.L().Error("check friend relationship error", zap.Error(err))
 		return nil, "", false, errorx.ErrServerBusy
@@ -172,7 +173,7 @@ func (m *MessageService) GetMessageListCursor(requesterId, partnerId, cursor str
 	}
 
 	// 游标分页查询
-	result, err := m.repos.Message.FindByUserIdsCursor(userOneId, partnerId, cursor, pageSize)
+	result, err := m.repos.Message.FindByUserIdsCursor(ctx, userOneId, partnerId, cursor, pageSize)
 	if err != nil {
 		zap.L().Error("find messages by user ids cursor error", zap.Error(err))
 		return nil, "", false, errorx.ErrServerBusy
@@ -200,14 +201,14 @@ func (m *MessageService) GetMessageListCursor(requesterId, partnerId, cursor str
 
 // GetGroupMessageListCursor 获取群聊消息记录（游标分页）
 // cursor: 上一页最后一条消息的时间戳（Unix时间戳字符串），为空则从头开始
-func (m *MessageService) GetGroupMessageListCursor(userId, groupId, cursor string, pageSize int) ([]messagersp.GetMessageListRespond, string, bool, error) {
+func (m *MessageService) GetGroupMessageListCursor(ctx context.Context, userId, groupId, cursor string, pageSize int) ([]messagersp.GetMessageListRespond, string, bool, error) {
 	// 设置默认分页参数
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
 
 	// 权限校验: 只要有 Session 记录(未删除)即可查看历史消息
-	_, err := m.repos.Session.FindBySendIdAndReceiveId(userId, groupId)
+	_, err := m.repos.Session.FindBySendIdAndReceiveId(ctx, userId, groupId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return nil, "", false, errorx.New(errorx.CodeForbidden, "您没有该群的会话记录")
@@ -217,7 +218,7 @@ func (m *MessageService) GetGroupMessageListCursor(userId, groupId, cursor strin
 	}
 
 	// 游标分页查询数据库
-	result, err := m.repos.Message.FindByGroupIdCursor(groupId, cursor, pageSize)
+	result, err := m.repos.Message.FindByGroupIdCursor(ctx, groupId, cursor, pageSize)
 	if err != nil {
 		zap.L().Error("find group messages cursor error", zap.Error(err))
 		return nil, "", false, errorx.ErrServerBusy
@@ -244,7 +245,7 @@ func (m *MessageService) GetGroupMessageListCursor(userId, groupId, cursor strin
 }
 
 // UploadAvatar 上传头像
-func (m *MessageService) UploadAvatar(c *gin.Context) (string, error) {
+func (m *MessageService) UploadAvatar(ctx context.Context, c *gin.Context) (string, error) {
 	if err := c.Request.ParseMultipartForm(constants.FILE_MAX_SIZE); err != nil {
 		zap.L().Error("parse multipart form error", zap.Error(err))
 		return "", errorx.New(errorx.CodeInvalidParam, "文件过大，请上传小于 30MB 的文件")
@@ -279,7 +280,7 @@ func (m *MessageService) UploadAvatar(c *gin.Context) (string, error) {
 }
 
 // UploadFile 上传文件
-func (m *MessageService) UploadFile(c *gin.Context) ([]string, error) {
+func (m *MessageService) UploadFile(ctx context.Context, c *gin.Context) ([]string, error) {
 	if err := c.Request.ParseMultipartForm(constants.FILE_MAX_SIZE); err != nil {
 		zap.L().Error("parse multipart form error", zap.Error(err))
 		return nil, errorx.New(errorx.CodeInvalidParam, "文件过大，请上传小于 30MB 的文件")
@@ -385,9 +386,9 @@ func (m *MessageService) saveFile(fileHeader *multipart.FileHeader, dstDir strin
 
 // RecallMessage 撤回消息
 // 流程：查消息 → 校验身份 → 校验时限 → 更新数据库 → WebSocket 通知对方
-func (m *MessageService) RecallMessage(userId string, req messagereq.RecallMessageRequest) error {
+func (m *MessageService) RecallMessage(ctx context.Context, userId string, req messagereq.RecallMessageRequest) error {
 	// 1. 查询消息是否存在
-	msg, err := m.repos.Message.FindByUuid(req.MessageUuid)
+	msg, err := m.repos.Message.FindByUuid(ctx, req.MessageUuid)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeInvalidParam, "消息不存在")
@@ -412,7 +413,7 @@ func (m *MessageService) RecallMessage(userId string, req messagereq.RecallMessa
 	}
 
 	// 5. 更新消息类型为撤回，清空内容
-	if err := m.repos.Message.UpdateContent(req.MessageUuid, "", int8(msgtype.Recall)); err != nil {
+	if err := m.repos.Message.UpdateContent(ctx, req.MessageUuid, "", int8(msgtype.Recall)); err != nil {
 		zap.L().Error("撤回消息失败", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
@@ -426,6 +427,6 @@ func (m *MessageService) RecallMessage(userId string, req messagereq.RecallMessa
 }
 
 // GetMessageByUuid 根据 UUID 获取消息
-func (m *MessageService) GetMessageByUuid(messageId string) (*model.Message, error) {
-	return m.repos.Message.FindByUuid(messageId)
+func (m *MessageService) GetMessageByUuid(ctx context.Context, messageId string) (*model.Message, error) {
+	return m.repos.Message.FindByUuid(ctx, messageId)
 }

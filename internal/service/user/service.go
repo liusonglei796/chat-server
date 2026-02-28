@@ -9,14 +9,14 @@ import (
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/dao/mysql"
-	myredis "kama_chat_server/internal/dao/redis"
-	cacheutil "kama_chat_server/internal/dao/redis/cache"
 	"kama_chat_server/internal/dto/request/auth"
 	userreq "kama_chat_server/internal/dto/request/user"
 	userrsp "kama_chat_server/internal/dto/respond/user"
+	cacheutil "kama_chat_server/internal/infrastructure/cache"
 	"kama_chat_server/internal/infrastructure/sms"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
+	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
@@ -27,7 +27,7 @@ import (
 // 通过构造函数注入 Repository 和 Cache 依赖
 type UserService struct {
 	repos       *mysql.Repositories
-	cache       myredis.AsyncCacheService
+	cache       redisinterface.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
 	smsService  sms.SmsService
 	kickClient  func(userId, reason string) // 踢人回调函数（解耦 chat 包）
@@ -35,7 +35,7 @@ type UserService struct {
 
 // NewUserService 构造函数，注入所有依赖
 // kickClient: 可选的踢人回调函数，用于登录时踢掉旧设备
-func NewUserService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string)) *UserService {
+func NewUserService(repos *mysql.Repositories, cacheService redisinterface.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string)) *UserService {
 	return &UserService{
 		repos:       repos,
 		cache:       cacheService,
@@ -67,7 +67,7 @@ func (u *UserService) checkEmailValid(email string) bool {
 
 // buildLoginResponse 构建登录/短信登录的公共响应
 // 包含：状态检查 → 踢旧设备 → 生成双 Token → 存 Redis → 构建响应
-func (u *UserService) buildLoginResponse(user *model.UserInfo) (*userrsp.LoginRespond, error) {
+func (u *UserService) buildLoginResponse(ctx context.Context, user *model.UserInfo) (*userrsp.LoginRespond, error) {
 	// 1. 检查用户状态
 	if user.Status == user_status.DISABLE {
 		return nil, errorx.New(errorx.CodeForbidden, "该账号已被禁用，请联系管理员")
@@ -93,7 +93,7 @@ func (u *UserService) buildLoginResponse(user *model.UserInfo) (*userrsp.LoginRe
 
 	// 4. 将 Refresh Token ID 存入缓存，实现单点互踢
 	redisKey := constants.CacheKeyUserToken + user.Uuid
-	if err := u.cache.Set(context.Background(), redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
+	if err := u.cache.Set(ctx, redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
 		zap.L().Error("存储 Token ID 到缓存失败", zap.Error(err))
 		// 不阻塞登录流程，仅记录日志
 	}
@@ -120,8 +120,8 @@ func (u *UserService) buildLoginResponse(user *model.UserInfo) (*userrsp.LoginRe
 }
 
 // Login 登录
-func (u *UserService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespond, error) {
-	user, err := u.repos.User.FindByTelephone(loginReq.Telephone)
+func (u *UserService) Login(ctx context.Context, loginReq auth.LoginRequest) (*userrsp.LoginRespond, error) {
+	user, err := u.repos.User.FindByTelephone(ctx, loginReq.Telephone)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在，请注册")
@@ -133,12 +133,12 @@ func (u *UserService) Login(loginReq auth.LoginRequest) (*userrsp.LoginRespond, 
 		return nil, errorx.New(errorx.CodeInvalidPassword, "密码不正确，请重试")
 	}
 
-	return u.buildLoginResponse(user)
+	return u.buildLoginResponse(ctx, user)
 }
 
 // SmsLogin 验证码登录
-func (u *UserService) SmsLogin(req auth.SmsLoginRequest) (*userrsp.LoginRespond, error) {
-	user, err := u.repos.User.FindByTelephone(req.Telephone)
+func (u *UserService) SmsLogin(ctx context.Context, req auth.SmsLoginRequest) (*userrsp.LoginRespond, error) {
+	user, err := u.repos.User.FindByTelephone(ctx, req.Telephone)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在，请注册")
@@ -162,17 +162,17 @@ func (u *UserService) SmsLogin(req auth.SmsLoginRequest) (*userrsp.LoginRespond,
 		return nil, errorx.ErrServerBusy
 	}
 
-	return u.buildLoginResponse(user)
+	return u.buildLoginResponse(ctx, user)
 }
 
 // SendSmsCode 发送短信验证码 - 验证码登录
-func (u *UserService) SendSmsCode(telephone string) error {
-	return u.smsService.SendVerificationCode(telephone)
+func (u *UserService) SendSmsCode(ctx context.Context, telephone string) error {
+	return u.smsService.SendVerificationCode(ctx, telephone)
 }
 
 // checkTelephoneExist 检查手机号是否存在
-func (u *UserService) checkTelephoneExist(telephone string) error {
-	_, err := u.repos.User.FindByTelephone(telephone)
+func (u *UserService) checkTelephoneExist(ctx context.Context, telephone string) error {
+	_, err := u.repos.User.FindByTelephone(ctx, telephone)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			zap.L().Info("该电话不存在，可以注册")
@@ -186,7 +186,7 @@ func (u *UserService) checkTelephoneExist(telephone string) error {
 }
 
 // Register 注册
-func (u *UserService) Register(registerReq auth.RegisterRequest) (*userrsp.RegisterRespond, error) {
+func (u *UserService) Register(ctx context.Context, registerReq auth.RegisterRequest) (*userrsp.RegisterRespond, error) {
 	key := constants.CacheKeyAuthCode + registerReq.Telephone
 	code, err := u.cache.Get(context.Background(), key)
 	if err != nil {
@@ -202,7 +202,7 @@ func (u *UserService) Register(registerReq auth.RegisterRequest) (*userrsp.Regis
 	}
 
 	// 判断电话是否已经被注册过了
-	if err := u.checkTelephoneExist(registerReq.Telephone); err != nil {
+	if err := u.checkTelephoneExist(ctx, registerReq.Telephone); err != nil {
 		return nil, err
 	}
 
@@ -216,7 +216,7 @@ func (u *UserService) Register(registerReq auth.RegisterRequest) (*userrsp.Regis
 	newUser.IsAdmin = 0 // 新注册用户默认非管理员
 	newUser.Status = user_status.NORMAL
 
-	err = u.repos.User.CreateUser(&newUser)
+	err = u.repos.User.CreateUser(ctx, &newUser)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -244,8 +244,8 @@ func (u *UserService) Register(registerReq auth.RegisterRequest) (*userrsp.Regis
 // UpdateUserInfo 修改用户信息 (userId 从 JWT 获取，只能改自己)
 // 使用指针类型区分"未传字段"(nil=不更新)和"清空字段"(""=置空)
 // 警告问题修复：使用数据库事务确保用户信息和会话信息的一致性
-func (u *UserService) UpdateUserInfo(userId string, updateReq userreq.UpdateUserInfoRequest) error {
-	user, err := u.repos.User.FindByUuid(userId)
+func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateReq userreq.UpdateUserInfoRequest) error {
+	user, err := u.repos.User.FindByUuid(ctx, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -274,7 +274,7 @@ func (u *UserService) UpdateUserInfo(userId string, updateReq userreq.UpdateUser
 	// 任一操作失败都会回滚，保证数据一致性
 	if err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 1. 在事务内更新用户信息
-		if err := txRepos.User.UpdateUserInfo(user); err != nil {
+		if err := txRepos.User.UpdateUserInfo(ctx, user); err != nil {
 			return err
 		}
 
@@ -287,7 +287,7 @@ func (u *UserService) UpdateUserInfo(userId string, updateReq userreq.UpdateUser
 			sessionUpdates["avatar"] = *updateReq.Avatar
 		}
 		if len(sessionUpdates) > 0 {
-			if err := txRepos.Session.UpdateByReceiveId(userId, sessionUpdates); err != nil {
+			if err := txRepos.Session.UpdateByReceiveId(ctx, userId, sessionUpdates); err != nil {
 				return err
 			}
 		}
@@ -315,7 +315,7 @@ func (u *UserService) UpdateUserInfo(userId string, updateReq userreq.UpdateUser
 
 // GetUserInfo 获取用户完整信息（仅限自己调用）
 // 使用 Cache-Aside 模式 + singleflight 防止缓存击穿
-func (u *UserService) GetUserInfo(requesterId, targetId string) (*userrsp.GetUserInfoRespond, error) {
+func (u *UserService) GetUserInfo(ctx context.Context, requesterId, targetId string) (*userrsp.GetUserInfoRespond, error) {
 	// 权限校验: 只能查看自己的完整信息
 	if requesterId != targetId {
 		return nil, errorx.New(errorx.CodeForbidden, "无权查看他人详细信息")
@@ -328,7 +328,7 @@ func (u *UserService) GetUserInfo(requesterId, targetId string) (*userrsp.GetUse
 		context.Background(),
 		key,
 		func() (interface{}, error) {
-			user, err := u.repos.User.FindByUuid(targetId)
+			user, err := u.repos.User.FindByUuid(ctx, targetId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -361,7 +361,7 @@ func (u *UserService) GetUserInfo(requesterId, targetId string) (*userrsp.GetUse
 
 // GetPublicUserInfo 获取用户公开信息（查看他人）
 // 使用 Cache-Aside 模式 + singleflight 防止缓存击穿
-func (u *UserService) GetPublicUserInfo(targetId string) (*userrsp.PublicUserInfoRespond, error) {
+func (u *UserService) GetPublicUserInfo(ctx context.Context, targetId string) (*userrsp.PublicUserInfoRespond, error) {
 	key := constants.CacheKeyUserPublicInfo + targetId
 	var rsp userrsp.PublicUserInfoRespond
 
@@ -369,7 +369,7 @@ func (u *UserService) GetPublicUserInfo(targetId string) (*userrsp.PublicUserInf
 		context.Background(),
 		key,
 		func() (interface{}, error) {
-			user, err := u.repos.User.FindByUuid(targetId)
+			user, err := u.repos.User.FindByUuid(ctx, targetId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")

@@ -3,6 +3,8 @@
 package handler
 
 import (
+	"context"
+
 	"kama_chat_server/internal/dto/request/message"
 	msgsvc "kama_chat_server/internal/service/message"
 	"kama_chat_server/pkg/errorx"
@@ -32,6 +34,7 @@ func NewMessageHandler(messageSvc *msgsvc.MessageService) *MessageHandler {
 // 响应: map[string]interface{} (list, total, page, page_size) 或 (list, cursor, has_more, page_size)
 // 安全: 从JWT上下文获取当前用户ID，防止查看他人聊天记录
 func (h *MessageHandler) GetMessageList(c *gin.Context) {
+	ctx := c.Request.Context()
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -51,7 +54,7 @@ func (h *MessageHandler) GetMessageList(c *gin.Context) {
 
 	// 优先使用游标分页（推荐）
 	if req.Cursor != "" {
-		h.getMessageListWithCursor(c, userId.(string), req)
+		h.getMessageListWithCursor(ctx, c, userId.(string), req)
 		return
 	}
 
@@ -59,20 +62,20 @@ func (h *MessageHandler) GetMessageList(c *gin.Context) {
 	if req.Page <= 0 {
 		req.Page = 1
 	}
-	h.getMessageListWithPage(c, userId.(string), req)
+	h.getMessageListWithPage(ctx, c, userId.(string), req)
 }
 
 // getMessageListWithPage 使用传统分页（已不推荐，但保持向后兼容）
-func (h *MessageHandler) getMessageListWithPage(c *gin.Context, userId string, req message.GetMessageListRequest) {
+func (h *MessageHandler) getMessageListWithPage(ctx context.Context, c *gin.Context, userId string, req message.GetMessageListRequest) {
 	var data interface{}
 	var total int64
 	var err error
 
 	// 根据 TargetId 前缀自动派发
 	if len(req.TargetId) > 0 && req.TargetId[0] == 'G' {
-		data, total, err = h.messageSvc.GetGroupMessageList(userId, req.TargetId, req.Page, req.PageSize)
+		data, total, err = h.messageSvc.GetGroupMessageList(ctx, userId, req.TargetId, req.Page, req.PageSize)
 	} else {
-		data, total, err = h.messageSvc.GetMessageList(userId, req.TargetId, req.Page, req.PageSize)
+		data, total, err = h.messageSvc.GetMessageList(ctx, userId, req.TargetId, req.Page, req.PageSize)
 	}
 
 	if err != nil {
@@ -88,7 +91,7 @@ func (h *MessageHandler) getMessageListWithPage(c *gin.Context, userId string, r
 }
 
 // getMessageListWithCursor 使用游标分页（推荐）
-func (h *MessageHandler) getMessageListWithCursor(c *gin.Context, userId string, req message.GetMessageListRequest) {
+func (h *MessageHandler) getMessageListWithCursor(ctx context.Context, c *gin.Context, userId string, req message.GetMessageListRequest) {
 	var data interface{}
 	var nextCursor string
 	var hasMore bool
@@ -96,9 +99,9 @@ func (h *MessageHandler) getMessageListWithCursor(c *gin.Context, userId string,
 
 	// 根据 TargetId 前缀自动派发
 	if len(req.TargetId) > 0 && req.TargetId[0] == 'G' {
-		data, nextCursor, hasMore, err = h.messageSvc.GetGroupMessageListCursor(userId, req.TargetId, req.Cursor, req.PageSize)
+		data, nextCursor, hasMore, err = h.messageSvc.GetGroupMessageListCursor(ctx, userId, req.TargetId, req.Cursor, req.PageSize)
 	} else {
-		data, nextCursor, hasMore, err = h.messageSvc.GetMessageListCursor(userId, req.TargetId, req.Cursor, req.PageSize)
+		data, nextCursor, hasMore, err = h.messageSvc.GetMessageListCursor(ctx, userId, req.TargetId, req.Cursor, req.PageSize)
 	}
 
 	if err != nil {
@@ -119,7 +122,8 @@ func (h *MessageHandler) getMessageListWithCursor(c *gin.Context, userId string,
 // 响应: string (新头像文件名)
 // 限制: 仅支持 image/jpeg, image/png, image/gif
 func (h *MessageHandler) UploadAvatar(c *gin.Context) {
-	path, err := h.messageSvc.UploadAvatar(c)
+	ctx := c.Request.Context()
+	path, err := h.messageSvc.UploadAvatar(ctx, c)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -132,7 +136,8 @@ func (h *MessageHandler) UploadAvatar(c *gin.Context) {
 // 请求体: multipart/form-data
 // 响应: []string (上传成功的文件名列表)
 func (h *MessageHandler) UploadFile(c *gin.Context) {
-	paths, err := h.messageSvc.UploadFile(c)
+	ctx := c.Request.Context()
+	paths, err := h.messageSvc.UploadFile(ctx, c)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -146,6 +151,7 @@ func (h *MessageHandler) UploadFile(c *gin.Context) {
 // 响应: nil
 // 安全: 从JWT上下文获取当前用户ID，Service层校验发送者身份
 func (h *MessageHandler) RecallMessage(c *gin.Context) {
+	ctx := c.Request.Context()
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -158,7 +164,7 @@ func (h *MessageHandler) RecallMessage(c *gin.Context) {
 		return
 	}
 
-	if err := h.messageSvc.RecallMessage(userId.(string), req); err != nil {
+	if err := h.messageSvc.RecallMessage(ctx, userId.(string), req); err != nil {
 		HandleError(c, err)
 		return
 	}

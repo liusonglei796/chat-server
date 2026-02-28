@@ -3,6 +3,7 @@
 package group
 
 import (
+	"context"
 	"kama_chat_server/internal/dao/mysql/dberr"
 	"kama_chat_server/internal/model"
 
@@ -20,9 +21,9 @@ func NewGroupRepository(db *gorm.DB) *groupRepository {
 }
 
 // FindByUuid 根据 UUID 查找群组
-func (r *groupRepository) FindByUuid(uuid string) (*model.GroupInfo, error) {
+func (r *groupRepository) FindByUuid(ctx context.Context, uuid string) (*model.GroupInfo, error) {
 	var group model.GroupInfo
-	if err := r.db.First(&group, "uuid = ?", uuid).Error; err != nil {
+	if err := r.db.WithContext(ctx).First(&group, "uuid = ?", uuid).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "查询群组 uuid=%s", uuid)
 	}
 	return &group, nil
@@ -33,7 +34,7 @@ func (r *groupRepository) FindByUuid(uuid string) (*model.GroupInfo, error) {
 // page: 页码（从1开始）
 // pageSize: 每页数量
 // 返回: 群组列表、总数、错误
-func (r *groupRepository) FindByOwnerIdPaged(ownerId string, page, pageSize int) ([]model.GroupInfo, int64, error) {
+func (r *groupRepository) FindByOwnerIdPaged(ctx context.Context, ownerId string, page, pageSize int) ([]model.GroupInfo, int64, error) {
 	var groups []model.GroupInfo
 	var total int64
 
@@ -46,13 +47,13 @@ func (r *groupRepository) FindByOwnerIdPaged(ownerId string, page, pageSize int)
 	}
 
 	// 先统计总数
-	if err := r.db.Model(&model.GroupInfo{}).Where("owner_id = ?", ownerId).Count(&total).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&model.GroupInfo{}).Where("owner_id = ?", ownerId).Count(&total).Error; err != nil {
 		return nil, 0, dberr.WrapDBErrorf(err, "统计群组数量 owner_id=%s", ownerId)
 	}
 
 	// 计算偏移量并分页查询
 	offset := (page - 1) * pageSize
-	if err := r.db.Where("owner_id = ?", ownerId).
+	if err := r.db.WithContext(ctx).Where("owner_id = ?", ownerId).
 		Order("created_at DESC").
 		Offset(offset).
 		Limit(pageSize).
@@ -67,7 +68,7 @@ func (r *groupRepository) FindByOwnerIdPaged(ownerId string, page, pageSize int)
 // page: 页码（从1开始）
 // pageSize: 每页数量
 // 返回: 群组列表、总数、错误
-func (r *groupRepository) GetGroupList(page, pageSize int) ([]model.GroupInfo, int64, error) {
+func (r *groupRepository) GetGroupList(ctx context.Context, page, pageSize int) ([]model.GroupInfo, int64, error) {
 	var groups []model.GroupInfo
 	var total int64
 
@@ -83,12 +84,12 @@ func (r *groupRepository) GetGroupList(page, pageSize int) ([]model.GroupInfo, i
 	offset := (page - 1) * pageSize
 
 	// 先查询总数
-	if err := r.db.Unscoped().Model(&model.GroupInfo{}).Count(&total).Error; err != nil {
+	if err := r.db.WithContext(ctx).Unscoped().Model(&model.GroupInfo{}).Count(&total).Error; err != nil {
 		return nil, 0, dberr.WrapDBError(err, "查询群组总数")
 	}
 
 	// 再分页查询
-	if err := r.db.Unscoped().Model(&model.GroupInfo{}).Offset(offset).Limit(pageSize).Find(&groups).Error; err != nil {
+	if err := r.db.WithContext(ctx).Unscoped().Model(&model.GroupInfo{}).Offset(offset).Limit(pageSize).Find(&groups).Error; err != nil {
 		return nil, 0, dberr.WrapDBError(err, "分页查询群组")
 	}
 
@@ -96,25 +97,25 @@ func (r *groupRepository) GetGroupList(page, pageSize int) ([]model.GroupInfo, i
 }
 
 // FindByUuids 根据UUID列表批量查找群组
-func (r *groupRepository) FindByUuids(uuids []string) ([]model.GroupInfo, error) {
+func (r *groupRepository) FindByUuids(ctx context.Context, uuids []string) ([]model.GroupInfo, error) {
 	var groups []model.GroupInfo
-	if err := r.db.Where("uuid IN ?", uuids).Find(&groups).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("uuid IN ?", uuids).Find(&groups).Error; err != nil {
 		return nil, dberr.WrapDBError(err, "批量查询群组")
 	}
 	return groups, nil
 }
 
 // CreateGroup 创建群组
-func (r *groupRepository) CreateGroup(group *model.GroupInfo) error {
-	if err := r.db.Create(group).Error; err != nil {
+func (r *groupRepository) CreateGroup(ctx context.Context, group *model.GroupInfo) error {
+	if err := r.db.WithContext(ctx).Create(group).Error; err != nil {
 		return dberr.WrapDBError(err, "创建群组")
 	}
 	return nil
 }
 
 // Update 更新群组信息（全字段更新）
-func (r *groupRepository) Update(group *model.GroupInfo) error {
-	if err := r.db.Save(group).Error; err != nil {
+func (r *groupRepository) Update(ctx context.Context, group *model.GroupInfo) error {
+	if err := r.db.WithContext(ctx).Save(group).Error; err != nil {
 		return dberr.WrapDBError(err, "更新群组")
 	}
 	return nil
@@ -122,11 +123,11 @@ func (r *groupRepository) Update(group *model.GroupInfo) error {
 
 // UpdateStatusByUuids [管理员] 批量更新群组状态
 // status: 0=正常, 1=禁用, 2=解散
-func (r *groupRepository) UpdateStatusByUuids(uuids []string, status int8) error {
+func (r *groupRepository) UpdateStatusByUuids(ctx context.Context, uuids []string, status int8) error {
 	if len(uuids) == 0 {
 		return nil
 	}
-	if err := r.db.Model(&model.GroupInfo{}).Where("uuid IN ?", uuids).Update("status", status).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&model.GroupInfo{}).Where("uuid IN ?", uuids).Update("status", status).Error; err != nil {
 		return dberr.WrapDBError(err, "批量更新群组状态")
 	}
 	return nil
@@ -134,8 +135,8 @@ func (r *groupRepository) UpdateStatusByUuids(uuids []string, status int8) error
 
 // IncrementMemberCount 增加群成员计数
 // 使用 UpdateColumn + gorm.Expr 实现原子自增
-func (r *groupRepository) IncrementMemberCount(uuid string) error {
-	if err := r.db.Model(&model.GroupInfo{}).Where("uuid = ?", uuid).UpdateColumn("member_cnt", gorm.Expr("member_cnt + ?", 1)).Error; err != nil {
+func (r *groupRepository) IncrementMemberCount(ctx context.Context, uuid string) error {
+	if err := r.db.WithContext(ctx).Model(&model.GroupInfo{}).Where("uuid = ?", uuid).UpdateColumn("member_cnt", gorm.Expr("member_cnt + ?", 1)).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "增加群成员数 uuid=%s", uuid)
 	}
 	return nil
@@ -143,22 +144,22 @@ func (r *groupRepository) IncrementMemberCount(uuid string) error {
 
 // DecrementMemberCountBy 减少指定数量的群成员计数
 // 用于批量踢人时更新计数
-func (r *groupRepository) DecrementMemberCountBy(uuid string, count int) error {
+func (r *groupRepository) DecrementMemberCountBy(ctx context.Context, uuid string, count int) error {
 	if count <= 0 {
 		return nil
 	}
-	if err := r.db.Model(&model.GroupInfo{}).Where("uuid = ?", uuid).UpdateColumn("member_cnt", gorm.Expr("member_cnt - ?", count)).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&model.GroupInfo{}).Where("uuid = ?", uuid).UpdateColumn("member_cnt", gorm.Expr("member_cnt - ?", count)).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "减少群成员数 uuid=%s count=%d", uuid, count)
 	}
 	return nil
 }
 
 // SoftDeleteByUuids [管理员] 批量软删除群组
-func (r *groupRepository) SoftDeleteByUuids(uuids []string) error {
+func (r *groupRepository) SoftDeleteByUuids(ctx context.Context, uuids []string) error {
 	if len(uuids) == 0 {
 		return nil
 	}
-	if err := r.db.Where("uuid IN ?", uuids).Delete(&model.GroupInfo{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("uuid IN ?", uuids).Delete(&model.GroupInfo{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除群组")
 	}
 	return nil

@@ -193,7 +193,7 @@ func (c *UserConn) Write() {
 
 			// 通过 Repository 接口更新消息状态（遵循依赖倒置原则）
 			if repo := c.broker.GetMessageRepo(); repo != nil {
-				if err := repo.UpdateStatus(messageBack.Uuid, message_status.Sent); err != nil {
+				if err := repo.UpdateStatus(context.Background(), messageBack.Uuid, message_status.Sent); err != nil {
 					zap.L().Error("更新消息状态失败", zap.Error(err))
 				}
 			}

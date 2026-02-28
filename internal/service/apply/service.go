@@ -8,12 +8,12 @@ import (
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/dao/mysql"
-	myredis "kama_chat_server/internal/dao/redis"
-	cacheutil "kama_chat_server/internal/dao/redis/cache"
 	applyreq "kama_chat_server/internal/dto/request/apply"
 	applyrsp "kama_chat_server/internal/dto/respond/apply"
+	cacheutil "kama_chat_server/internal/infrastructure/cache"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
+	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/apply/apply_status"
 	"kama_chat_server/pkg/enum/apply/apply_type"
@@ -32,12 +32,12 @@ import (
 //     原因：作为数据生产者，在变更状态后主动失效下游服务（如ContactService）的缓存，保证系统数据的最终一致性。
 type ApplyService struct {
 	repos       *mysql.Repositories
-	cache       myredis.AsyncCacheService
+	cache       redisinterface.AsyncCacheService
 	cacheHelper *cacheutil.Helper
 }
 
 // NewApplyService 构造函数
-func NewApplyService(repos *mysql.Repositories, cacheService myredis.AsyncCacheService) *ApplyService {
+func NewApplyService(repos *mysql.Repositories, cacheService redisinterface.AsyncCacheService) *ApplyService {
 	return &ApplyService{
 		repos:       repos,
 		cache:       cacheService,
@@ -49,7 +49,7 @@ func NewApplyService(repos *mysql.Repositories, cacheService myredis.AsyncCacheS
 // ApplyFriend 申请添加好友
 // userId: 发起申请的用户ID
 // req: 包含目标好友ID和申请信息的请求对象
-func (u *ApplyService) ApplyFriend(userId string, req applyreq.ApplyFriendRequest) error {
+func (u *ApplyService) ApplyFriend(ctx context.Context, userId string, req applyreq.ApplyFriendRequest) error {
 	// 1. 参数校验
 	// 校验好友ID是否为空，如果为空则返回参数无效错误，防止后续空指针或逻辑错误
 	if len(req.FriendId) == 0 {
@@ -63,7 +63,7 @@ func (u *ApplyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 
 	// 2. 检查目标用户是否存在
 	// 调用用户仓库查找目标用户信息，防止向不存在的用户发送申请
-	user, err := u.repos.User.FindByUuid(req.FriendId)
+	user, err := u.repos.User.FindByUuid(ctx, req.FriendId)
 	if err != nil {
 		// 如果错误是记录未找到，则返回用户不存在的业务错误
 		if errorx.IsNotFound(err) {
@@ -82,7 +82,7 @@ func (u *ApplyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 	// 4. 检查是否已经是好友
 	// 查询联系表，确认双方是否已经存在正常的好友关系
 	// 避免重复添加好友，防止产生脏数据和冗余记录
-	relation, err := u.repos.Friendship.FindByUserIdAndFriendId(userId, req.FriendId)
+	relation, err := u.repos.Friendship.FindByUserIdAndFriendId(ctx, userId, req.FriendId)
 	// 如果查询成功且关系存在，并且状态为正常，则提示已经是好友
 	if err == nil && relation != nil && relation.Status == friendship_status.NORMAL {
 		return errorx.New(errorx.CodeInvalidParam, "你们已经是好友")
@@ -91,7 +91,7 @@ func (u *ApplyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 	// 5. 查询之前的申请记录
 	// 查询是否已经存在申请记录（无论当前状态是待处理、已拒绝还是黑名单）
 	// 这用于判断是创建新申请、更新旧申请，还是因为黑名单而被拦截
-	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(userId, req.FriendId)
+	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(ctx, userId, req.FriendId)
 	if err != nil {
 		// 如果错误是未找到记录，说明是首次申请
 		if errorx.IsNotFound(err) {
@@ -106,7 +106,7 @@ func (u *ApplyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 				LastApplyAt: time.Now(),                                       // 设置申请时间为当前时间
 			}
 			// 保存新的申请记录到数据库
-			if err := u.repos.Apply.CreateApply(apply); err != nil {
+			if err := u.repos.Apply.CreateApply(ctx, apply); err != nil {
 				// 如果保存失败，记录日志并返回服务器繁忙错误
 				zap.L().Error("Create friend apply error", zap.Error(err))
 				return errorx.ErrServerBusy
@@ -136,7 +136,7 @@ func (u *ApplyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 	apply.Message = req.Message
 
 	// 将更新后的申请记录保存到数据库
-	if err := u.repos.Apply.Update(apply); err != nil {
+	if err := u.repos.Apply.Update(ctx, apply); err != nil {
 		// 如果更新失败，记录日志并返回错误
 		zap.L().Error("Update friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -150,7 +150,7 @@ func (u *ApplyService) ApplyFriend(userId string, req applyreq.ApplyFriendReques
 // ApplyGroup 申请加入群组的逻辑处理
 // userId: 申请人的用户ID
 // req: 包含目标群组ID和申请信息的请求对象
-func (u *ApplyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest) error {
+func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req applyreq.ApplyGroupRequest) error {
 	// 1. 参数校验
 	// 检查群组ID是否为空
 	if len(req.GroupId) == 0 {
@@ -160,7 +160,7 @@ func (u *ApplyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 	// 2. 检查群组是否存在
 	// 调用群组仓库查找目标群组
 	// 防止申请加入不存在的群组
-	group, err := u.repos.Group.FindByUuid(req.GroupId)
+	group, err := u.repos.Group.FindByUuid(ctx, req.GroupId)
 	if err != nil {
 		// 如果未找到群组，返回群聊不存在的错误
 		if errorx.IsNotFound(err) {
@@ -178,7 +178,7 @@ func (u *ApplyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 	// 4. 检查是否已经是群成员
 	// 通过 GroupMember 表查询，确认是否已经在群中
 	// 防止重复加群
-	_, err = u.repos.GroupMember.FindByGroupAndUser(req.GroupId, userId)
+	_, err = u.repos.GroupMember.FindByGroupAndUser(ctx, req.GroupId, userId)
 	if err != nil {
 		if !errorx.IsNotFound(err) {
 			zap.L().Error("Find group member error", zap.Error(err))
@@ -193,7 +193,7 @@ func (u *ApplyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 	// 5. 查询之前的申请记录
 	// 核心修复：先查询申请记录，检查黑名单
 	// 这里查询是为了后续判断是否被拉黑，以及复用已有记录
-	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(userId, req.GroupId)
+	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(ctx, userId, req.GroupId)
 	if err != nil {
 		// 如果查询出错且不是未找到错误，记录日志并返回
 		if !errorx.IsNotFound(err) {
@@ -226,13 +226,13 @@ func (u *ApplyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 				Role:      1,
 			}
 			// 保存群成员记录
-			if err := txRepos.GroupMember.CreateGroupMember(&member); err != nil {
+			if err := txRepos.GroupMember.CreateGroupMember(ctx, &member); err != nil {
 				zap.L().Error("service error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
 
 			// 增加群成员数量
-			if err := txRepos.Group.IncrementMemberCount(req.GroupId); err != nil {
+			if err := txRepos.Group.IncrementMemberCount(ctx, req.GroupId); err != nil {
 				zap.L().Error("service error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
@@ -245,14 +245,14 @@ func (u *ApplyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 				ReceiveName: group.Name,
 				Avatar:      group.Avatar,
 			}
-			if err := txRepos.Session.CreateSession(&session); err != nil {
+			if err := txRepos.Session.CreateSession(ctx, &session); err != nil {
 				zap.L().Error("创建入群会话失败", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
 
 			// 如果存在之前的申请记录（非黑名单），则将其软删除，避免残留无效数据
 			if apply != nil {
-				_ = txRepos.Apply.SoftDelete(userId, req.GroupId)
+				_ = txRepos.Apply.SoftDelete(ctx, userId, req.GroupId)
 			}
 			return nil
 		})
@@ -286,7 +286,7 @@ func (u *ApplyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 			LastApplyAt: time.Now(),
 		}
 		// 保存新申请
-		if err := u.repos.Apply.CreateApply(apply); err != nil {
+		if err := u.repos.Apply.CreateApply(ctx, apply); err != nil {
 			zap.L().Error("Create group apply error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -296,7 +296,7 @@ func (u *ApplyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 		apply.Status = apply_status.PENDING // 重置为待处理
 		apply.Message = req.Message
 		// 更新旧申请
-		if err := u.repos.Apply.Update(apply); err != nil {
+		if err := u.repos.Apply.Update(ctx, apply); err != nil {
 			zap.L().Error("Update group apply error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -311,7 +311,7 @@ func (u *ApplyService) ApplyGroup(userId string, req applyreq.ApplyGroupRequest)
 // page: 页码，从1开始
 // pageSize: 每页数量
 // 返回: 分页好友申请列表响应对象
-func (u *ApplyService) GetFriendApplyList(userId string, page, pageSize int) (*applyrsp.PagedFriendApplyListRespond, error) {
+func (u *ApplyService) GetFriendApplyList(ctx context.Context, userId string, page, pageSize int) (*applyrsp.PagedFriendApplyListRespond, error) {
 	// 1. 设置默认分页参数
 	if page < 1 {
 		page = 1
@@ -324,7 +324,7 @@ func (u *ApplyService) GetFriendApplyList(userId string, page, pageSize int) (*a
 	}
 
 	// 2. 数据库分页查询待处理的申请记录
-	applyList, total, err := u.repos.Apply.FindByTargetIdPendingPaged(userId, page, pageSize)
+	applyList, total, err := u.repos.Apply.FindByTargetIdPendingPaged(ctx, userId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find pending applies error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -346,7 +346,7 @@ func (u *ApplyService) GetFriendApplyList(userId string, page, pageSize int) (*a
 
 	// 4. 批量查询申请人信息
 	// 根据收集到的UUID列表，一次性查询所有用户信息，避免N+1查询问题
-	userList, err := u.repos.User.FindByUuids(userUuids)
+	userList, err := u.repos.User.FindByUuids(ctx, userUuids)
 	if err != nil {
 		zap.L().Error("Batch find users error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -395,10 +395,10 @@ func (u *ApplyService) GetFriendApplyList(userId string, page, pageSize int) (*a
 // GetGroupApplyList 获取收到的加群申请列表
 // userId: 操作者ID（必须是管理员或群主）
 // groupId: 目标群组ID
-func (u *ApplyService) GetGroupApplyList(userId, groupId string, page, pageSize int) (*applyrsp.PagedGroupApplyListRespond, error) {
+func (u *ApplyService) GetGroupApplyList(ctx context.Context, userId, groupId string, page, pageSize int) (*applyrsp.PagedGroupApplyListRespond, error) {
 	// 1. 权限校验
 	// 检查操作者是否是该群的成员
-	member, err := u.repos.GroupMember.FindByGroupAndUser(groupId, userId)
+	member, err := u.repos.GroupMember.FindByGroupAndUser(ctx, groupId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return nil, errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -424,7 +424,7 @@ func (u *ApplyService) GetGroupApplyList(userId, groupId string, page, pageSize 
 	}
 
 	// 3. 数据库分页查询待处理的入群申请
-	applyList, total, err := u.repos.Apply.FindByTargetIdPendingPaged(groupId, page, pageSize)
+	applyList, total, err := u.repos.Apply.FindByTargetIdPendingPaged(ctx, groupId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find group pending applies error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -444,7 +444,7 @@ func (u *ApplyService) GetGroupApplyList(userId, groupId string, page, pageSize 
 	}
 
 	// 5. 批量查询申请人信息
-	userList, err := u.repos.User.FindByUuids(userUuids)
+	userList, err := u.repos.User.FindByUuids(ctx, userUuids)
 	if err != nil {
 		zap.L().Error("Batch find users info error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -487,10 +487,10 @@ func (u *ApplyService) GetGroupApplyList(userId, groupId string, page, pageSize 
 // PassFriendApply 通过好友申请
 // userId: 操作者ID（即被申请人）
 // applicantId: 申请人ID（即发起好友申请的用户）
-func (u *ApplyService) PassFriendApply(userId string, applicantId string) error {
+func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, applicantId string) error {
 	// 1. 查询申请记录
 	// 确认申请是否存在，以及是否是指向当前用户的申请
-	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(applicantId, userId)
+	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 	if err != nil {
 		zap.L().Error("Find friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -506,7 +506,7 @@ func (u *ApplyService) PassFriendApply(userId string, applicantId string) error 
 	// 使用事务保证操作的原子性，要么全部成功，要么全部回滚
 	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 3. 查询申请人信息并校验状态
-		user, err := txRepos.User.FindByUuid(applicantId)
+		user, err := txRepos.User.FindByUuid(ctx, applicantId)
 		if err != nil {
 			zap.L().Error("Find user error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -520,7 +520,7 @@ func (u *ApplyService) PassFriendApply(userId string, applicantId string) error 
 		// 4. 更新申请状态
 		// 将申请状态更新为已同意（AGREE）
 		apply.Status = apply_status.AGREE
-		if err := txRepos.Apply.Update(apply); err != nil {
+		if err := txRepos.Apply.Update(ctx, apply); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -532,7 +532,7 @@ func (u *ApplyService) PassFriendApply(userId string, applicantId string) error 
 			FriendId: applicantId,
 			Status:   friendship_status.NORMAL,
 		}
-		if err := txRepos.Friendship.CreateFriendship(&newFriendship); err != nil {
+		if err := txRepos.Friendship.CreateFriendship(ctx, &newFriendship); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -543,7 +543,7 @@ func (u *ApplyService) PassFriendApply(userId string, applicantId string) error 
 			FriendId: userId,
 			Status:   friendship_status.NORMAL,
 		}
-		if err := txRepos.Friendship.CreateFriendship(&anotherFriendship); err != nil {
+		if err := txRepos.Friendship.CreateFriendship(ctx, &anotherFriendship); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -571,11 +571,11 @@ func (u *ApplyService) PassFriendApply(userId string, applicantId string) error 
 // operatorId: 操作者ID（必须是群主或管理员）
 // groupId: 目标群组ID
 // applicantId: 申请入群的用户ID
-func (u *ApplyService) PassGroupApply(operatorId, groupId, applicantId string) error {
+func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, applicantId string) error {
 	// 1. 权限校验
 	// 查询操作者在群组中的角色
 	// 防止普通成员或其他未经授权的用户审批入群申请
-	member, err := u.repos.GroupMember.FindByGroupAndUser(groupId, operatorId)
+	member, err := u.repos.GroupMember.FindByGroupAndUser(ctx, groupId, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -589,7 +589,7 @@ func (u *ApplyService) PassGroupApply(operatorId, groupId, applicantId string) e
 	}
 
 	// 2. 查找申请记录
-	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(applicantId, groupId)
+	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 	if err != nil {
 		zap.L().Error("Find group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -604,7 +604,7 @@ func (u *ApplyService) PassGroupApply(operatorId, groupId, applicantId string) e
 	// 保证入群操作（更新申请、添加成员、增加计数、添加联系）的原子性
 	err = u.repos.Transaction(func(txRepos *mysql.Repositories) error {
 		// 3.1 获取并校验群组信息
-		group, err := txRepos.Group.FindByUuid(groupId)
+		group, err := txRepos.Group.FindByUuid(ctx, groupId)
 		if err != nil {
 			zap.L().Error("Find group error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -618,7 +618,7 @@ func (u *ApplyService) PassGroupApply(operatorId, groupId, applicantId string) e
 		// 3.2 更新申请状态为 AGREED
 		apply.Status = apply_status.AGREE
 
-		if err := txRepos.Apply.Update(apply); err != nil {
+		if err := txRepos.Apply.Update(ctx, apply); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -630,13 +630,13 @@ func (u *ApplyService) PassGroupApply(operatorId, groupId, applicantId string) e
 			UserUuid:  applicantId,
 			Role:      1,
 		}
-		if err := txRepos.GroupMember.CreateGroupMember(&newMember); err != nil {
+		if err := txRepos.GroupMember.CreateGroupMember(ctx, &newMember); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		// 3.4 增加群成员计数
-		if err := txRepos.Group.IncrementMemberCount(groupId); err != nil {
+		if err := txRepos.Group.IncrementMemberCount(ctx, groupId); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -649,7 +649,7 @@ func (u *ApplyService) PassGroupApply(operatorId, groupId, applicantId string) e
 			ReceiveName: group.Name,
 			Avatar:      group.Avatar,
 		}
-		if err := txRepos.Session.CreateSession(&session); err != nil {
+		if err := txRepos.Session.CreateSession(ctx, &session); err != nil {
 			zap.L().Error("创建入群会话失败", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -673,9 +673,9 @@ func (u *ApplyService) PassGroupApply(operatorId, groupId, applicantId string) e
 // RefuseFriendApply 拒绝好友申请
 // userId: 操作者ID
 // applicantId: 申请人ID
-func (u *ApplyService) RefuseFriendApply(userId string, applicantId string) error {
+func (u *ApplyService) RefuseFriendApply(ctx context.Context, userId string, applicantId string) error {
 	// 1. 查找申请记录
-	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(applicantId, userId)
+	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 	if err != nil {
 		zap.L().Error("Find friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -686,7 +686,7 @@ func (u *ApplyService) RefuseFriendApply(userId string, applicantId string) erro
 	}
 	// 2. 更新状态为 REFUSE
 	apply.Status = apply_status.REFUSE
-	if err := u.repos.Apply.Update(apply); err != nil {
+	if err := u.repos.Apply.Update(ctx, apply); err != nil {
 		zap.L().Error("Update friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
@@ -697,10 +697,10 @@ func (u *ApplyService) RefuseFriendApply(userId string, applicantId string) erro
 // operatorId: 操作者ID（必须是群主或管理员）
 // groupId: 目标群组ID
 // applicantId: 申请入群的用户ID
-func (u *ApplyService) RefuseGroupApply(operatorId, groupId, applicantId string) error {
+func (u *ApplyService) RefuseGroupApply(ctx context.Context, operatorId, groupId, applicantId string) error {
 	// 1. 权限校验
 	// 查询操作者权限
-	member, err := u.repos.GroupMember.FindByGroupAndUser(groupId, operatorId)
+	member, err := u.repos.GroupMember.FindByGroupAndUser(ctx, groupId, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -715,7 +715,7 @@ func (u *ApplyService) RefuseGroupApply(operatorId, groupId, applicantId string)
 	}
 
 	// 2. 查找申请记录
-	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(applicantId, groupId)
+	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 	if err != nil {
 		zap.L().Error("Find group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -728,7 +728,7 @@ func (u *ApplyService) RefuseGroupApply(operatorId, groupId, applicantId string)
 
 	// 3. 更新状态为 REFUSE
 	apply.Status = apply_status.REFUSE
-	if err := u.repos.Apply.Update(apply); err != nil {
+	if err := u.repos.Apply.Update(ctx, apply); err != nil {
 		zap.L().Error("Update group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
@@ -738,9 +738,9 @@ func (u *ApplyService) RefuseGroupApply(operatorId, groupId, applicantId string)
 // BlackFriendApply 拉黑好友申请
 // userId: 操作者ID
 // applicantId: 申请人ID
-func (u *ApplyService) BlackFriendApply(userId string, applicantId string) error {
+func (u *ApplyService) BlackFriendApply(ctx context.Context, userId string, applicantId string) error {
 	// 1. 查找申请记录
-	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(applicantId, userId)
+	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
@@ -757,7 +757,7 @@ func (u *ApplyService) BlackFriendApply(userId string, applicantId string) error
 	// 2. 更新状态为 BLACK
 	// 拉黑后，对方将无法再次发送申请（ApplyFriend会在检查黑名单时拦截）
 	apply.Status = apply_status.BLACK
-	if err := u.repos.Apply.Update(apply); err != nil {
+	if err := u.repos.Apply.Update(ctx, apply); err != nil {
 		zap.L().Error("Update friend apply status error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
@@ -768,9 +768,9 @@ func (u *ApplyService) BlackFriendApply(userId string, applicantId string) error
 // operatorId: 操作者ID（必须是群主或管理员）
 // groupId: 目标群组ID
 // applicantId: 申请入群的用户ID
-func (u *ApplyService) BlackGroupApply(operatorId, groupId, applicantId string) error {
+func (u *ApplyService) BlackGroupApply(ctx context.Context, operatorId, groupId, applicantId string) error {
 	// 1. 权限校验
-	member, err := u.repos.GroupMember.FindByGroupAndUser(groupId, operatorId)
+	member, err := u.repos.GroupMember.FindByGroupAndUser(ctx, groupId, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -784,7 +784,7 @@ func (u *ApplyService) BlackGroupApply(operatorId, groupId, applicantId string) 
 	}
 
 	// 2. 查找申请记录
-	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(applicantId, groupId)
+	apply, err := u.repos.Apply.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
@@ -801,7 +801,7 @@ func (u *ApplyService) BlackGroupApply(operatorId, groupId, applicantId string) 
 	// 3. 更新状态为 BLACK
 	// 拉黑后，对方将无法再次申请入群
 	apply.Status = apply_status.BLACK
-	if err := u.repos.Apply.Update(apply); err != nil {
+	if err := u.repos.Apply.Update(ctx, apply); err != nil {
 		zap.L().Error("Update group apply status error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}

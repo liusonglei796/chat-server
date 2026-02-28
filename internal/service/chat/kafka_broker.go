@@ -20,13 +20,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"kama_chat_server/internal/dao/mysql"
-	myredis "kama_chat_server/internal/dao/redis"
-	cacheutil "kama_chat_server/internal/dao/redis/cache"
 	messagereq "kama_chat_server/internal/dto/request/message"
 	messagersp "kama_chat_server/internal/dto/respond/message"
+	cacheutil "kama_chat_server/internal/infrastructure/cache"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
+	"kama_chat_server/internal/service/mysqlinterface"
+	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/message/message_status"
 	"kama_chat_server/pkg/enum/message/message_type"
@@ -54,13 +54,13 @@ type MsgConsumer struct {
 
 	// 依赖注入字段（遵循依赖倒置原则）
 	kafkaClient     *KafkaClient
-	messageRepo     mysql.MessageRepository
-	friendshipRepo  mysql.FriendshipRepository // 用于消息权限校验（好友关系 + 拉黑检查）
-	groupMemberRepo mysql.GroupMemberRepository
-	sessionRepo     mysql.SessionRepository // 用于更新会话最后消息
-	cacheService    myredis.AsyncCacheService
-	cacheHelper     *cacheutil.Helper    // Cache-Aside 辅助工具（含 singleflight 防击穿）
-	userRepo        mysql.UserRepository // 用于检查用户状态（是否被禁用）
+	messageRepo     mysqlinterface.MessageRepository
+	friendshipRepo  mysqlinterface.FriendshipRepository // 用于消息权限校验（好友关系 + 拉黑检查）
+	groupMemberRepo mysqlinterface.GroupMemberRepository
+	sessionRepo     mysqlinterface.SessionRepository // 用于更新会话最后消息
+	cacheService    redisinterface.AsyncCacheService
+	cacheHelper     *cacheutil.Helper             // Cache-Aside 辅助工具（含 singleflight 防击穿）
+	userRepo        mysqlinterface.UserRepository // 用于检查用户状态（是否被禁用）
 
 	// quit 用于接收退出信号以优雅关闭消费循环
 	quit chan os.Signal
@@ -69,12 +69,12 @@ type MsgConsumer struct {
 // NewMsgConsumer 创建 KafkaBroker 实例（依赖注入）
 func NewMsgConsumer(
 	kafkaClient *KafkaClient,
-	messageRepo mysql.MessageRepository,
-	friendshipRepo mysql.FriendshipRepository,
-	groupMemberRepo mysql.GroupMemberRepository,
-	sessionRepo mysql.SessionRepository,
-	cacheService myredis.AsyncCacheService,
-	userRepo mysql.UserRepository, // 新增：用户仓库，用于检查用户状态
+	messageRepo mysqlinterface.MessageRepository,
+	friendshipRepo mysqlinterface.FriendshipRepository,
+	groupMemberRepo mysqlinterface.GroupMemberRepository,
+	sessionRepo mysqlinterface.SessionRepository,
+	cacheService redisinterface.AsyncCacheService,
+	userRepo mysqlinterface.UserRepository, // 新增：用户仓库，用于检查用户状态
 ) *MsgConsumer {
 	// 初始化 Cache-Aside 辅助工具（复用 cacheService 作为底层缓存实现）
 	var helper *cacheutil.Helper
@@ -234,7 +234,7 @@ func (k *MsgConsumer) UnregisterClient(client *UserConn) {
 }
 
 // GetMessageRepo 实现 MessageBroker 接口：获取消息 Repository
-func (k *MsgConsumer) GetMessageRepo() mysql.MessageRepository {
+func (k *MsgConsumer) GetMessageRepo() mysqlinterface.MessageRepository {
 	return k.messageRepo
 }
 
@@ -296,13 +296,14 @@ func (k *MsgConsumer) PushRecallNotify(messageUuid, receiveId string) {
 // 3. 群聊: 检查群成员身份
 // 返回 nil 表示允许，返回 error 表示拒绝（error.Error() 包含拒绝原因）
 func (k *MsgConsumer) checkSendPermission(sendId, receiveId string) error {
+	ctx := context.Background()
 	if len(receiveId) == 0 {
 		return fmt.Errorf("接收者ID不能为空")
 	}
 
 	// 1. 检查发送者状态（严重安全漏洞修复：被禁用的用户不应能发送消息）
 	if k.userRepo != nil {
-		sender, err := k.userRepo.FindByUuid(sendId)
+		sender, err := k.userRepo.FindByUuid(ctx, sendId)
 		if err != nil {
 			zap.L().Error("查询发送者信息失败", zap.String("sendId", sendId), zap.Error(err))
 			return fmt.Errorf("权限校验失败")
@@ -316,7 +317,7 @@ func (k *MsgConsumer) checkSendPermission(sendId, receiveId string) error {
 	if receiveId[0] == 'U' {
 		// 私聊：校验好友关系（IsFriend 要求双向 status=NORMAL，拉黑后自动失败）
 		if k.friendshipRepo != nil {
-			isFriend, err := k.friendshipRepo.IsFriend(sendId, receiveId)
+			isFriend, err := k.friendshipRepo.IsFriend(ctx, sendId, receiveId)
 			if err != nil {
 				zap.L().Error("检查好友关系失败", zap.String("sendId", sendId), zap.String("receiveId", receiveId), zap.Error(err))
 				return fmt.Errorf("权限校验失败")
@@ -328,7 +329,7 @@ func (k *MsgConsumer) checkSendPermission(sendId, receiveId string) error {
 	} else if receiveId[0] == 'G' {
 		// 群聊：校验群成员身份
 		if k.groupMemberRepo != nil {
-			_, err := k.groupMemberRepo.FindByGroupAndUser(receiveId, sendId)
+			_, err := k.groupMemberRepo.FindByGroupAndUser(ctx, receiveId, sendId)
 			if err != nil {
 				return fmt.Errorf("你不是该群成员，无法发送消息")
 			}
@@ -391,7 +392,7 @@ func (k *MsgConsumer) buildMessageFromRequest(req messagereq.ChatMessageRequest)
 // persistMessage 持久化消息到数据库
 func (k *MsgConsumer) persistMessage(message *model.Message) {
 	if k.messageRepo != nil {
-		if err := k.messageRepo.Create(message); err != nil {
+		if err := k.messageRepo.Create(context.Background(), message); err != nil {
 			zap.L().Error("创建消息失败", zap.Error(err))
 		}
 	}
@@ -407,8 +408,9 @@ func (k *MsgConsumer) updateSessionLastMessage(message *model.Message, content s
 	}
 
 	go func() {
+		ctx := context.Background()
 		// 1. 更新发送者的会话
-		if err := k.sessionRepo.UpdateLastMessage(
+		if err := k.sessionRepo.UpdateLastMessage(ctx,
 			message.SendId,
 			message.ReceiveId,
 			content,
@@ -424,7 +426,7 @@ func (k *MsgConsumer) updateSessionLastMessage(message *model.Message, content s
 		// 2. 私聊场景：同步更新接收者的会话（反向）
 		// 私聊中，接收者的会话记录是：send_id=接收者, receive_id=发送者
 		if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
-			if err := k.sessionRepo.UpdateLastMessage(
+			if err := k.sessionRepo.UpdateLastMessage(ctx,
 				message.ReceiveId, // 接收者作为会话的发起方
 				message.SendId,    // 发送者作为会话的接收方
 				content,
@@ -561,7 +563,7 @@ func (k *MsgConsumer) handleAVMessage(req messagereq.ChatMessageRequest) {
 	if avData.MessageId == "PROXY" && (avData.Type == "start_call" || avData.Type == "receive_call" || avData.Type == "reject_call") {
 		message.SendAvatar = normalizePath(message.SendAvatar)
 		if k.messageRepo != nil {
-			if err := k.messageRepo.Create(&message); err != nil {
+			if err := k.messageRepo.Create(context.Background(), &message); err != nil {
 				zap.L().Error("创建音视频消息失败", zap.Error(err))
 			}
 		}
@@ -763,9 +765,10 @@ func (k *MsgConsumer) dispatchToGroup(message model.Message, originalAvatar stri
 //   - singleflight: 并发请求同一 groupId 只查一次 DB（防击穿）
 //   - RandomizedTTL: TTL 自动加随机偏移（防雪崩）
 func (k *MsgConsumer) getGroupMembersCached(groupId string) []model.GroupMember {
+	ctx := context.Background()
 	// 降级处理：cacheHelper 未初始化时直接查 DB
 	if k.cacheHelper == nil {
-		groupMembers, err := k.groupMemberRepo.FindByGroupUuid(groupId)
+		groupMembers, err := k.groupMemberRepo.FindByGroupUuid(ctx, groupId)
 		if err != nil {
 			zap.L().Error("查询群成员失败", zap.Error(err))
 			return nil
@@ -776,14 +779,14 @@ func (k *MsgConsumer) getGroupMembersCached(groupId string) []model.GroupMember 
 	cacheKey := constants.CacheKeyGroupMemberIDs + groupId
 
 	var memberIds []string
-	// [项目工具包: internal/dao/redis/cache] Helper.GetOrLoad 实现 Cache-Aside 模式
+	// [项目工具包: internal/infrastructure/cache] Helper.GetOrLoad 实现 Cache-Aside 模式
 	// 内部自动完成: 查缓存 → singleflight 防击穿 → loader 回调查 DB → 序列化回写缓存
 	err := k.cacheHelper.GetOrLoad(
 		context.Background(),
 		cacheKey,
 		func() (interface{}, error) {
 			// loader: 缓存 miss 时查 DB，仅存储 UserUuid 列表（减少缓存体积）
-			members, err := k.groupMemberRepo.FindByGroupUuid(groupId)
+			members, err := k.groupMemberRepo.FindByGroupUuid(ctx, groupId)
 			if err != nil {
 				return nil, err
 			}

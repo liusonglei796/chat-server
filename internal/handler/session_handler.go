@@ -41,8 +41,9 @@ func (h *SessionHandler) OpenSession(c *gin.Context) {
 		return
 	}
 
+	ctx := c.Request.Context()
 	// 直接使用 JWT 中的 userId 作为 sendId，无需比较
-	sessionId, err := h.sessionSvc.OpenSession(userId.(string), req)
+	sessionId, err := h.sessionSvc.OpenSession(ctx, userId.(string), req)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -89,7 +90,8 @@ func (h *SessionHandler) GetUserSessionList(c *gin.Context) {
 
 // getUserSessionListWithPage 使用传统分页（已不推荐，但保持向后兼容）
 func (h *SessionHandler) getUserSessionListWithPage(c *gin.Context, userId string, req session.GetSessionListRequest) {
-	data, total, err := h.sessionSvc.GetUserSessionList(userId, req.Page, req.PageSize)
+	ctx := c.Request.Context()
+	data, total, err := h.sessionSvc.GetUserSessionList(ctx, userId, req.Page, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -104,7 +106,8 @@ func (h *SessionHandler) getUserSessionListWithPage(c *gin.Context, userId strin
 
 // getUserSessionListWithCursor 使用游标分页（推荐）
 func (h *SessionHandler) getUserSessionListWithCursor(c *gin.Context, userId string, req session.GetSessionListRequest) {
-	data, nextCursor, hasMore, err := h.sessionSvc.GetUserSessionListCursor(userId, req.Cursor, req.PageSize)
+	ctx := c.Request.Context()
+	data, nextCursor, hasMore, err := h.sessionSvc.GetUserSessionListCursor(ctx, userId, req.Cursor, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -156,7 +159,8 @@ func (h *SessionHandler) GetGroupSessionList(c *gin.Context) {
 
 // getGroupSessionListWithPage 使用传统分页（已不推荐，但保持向后兼容）
 func (h *SessionHandler) getGroupSessionListWithPage(c *gin.Context, userId string, req session.GetSessionListRequest) {
-	data, total, err := h.sessionSvc.GetGroupSessionList(userId, req.Page, req.PageSize)
+	ctx := c.Request.Context()
+	data, total, err := h.sessionSvc.GetGroupSessionList(ctx, userId, req.Page, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -171,7 +175,8 @@ func (h *SessionHandler) getGroupSessionListWithPage(c *gin.Context, userId stri
 
 // getGroupSessionListWithCursor 使用游标分页（推荐）
 func (h *SessionHandler) getGroupSessionListWithCursor(c *gin.Context, userId string, req session.GetSessionListRequest) {
-	data, nextCursor, hasMore, err := h.sessionSvc.GetGroupSessionListCursor(userId, req.Cursor, req.PageSize)
+	ctx := c.Request.Context()
+	data, nextCursor, hasMore, err := h.sessionSvc.GetGroupSessionListCursor(ctx, userId, req.Cursor, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -206,7 +211,8 @@ func (h *SessionHandler) DeleteSession(c *gin.Context) {
 		HandleError(c, errorx.New(errorx.CodeInvalidParam, "uuid_list 不能为空"))
 		return
 	}
-	if err := h.sessionSvc.DeleteSession(userId.(string), req.UuidList[0]); err != nil {
+	ctx := c.Request.Context()
+	if err := h.sessionSvc.DeleteSession(ctx, userId.(string), req.UuidList[0]); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -232,8 +238,9 @@ func (h *SessionHandler) CheckOpenSessionAllowed(c *gin.Context) {
 		return
 	}
 
+	ctx := c.Request.Context()
 	// 安全: 使用 JWT 中的用户 ID 作为 sendId
-	allowed, err := h.sessionSvc.CheckOpenSessionAllowed(userId.(string), req.ReceiveId)
+	allowed, err := h.sessionSvc.CheckOpenSessionAllowed(ctx, userId.(string), req.ReceiveId)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -259,7 +266,8 @@ func (h *SessionHandler) PinSession(c *gin.Context) {
 		return
 	}
 
-	if err := h.sessionSvc.PinSession(userId.(string), req.SessionId, req.IsPinned); err != nil {
+	ctx := c.Request.Context()
+	if err := h.sessionSvc.PinSession(ctx, userId.(string), req.SessionId, req.IsPinned); err != nil {
 		HandleError(c, err)
 		return
 	}
