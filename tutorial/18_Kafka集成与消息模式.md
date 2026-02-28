@@ -6,7 +6,7 @@
 
 ## 📌 学习目标
 
-- 掌握 `MessageBroker` 接口设计与依赖注入
+- 掌握 `*MsgConsumer` 设计与依赖注入
 - 实现消息生产者与消费者
 - 理解 MsgConsumer 的架构设计
 
@@ -29,7 +29,7 @@
 
 ```
 internal/service/chat/
-├── server.go          # ChatServer 聚合结构 + MessageBroker 接口
+├── server.go          # ChatServer 聚合结构 + MsgConsumer
 ├── ws_gateway.go      # WebSocket 连接管理 (UserConn)
 ├── kafka_broker.go    # MsgConsumer (Kafka 模式)
 └── kafka_client.go    # Kafka 客户端封装
@@ -45,9 +45,9 @@ go get github.com/segmentio/kafka-go
 
 ---
 
-## 4. MessageBroker 接口设计
+## 4. MsgConsumer 设计
 
-### 4.1 internal/service/chat/server.go
+### 4.1 internal/service/chat/kafka_broker.go
 
 ```go
 package chat
@@ -58,27 +58,28 @@ import (
 	myredis "kama_chat_server/internal/dao/redis"
 )
 
-// MessageBroker 定义消息代理接口
-// 当前仅支持 Kafka 实现
-type MessageBroker interface {
-	// Publish 发布消息到 Kafka
-	Publish(ctx context.Context, msg []byte) error
-	// RegisterClient 注册客户端连接
-	RegisterClient(client *UserConn)
-	// UnregisterClient 注销客户端连接
-	UnregisterClient(client *UserConn)
-	// GetClient 获取指定用户的连接
-	GetClient(userId string) *UserConn
-	// KickClient 单点登录互踢
-	KickClient(userId string, reason string)
-	// PushRecallNotify 推送撤回通知
-	PushRecallNotify(messageUuid, receiveId string)
-	// Start 启动消息消费循环
-	Start()
-	// Close 关闭代理资源
-	Close()
-	// GetMessageRepo 获取消息 Repository
-	GetMessageRepo() mysql.MessageRepository
+// MsgConsumer 基于 Kafka 的消息消费者
+type MsgConsumer struct {
+	Clients         sync.Map              // 在线客户端映射表
+	Login           chan *UserConn        // 客户端登录通道
+	Logout          chan *UserConn        // 客户端登出通道
+	kafkaClient     *KafkaClient          // Kafka 客户端
+	messageRepo     mysql.MessageRepository
+	friendshipRepo  mysql.FriendshipRepository
+	groupMemberRepo mysql.GroupMemberRepository
+	sessionRepo     mysql.SessionRepository
+	cacheService    myredis.AsyncCacheService
+	userRepo        mysql.UserRepository
+}
+
+// Publish 发布消息到 Kafka
+func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
+	return k.kafkaClient.SendMessage(ctx, []byte("0"), msg)
+}
+
+// GetMessageRepo 获取消息 Repository
+func (k *MsgConsumer) GetMessageRepo() mysql.MessageRepository {
+	return k.messageRepo
 }
 ```
 
@@ -87,7 +88,7 @@ type MessageBroker interface {
 ```go
 // ChatServer 聊天服务器聚合结构
 type ChatServer struct {
-	Broker          MessageBroker
+	Broker          *MsgConsumer
 	KafkaClient     *KafkaClient
 	messageRepo     mysql.MessageRepository
 	friendshipRepo  mysql.FriendshipRepository
@@ -252,7 +253,7 @@ type UserConn struct {
 	Conn        *websocket.Conn
 	Uuid        string
 	SendBack    chan *MessageBack // 给前端
-	broker      MessageBroker     // 注入的消息代理
+	broker      *MsgConsumer     // 注入的消息消费者
 	cleanupOnce sync.Once         // 确保 cleanup 只执行一次
 }
 
@@ -335,7 +336,7 @@ func (c *UserConn) cleanup() {
 }
 
 // NewClientInit 初始化新的 WebSocket 客户端
-func NewClientInit(c *gin.Context, clientId string, broker MessageBroker) {
+func NewClientInit(c *gin.Context, clientId string, broker *MsgConsumer) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		zap.L().Error(err.Error())
@@ -443,7 +444,7 @@ func (mc *MsgConsumer) Start() {
 	}
 }
 
-// Publish 实现 MessageBroker 接口
+// Publish 发布消息到 Kafka
 func (mc *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
 	return mc.Producer.WriteMessages(ctx, kafka.Message{
 		Value: msg,
@@ -572,7 +573,7 @@ func main() {
 ## ✅ 本节小结
 
 - 本项目**只支持 Kafka 模式**
-- `MessageBroker` 接口定义了消息代理的抽象
+- `*MsgConsumer` 实现了消息消费者的所有功能
 - `MsgConsumer` 负责从 Kafka 消费消息并处理
 - WebSocket 网关通过 `Publish` 接口发布消息，不关心底层实现
 - 支持单点登录互踢（KickClient）和消息撤回通知（PushRecallNotify）

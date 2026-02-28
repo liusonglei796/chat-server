@@ -14,11 +14,11 @@ import (
 
 // WsHandler WebSocket 请求处理器
 type WsHandler struct {
-	broker chat.MessageBroker
+	broker *chat.MsgConsumer
 }
 
 // NewWsHandler 创建 WebSocket 处理器实例
-func NewWsHandler(broker chat.MessageBroker) *WsHandler {
+func NewWsHandler(broker *chat.MsgConsumer) *WsHandler {
 	return &WsHandler{broker: broker}
 }
 

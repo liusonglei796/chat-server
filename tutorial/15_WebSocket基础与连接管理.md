@@ -1,6 +1,6 @@
 # 15. WebSocket 基础与连接管理
 
-> 本章从项目的真实实现出发，讲清楚 WebSocket 连接如何升级、如何管理在线用户、以及消息如何通过 `MessageBroker`（Kafka 模式）流转。
+> 本章从项目的真实实现出发，讲清楚 WebSocket 连接如何升级、如何管理在线用户、以及消息如何通过 `*MsgConsumer`（Kafka 模式）流转。
 
 ---
 
@@ -9,7 +9,7 @@
 - 理解 WebSocket 的连接特性与适用场景
 - 掌握 `gorilla/websocket` 将 HTTP 升级为 WebSocket
 - 理解 `UserConn`（连接对象）的读写协程模型
-- 理解 `MessageBroker` 抽象与依赖注入（Kafka 模式）
+- 理解 `*MsgConsumer` 消息消费者与依赖注入（Kafka 模式）
 - 理解当前项目的路由与鉴权要求（`/ws` 需要 Bearer Access Token）
 
 ---
@@ -27,8 +27,8 @@ WebSocket 与聊天服务核心代码位于：
 ```
 internal/service/chat/
 ├── ws_gateway.go         # WebSocket 升级 + UserConn 读写协程
-├── server.go             # MessageBroker 接口 + ChatServer 组装
-├── kafka_broker.go       # MsgConsumer（Kafka 模式消息代理）
+├── server.go             # ChatServer 聚合 + MsgConsumer
+├── kafka_broker.go       # MsgConsumer（Kafka 模式消息消费者）
 └── kafka_client.go       # Kafka 客户端封装
 ```
 
@@ -58,7 +58,7 @@ type UserConn struct {
 	Conn        *websocket.Conn   // 底层 WebSocket 连接
 	Uuid        string            // 用户 ID（来自 JWT，可信）
 	SendBack    chan *MessageBack // 待推送消息队列
-	broker      MessageBroker     // 注入的消息代理
+	broker      *MsgConsumer     // 注入的消息消费者
 	cleanupOnce sync.Once         // 确保 cleanup 只执行一次
 }
 ```
@@ -179,21 +179,19 @@ func (c *UserConn) Write() {
 
 ---
 
-## 5. MessageBroker 抽象与依赖注入
+## 5. MsgConsumer 消息消费者与依赖注入
 
-### 5.1 MessageBroker 接口
+### 5.1 MsgConsumer 结构体
 
 ```go
-type MessageBroker interface {
-	Publish(ctx context.Context, msg []byte) error
-	RegisterClient(client *UserConn)
-	UnregisterClient(client *UserConn)
-	GetClient(userId string) *UserConn
-	KickClient(userId string, reason string)       // 单点登录互踢
-	PushRecallNotify(messageUuid, receiveId string) // 撤回通知
-	Start()
-	Close()
-	GetMessageRepo() mysql.MessageRepository
+// kafka_broker.go — Kafka 消息消费者
+type MsgConsumer struct {
+    Clients      sync.Map              // 在线客户端映射表
+    Login        chan *UserConn        // 客户端登录通道
+    Logout       chan *UserConn        // 客户端登出通道
+    kafkaClient  *KafkaClient          // Kafka 客户端
+    messageRepo  mysql.MessageRepository
+    // ... 其他依赖
 }
 ```
 
@@ -227,7 +225,7 @@ go chatServer.Run()
 ### 6.1 建立连接：NewClientInit
 
 ```go
-func NewClientInit(c *gin.Context, clientId string, broker MessageBroker) {
+func NewClientInit(c *gin.Context, clientId string, broker *MsgConsumer) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		zap.L().Error(err.Error())
@@ -248,7 +246,7 @@ func NewClientInit(c *gin.Context, clientId string, broker MessageBroker) {
 ### 6.2 断开连接：ClientLogout
 
 ```go
-func ClientLogout(clientId string, broker MessageBroker) error {
+func ClientLogout(clientId string, broker *MsgConsumer) error {
 	client := broker.GetClient(clientId)
 	if client != nil {
 		client.cleanup() // 统一通过 sync.Once 释放资源
@@ -302,7 +300,7 @@ func ClientLogout(clientId string, broker MessageBroker) error {
 
 ```go
 type WsHandler struct {
-	broker chat.MessageBroker
+	broker *chat.MsgConsumer
 }
 
 func (h *WsHandler) WsLoginHandler(c *gin.Context) {
@@ -380,7 +378,7 @@ WsLoginHandler 升级连接（用户 ID 从 JWT 获取）
     ↓
 UserConn.Read() 读消息 → injectSenderId 安全注入 send_id
     ↓
-MessageBroker.Publish() → Kafka Producer
+`*MsgConsumer`.Publish() → Kafka Producer
     ↓
 Kafka Consumer 消费消息
     ↓
@@ -473,7 +471,7 @@ curl -X POST 'http://localhost:8000/ws/logout' \
 ## 13. 本章小结
 
 - WebSocket 网关在 `ws_gateway.go`：负责升级连接与读写协程
-- 消息路由通过 `MessageBroker` 抽象解耦，当前仅支持 Kafka 模式
+- 消息路由通过 `*MsgConsumer` 解耦，当前仅支持 Kafka 模式
 - `/ws` 与 `/ws/logout` 处于 JWT 私有路由，需要 `Authorization: Bearer <access_token>`
 - 安全机制：用户 ID 从 JWT 获取，消息发送时由服务端注入 send_id 防止 IDOR 攻击
 

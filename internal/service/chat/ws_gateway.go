@@ -55,7 +55,7 @@ type UserConn struct {
 	Conn        *websocket.Conn   // 底层 WebSocket 连接（通往用户浏览器的 TCP 管道）
 	Uuid        string            // 用户 ID（来自 JWT，可信）
 	SendBack    chan *MessageBack // 待推送消息队列：Kafka 消费者写入 → Write goroutine 读取并推送到浏览器
-	broker      MessageBroker     // 注入的消息代理（用于 Publish 上行消息、注销连接等）
+	broker      *MsgConsumer      // 注入的消息消费者（用于 Publish 上行消息、注销连接等）
 	cleanupOnce sync.Once         // 确保 cleanup 只执行一次（Read 退出和 ClientLogout 可能并发触发）
 }
 
@@ -83,8 +83,8 @@ func (c *UserConn) Read() {
 	// 设置心跳：初始读超时 + pong 回调续期
 	// 改进建议：pongWait 定义了等待客户端 pong 响应的超时时间（60秒）
 	// 如果客户端在 60 秒内未响应 ping，连接将被断开
-	_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait))     // [第三方库: github.com/gorilla/websocket] Conn.SetReadDeadline 设置读超时
-	c.Conn.SetPongHandler(func(string) error { // [第三方库: github.com/gorilla/websocket] Conn.SetPongHandler 设置 pong 回调
+	_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait)) // [第三方库: github.com/gorilla/websocket] Conn.SetReadDeadline 设置读超时
+	c.Conn.SetPongHandler(func(string) error {           // [第三方库: github.com/gorilla/websocket] Conn.SetPongHandler 设置 pong 回调
 		// 收到 pong 后重置读超时，保持连接活跃
 		_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
@@ -211,7 +211,7 @@ func (c *UserConn) Write() {
 
 // NewClientInit 当接受到前端有登录消息时，会调用该函数
 // broker: 消息代理实例，通过依赖注入传入
-func NewClientInit(c *gin.Context, clientId string, broker MessageBroker) { // [第三方库: github.com/gin-gonic/gin] gin.Context 为 HTTP 请求上下文
+func NewClientInit(c *gin.Context, clientId string, broker *MsgConsumer) { // [第三方库: github.com/gin-gonic/gin] gin.Context 为 HTTP 请求上下文
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil) // [第三方库: github.com/gorilla/websocket] Upgrader.Upgrade 将 HTTP 升级为 WebSocket
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
@@ -232,7 +232,7 @@ func NewClientInit(c *gin.Context, clientId string, broker MessageBroker) { // [
 
 // ClientLogout 当接受到前端有登出消息时，会调用该函数
 // 通过 cleanup 统一释放资源（sync.Once 保证幂等）
-func ClientLogout(clientId string, broker MessageBroker) error {
+func ClientLogout(clientId string, broker *MsgConsumer) error {
 	client := broker.GetClient(clientId)
 	if client != nil {
 		client.cleanup()

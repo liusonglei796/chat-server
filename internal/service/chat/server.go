@@ -1,38 +1,14 @@
 // Package chat 实现了聊天系统的核心服务层
 // server.go
 // 核心职责：聊天服务器聚合结构和依赖注入
-// 封装 MessageBroker、KafkaClient 等组件，提供统一的生命周期管理
+// 封装 KafkaClient 等组件，提供统一的生命周期管理
 package chat
 
 import (
-	"context"
 	"kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"strings"
 )
-
-// MessageBroker 定义消息代理接口
-// 实现：MsgConsumer (基于 Kafka 的分布式模式)
-type MessageBroker interface {
-	// Publish 发布消息到 Kafka
-	Publish(ctx context.Context, msg []byte) error
-	// RegisterClient 注册客户端连接
-	RegisterClient(client *UserConn)
-	// UnregisterClient 注销客户端连接
-	UnregisterClient(client *UserConn)
-	// GetClient 获取指定用户的连接
-	GetClient(userId string) *UserConn
-	// KickClient 向指定用户推送下线通知并断开连接（单点登录互踢）
-	KickClient(userId string, reason string)
-	// PushRecallNotify 向指定用户推送撤回通知（非 Kafka，本地直推）
-	PushRecallNotify(messageUuid, receiveId string)
-	// Start 启动消息消费循环
-	Start()
-	// Close 关闭代理资源
-	Close()
-	// GetMessageRepo 获取消息 Repository（供 ws_gateway 使用）
-	GetMessageRepo() mysql.MessageRepository
-}
 
 // normalizePath 将完整 URL 转换为相对路径
 // 例如: https://127.0.0.1:8000/static/xxx -> /static/xxx
@@ -55,8 +31,8 @@ func normalizePath(path string) string {
 // ChatServer 聊天服务器聚合结构
 // 封装所有聊天相关组件，通过依赖注入管理生命周期
 type ChatServer struct {
-	// Broker 消息代理接口（MsgConsumer 实现）
-	Broker MessageBroker
+	// Broker 消息消费者（基于 Kafka）
+	Broker *MsgConsumer
 
 	// KafkaClient Kafka 客户端
 	KafkaClient *KafkaClient
@@ -127,7 +103,7 @@ func (cs *ChatServer) Shutdown() {
 	}
 }
 
-// GetBroker 获取消息代理
-func (cs *ChatServer) GetBroker() MessageBroker {
+// GetBroker 获取消息消费者
+func (cs *ChatServer) GetBroker() *MsgConsumer {
 	return cs.Broker
 }

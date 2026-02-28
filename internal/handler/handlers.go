@@ -24,7 +24,7 @@ type Handlers struct {
 }
 
 // NewHandlers 创建并注入所有 Handler 实例
-func NewHandlers(svc *service.Services, broker chat.MessageBroker) *Handlers {
+func NewHandlers(svc *service.Services, broker *chat.MsgConsumer) *Handlers {
 	return &Handlers{
 		User:       NewUserHandler(svc.User),
 		Auth:       NewAuthHandler(svc.Auth),

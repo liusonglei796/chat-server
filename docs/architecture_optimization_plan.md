@@ -163,7 +163,7 @@ type AckMessage struct {
 
 ### 事务基础设施
 
-**实现位置**: `internal/dao/mysql/provider.go`
+**实现位置**: `internal/dao/mysql/repositories.go`
 
 ```go
 func (r *Repositories) Transaction(fn func(txRepos *Repositories) error) error {

@@ -27,9 +27,9 @@
 |------|------|
 | `internal/handler/ws_handler.go` | HTTP → WebSocket 升级入口 |
 | `internal/service/chat/ws_gateway.go` | WebSocket 连接管理、消息读写 |
-| `internal/service/chat/server.go` | 聚合结构、MessageBroker 接口定义 |
+| `internal/service/chat/server.go` | 聚合结构、MsgConsumer |
 | `internal/service/chat/kafka_client.go` | Kafka 生产者/消费者底层封装 |
-| `internal/service/chat/kafka_broker.go` | Kafka 消息消费、业务处理、消息路由 |
+| `internal/service/chat/kafka_broker.go` | Kafka 消息消费、业务处理、消息路由（MsgConsumer 实现） |
 | `internal/dto/request/message/chat_message_request.go` | 消息请求 DTO |
 | `internal/dto/respond/message/get_message_list_respond.go` | 消息响应 DTO |
 | `internal/dto/respond/message/av_message_respond.go` | 音视频消息响应 DTO |
@@ -47,7 +47,7 @@ type UserConn struct {
     Conn        *websocket.Conn   // 底层 WebSocket 连接
     Uuid        string            // 用户ID（来自 JWT 认证，可信）
     SendBack    chan *MessageBack  // 待推送给前端的消息队列
-    broker      MessageBroker     // 注入的消息代理
+    broker      *MsgConsumer     // 注入的消息消费者
     cleanupOnce sync.Once         // 确保资源只释放一次
 }
 
@@ -126,19 +126,7 @@ type Message struct {
 ### 3.4 Broker 层
 
 ```go
-// server.go — 消息代理接口
-type MessageBroker interface {
-    Publish(ctx context.Context, msg []byte) error  // 发布消息到 Kafka
-    RegisterClient(client *UserConn)                // 注册在线用户
-    UnregisterClient(client *UserConn)              // 注销离线用户
-    GetClient(userId string) *UserConn              // 查找在线用户
-    KickClient(userId, reason string)               // 踢人下线
-    Start()                                         // 启动消费循环
-    Close()                                         // 关闭资源
-    GetMessageRepo() mysql.MessageRepository        // 获取消息仓库
-}
-
-// kafka_broker.go — MessageBroker 的 Kafka 实现
+// kafka_broker.go — Kafka 消息消费者
 type MsgConsumer struct {
     Clients         sync.Map                    // 在线用户表 map[userUUID]*UserConn
     Login           chan *UserConn               // 登录事件通道
@@ -151,7 +139,18 @@ type MsgConsumer struct {
     cacheService    myredis.AsyncCacheService   // Redis 缓存
 }
 
-// kafka_client.go — Kafka 底层客户端
+// 发布消息到 Kafka
+func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
+    return k.kafkaClient.SendMessage(ctx, []byte("0"), msg)
+}
+
+// 获取消息仓库
+func (k *MsgConsumer) GetMessageRepo() mysql.MessageRepository {
+    return k.messageRepo
+}
+```
+
+### 3.5 Kafka 客户端
 type KafkaClient struct {
     Producer  *kafka.Writer  // 写入 Kafka
     Consumer  *kafka.Reader  // 从 Kafka 读取

@@ -320,7 +320,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 ## 7. AuthService 接口
 
-### 7.1 internal/service/interfaces.go
+### 7.1 internal/service/services.go
 
 ```go
 // AuthService 认证服务接口

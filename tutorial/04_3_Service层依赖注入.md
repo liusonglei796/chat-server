@@ -92,7 +92,7 @@ func NewUserService(repos *mysql.Repositories, cache myredis.AsyncCacheService) 
 
 ```
 internal/service/
-├── interfaces.go      # ⭐ 接口 + Services 聚合 + NewServices 入口
+├── services.go      # ⭐ 接口 + Services 聚合 + NewServices 入口
 ├── user/
 │   └── service.go     # UserService 具体实现
 ├── auth/
@@ -115,12 +115,12 @@ internal/service/
 
 ---
 
-## 3. 接口定义（interfaces.go）
+## 3. 接口定义（services.go）
 
 ### 3.1 Service 接口示例
 
 ```go
-// 位置: internal/service/interfaces.go
+// 位置: internal/service/services.go
 package service
 
 import (
@@ -316,12 +316,12 @@ func (u *userInfoService) DeleteUsers(uuidList []string) error {
 ## 5. Services 聚合（NewServices）
 
 > **更新说明**：当前项目不再使用 `provider.go` + `service.Svc` 的全局入口。
-> Service 聚合与构造入口统一放在 `internal/service/interfaces.go` 的 `Services` / `NewServices` 中，并由 `main.go` 显式创建后注入到 Handler。
+> Service 聚合与构造入口统一放在 `internal/service/services.go` 的 `Services` / `NewServices` 中，并由 `main.go` 显式创建后注入到 Handler。
 
 ### 5.1 Services 聚合结构（当前实现）
 
 ```go
-// 位置: internal/service/interfaces.go
+// 位置: internal/service/services.go
 package service
 
 import (
@@ -534,7 +534,7 @@ func TestGetUserInfo(t *testing.T) {
 
 ```
 internal/service/
-├── interfaces.go      # 接口 + Services 聚合 + NewServices 入口
+├── services.go      # 接口 + Services 聚合 + NewServices 入口
 ├── <module>/
 │   └── service.go     # 模块实现（每个模块一个）
 └── chat/              # ChatServer/WebSocket/MQ（由 main 单独初始化）
