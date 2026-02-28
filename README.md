@@ -1,7 +1,7 @@
 # KamaChat Server
 
 <p align="center">
-   <img src="https://img.shields.io/badge/Go-1.24-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version">
+   <img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version">
    <img src="https://img.shields.io/badge/Gin-v1.11.0-00ADD8?style=for-the-badge&logo=gin&logoColor=white" alt="Gin Framework">
   <img src="https://img.shields.io/badge/MySQL-8.0-4479A1?style=for-the-badge&logo=mysql&logoColor=white" alt="MySQL">
    <img src="https://img.shields.io/badge/Redis-v9-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis">
@@ -28,8 +28,9 @@ KamaChat Server 是一个基于 Go 语言开发的高性能即时通讯服务端
 - 🔇 **群成员禁言** - 群主/管理员可对群成员进行禁言操作
 - 📝 **好友备注** - 支持设置好友备注名，方便管理联系人
 - 🤖 **AI 智能回复建议** - 基于上下文生成 3 条可选回复
-- 📋 **AI 群聊总结** - 自动提炼群聊要点、待办与决策
+- 📋 **AI 群聊总结** - 自动提炼群聊要点、待办与决策（支持自定义时间范围和消息数量）
 - 🌍 **AI 多语言翻译** - 支持自动识别源语言并翻译到目标语言
+- 🛡️ **IDOR 防护** - 基于用户会话的 IDOR 安全检查
 
 ## 🏗️ 项目架构
 
@@ -41,34 +42,64 @@ kama_chat_server/
 ├── configs/
 │   └── config.toml               # 配置文件
 ├── docs/                         # 文档目录
+│   ├── architecture_optimization_plan.md
+│   ├── cache_strategy.md
+│   ├── plans/                   # 开发计划
+│   ├── security/                # 安全相关
+│   └── tutorial/                 # 教程文档
 ├── internal/
 │   ├── config/                   # 配置加载
-│   ├── dao/                      # 数据访问层 (MySQL + Redis)
-│   ├── dto/                      # 数据传输对象 (Request & Response)
-│   ├── gateway/                  # 网关层 (WebSocket)
-│   │   └── websocket/
+│   ├── dao/                      # 数据访问层
+│   │   ├── mysql/                # MySQL Repository
+│   │   └── redis/                # Redis 缓存
+│   │       └── cache/            # 缓存工具（singleflight）
+│   ├── dto/                      # 数据传输对象
+│   │   ├── request/              # 请求 DTO
+│   │   └── respond/              # 响应 DTO
+│   ├── gateway/                  # 网关层
+│   │   └── websocket/            # WebSocket 实现
 │   ├── handler/                  # HTTP 处理器
 │   ├── https_server/             # HTTPS 服务器配置
 │   ├── infrastructure/           # 基础设施层
+│   │   ├── ai/                   # AI 客户端（Eino SDK）
 │   │   ├── logger/               # 日志组件 (Zap)
-│   │   ├── middleware/           # 中间件 (JWT, CORS 等)
+│   │   ├── middleware/           # 中间件
 │   │   ├── mq/                   # 消息队列 (Kafka)
-│   │   └── sms/                  # 短信服务
+│   │   ├── sms/                  # 短信服务
+│   │   └── snowflake/            # 雪花算法 ID 生成
 │   ├── model/                    # 数据模型
 │   ├── router/                   # 路由定义
-│   ├── service/                  # 业务逻辑层
-│   └── tutorial/                 # 教程文档
+│   └── service/                  # 业务逻辑层
+│       ├── ai/                   # AI 业务
+│       ├── apply/                # 申请业务
+│       ├── auth/                 # 认证业务
+│       ├── friendship/          # 好友业务
+│       ├── group/                # 群组业务
+│       ├── message/              # 消息业务
+│       ├── session/              # 会话业务
+│       ├── user/                 # 用户业务
+│       └── admin/                # 后台管理
 ├── migrations/                   # 数据库迁移脚本
 ├── pkg/
 │   ├── aes/                      # AES 加密工具
 │   ├── constants/                # 常量定义
+│   │   ├── ai.go                 # AI 常量
+│   │   ├── cache_key.go          # Redis Key 常量
+│   │   └── constants.go          # 通用常量
 │   ├── enum/                     # 枚举定义
+│   │   ├── apply/
+│   │   ├── friendship/
+│   │   ├── group/
+│   │   ├── message/
+│   │   └── user/
 │   ├── errorx/                   # 错误处理
+│   ├── jwt/                      # JWT 工具
 │   └── util/                     # 工具函数
-│       └── jwt/                  # JWT 工具
 ├── test/                         # 测试文件
 ├── go.mod
 ├── go.sum
+├── docker-compose.yml            # Docker 编排
+├── Dockerfile
 └── LICENSE                       # GPL-3.0 许可证
 ```
 
@@ -76,9 +107,9 @@ kama_chat_server/
 
 | 组件 | 技术 |
 |------|------|
-| **语言** | Go 1.24 |
+| **语言** | Go 1.26 |
 | **Web 框架** | Gin v1.11 |
-| **ORM** | GORM v1.25 |
+| **ORM** | GORM v1.31 |
 | **数据库** | MySQL 8.0 |
 | **缓存** | Redis v9 |
 | **消息队列** | Kafka (可选) |
@@ -94,7 +125,7 @@ kama_chat_server/
 
 ### 前置要求
 
-- Go 1.24+
+- Go 1.26+
 - MySQL 8.0+
 - Redis 6.0+
 - Kafka (可选，用于分布式消息处理)
@@ -227,6 +258,29 @@ Service 层返回值约定：
 - `ret = 0` - 服务调用成功
 - `ret = -1` - 系统错误 (HTTP 500)
 - `ret = -2` - 业务错误 (HTTP 400)
+
+### 常量定义规范
+
+- 通用常量：`pkg/constants/constants.go`
+- Redis Key：`pkg/constants/cache_key.go`
+- AI 常量：`pkg/constants/ai.go`
+- 枚举定义：`pkg/enum/<模块>/<类型>/`
+
+### AI 群聊总结参数说明
+
+| 参数 | 类型 | 说明 | 默认值 |
+|------|------|------|--------|
+| group_id | string | 群组 ID（必须以 G 开头） | - |
+| hours | int | 总结过去多少小时的消息 | 24 |
+| limit | int | 最多拉取多少条消息 | 200（最大 500） |
+| style | string | 总结风格（brief/comprehensive） | brief |
+
+示例请求：
+```bash
+curl -X POST /ai/group-summary \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"group_id": "G123456", "hours": 24, "limit": 200}'
+```
 
 ## 📄 License
 
