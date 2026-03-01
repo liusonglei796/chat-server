@@ -11,7 +11,8 @@ import (
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/config"
-	"kama_chat_server/internal/dao/mysql"
+	"kama_chat_server/internal/domain/repository"
+
 	aiclient "kama_chat_server/internal/infrastructure/ai"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
@@ -23,22 +24,34 @@ import (
 
 // AiService AI 业务服务
 type AiService struct {
-	repos  *mysql.Repositories
-	client aiclient.ChatClient
-	model  string
+	messageRepo     repository.MessageRepository
+	groupMemberRepo repository.GroupMemberRepository
+	sessionRepo     repository.SessionRepository
+	friendshipRepo  repository.FriendshipRepository
+	client          aiclient.ChatClient
+	model           string
 }
 
 // NewAIService 创建 AI 业务服务
-func NewAIService(repos *mysql.Repositories, cfg *config.Config) *AiService {
+func NewAIService(
+	messageRepo repository.MessageRepository,
+	groupMemberRepo repository.GroupMemberRepository,
+	sessionRepo repository.SessionRepository,
+	friendshipRepo repository.FriendshipRepository,
+	cfg *config.Config,
+) *AiService {
 	client, err := aiclient.NewEinoClient(cfg.ModelScopeConfig)
 	if err != nil {
 		zap.L().Warn("init eino client failed, ai service disabled", zap.Error(err))
 	}
 
 	return &AiService{
-		repos:  repos,
-		client: client,
-		model:  cfg.ModelScopeConfig.Model,
+		messageRepo:     messageRepo,
+		groupMemberRepo: groupMemberRepo,
+		sessionRepo:     sessionRepo,
+		friendshipRepo:  friendshipRepo,
+		client:          client,
+		model:           cfg.ModelScopeConfig.Model,
 	}
 }
 
@@ -120,7 +133,7 @@ func (s *AiService) GroupSummary(ctx context.Context, userId string, req aireq.G
 		req.Limit = constants.MaxSummaryLimit
 	}
 
-	if _, err := s.repos.GroupMember.FindByGroupAndUser(ctx, groupId, userId); err != nil {
+	if _, err := s.groupMemberRepo.FindByGroupAndUser(ctx, groupId, userId); err != nil {
 		if errorx.IsNotFound(err) {
 			return nil, errorx.New(errorx.CodeForbidden, "你不是该群成员")
 		}
@@ -128,7 +141,7 @@ func (s *AiService) GroupSummary(ctx context.Context, userId string, req aireq.G
 		return nil, errorx.ErrServerBusy
 	}
 
-	result, err := s.repos.Message.FindByGroupIdCursor(ctx, groupId, "", req.Limit)
+	result, err := s.messageRepo.FindByGroupIdCursor(ctx, groupId, "", req.Limit)
 	if err != nil {
 		zap.L().Error("load group messages failed", zap.Error(err), zap.String("group_id", groupId))
 		return nil, errorx.ErrServerBusy
@@ -219,7 +232,7 @@ func (s *AiService) ensureClientReady() error {
 
 func (s *AiService) buildConversationContext(ctx context.Context, userId, targetId string, limit int) (string, error) {
 	if strings.HasPrefix(targetId, "G") {
-		if _, err := s.repos.Session.FindBySendIdAndReceiveId(ctx, userId, targetId); err != nil {
+		if _, err := s.sessionRepo.FindBySendIdAndReceiveId(ctx, userId, targetId); err != nil {
 			if errorx.IsNotFound(err) {
 				return "", errorx.New(errorx.CodeForbidden, "你没有该群会话记录")
 			}
@@ -227,7 +240,7 @@ func (s *AiService) buildConversationContext(ctx context.Context, userId, target
 			return "", errorx.ErrServerBusy
 		}
 
-		result, err := s.repos.Message.FindByGroupIdCursor(ctx, targetId, "", limit)
+		result, err := s.messageRepo.FindByGroupIdCursor(ctx, targetId, "", limit)
 		if err != nil {
 			zap.L().Error("load group context failed", zap.Error(err), zap.String("group_id", targetId))
 			return "", errorx.ErrServerBusy
@@ -236,7 +249,7 @@ func (s *AiService) buildConversationContext(ctx context.Context, userId, target
 	}
 
 	if targetId != userId {
-		isFriend, err := s.repos.Friendship.IsFriend(ctx, userId, targetId)
+		isFriend, err := s.friendshipRepo.IsFriend(ctx, userId, targetId)
 		if err != nil {
 			zap.L().Error("check friend relationship failed", zap.Error(err), zap.String("user_id", userId), zap.String("target_id", targetId))
 			return "", errorx.ErrServerBusy
@@ -252,7 +265,7 @@ func (s *AiService) buildConversationContext(ctx context.Context, userId, target
 		userOneId, userTwoId = userTwoId, userOneId
 	}
 
-	result, err := s.repos.Message.FindByUserIdsCursor(ctx, userOneId, userTwoId, "", limit)
+	result, err := s.messageRepo.FindByUserIdsCursor(ctx, userOneId, userTwoId, "", limit)
 	if err != nil {
 		zap.L().Error("load private context failed", zap.Error(err), zap.String("user_one", userOneId), zap.String("user_two", userTwoId))
 		return "", errorx.ErrServerBusy

@@ -7,7 +7,7 @@ import (
 
 	"kama_chat_server/internal/config"
 	"kama_chat_server/internal/dao/redis/ops"
-	redisinterface "kama_chat_server/internal/service/redisinterface"
+	"kama_chat_server/internal/domain/repository"
 
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -18,7 +18,7 @@ import (
 // Init 初始化 Redis 连接并返回缓存服务
 // 从配置文件读取连接参数并创建客户端实例
 // 返回 AsyncCacheService 接口，供 Service 层依赖注入使用
-func Init() redisinterface.AsyncCacheService {
+func Init() repository.AsyncCacheService {
 	conf := config.GetConfig()
 	host := conf.RedisConfig.Host         // Redis 服务器地址
 	port := conf.RedisConfig.Port         // Redis 端口
@@ -85,7 +85,7 @@ func (r *RedisCache) startWorker() {
 }
 
 // 确保 RedisCache 实现了 AsyncCacheService 接口
-var _ redisinterface.AsyncCacheService = (*RedisCache)(nil)
+var _ repository.AsyncCacheService = (*RedisCache)(nil)
 
 // Set 设置键值对并指定过期时间
 func (r *RedisCache) Set(ctx context.Context, key string, value string, ttl time.Duration) error {

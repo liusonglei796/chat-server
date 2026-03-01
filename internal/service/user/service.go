@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"kama_chat_server/internal/dao/mysql"
+	"kama_chat_server/internal/domain/repository"
 	"kama_chat_server/internal/dto/request/auth"
 	userreq "kama_chat_server/internal/dto/request/user"
 	userrsp "kama_chat_server/internal/dto/respond/user"
@@ -16,7 +16,6 @@ import (
 	"kama_chat_server/internal/infrastructure/sms"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
-	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
@@ -26,8 +25,8 @@ import (
 // UserService 用户业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖
 type UserService struct {
-	repos       *mysql.Repositories
-	cache       redisinterface.AsyncCacheService
+	uow         repository.UnitOfWork
+	cache       repository.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
 	smsService  sms.SmsService
 	kickClient  func(userId, reason string) // 踢人回调函数（解耦 chat 包）
@@ -35,9 +34,9 @@ type UserService struct {
 
 // NewUserService 构造函数，注入所有依赖
 // kickClient: 可选的踢人回调函数，用于登录时踢掉旧设备
-func NewUserService(repos *mysql.Repositories, cacheService redisinterface.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string)) *UserService {
+func NewUserService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string)) *UserService {
 	return &UserService{
-		repos:       repos,
+		uow:         uow,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
 		smsService:  smsService,
@@ -121,7 +120,7 @@ func (u *UserService) buildLoginResponse(ctx context.Context, user *model.UserIn
 
 // Login 登录
 func (u *UserService) Login(ctx context.Context, loginReq auth.LoginRequest) (*userrsp.LoginRespond, error) {
-	user, err := u.repos.User.FindByTelephone(ctx, loginReq.Telephone)
+	user, err := u.uow.UserRepo().FindByTelephone(ctx, loginReq.Telephone)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在，请注册")
@@ -138,7 +137,7 @@ func (u *UserService) Login(ctx context.Context, loginReq auth.LoginRequest) (*u
 
 // SmsLogin 验证码登录
 func (u *UserService) SmsLogin(ctx context.Context, req auth.SmsLoginRequest) (*userrsp.LoginRespond, error) {
-	user, err := u.repos.User.FindByTelephone(ctx, req.Telephone)
+	user, err := u.uow.UserRepo().FindByTelephone(ctx, req.Telephone)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在，请注册")
@@ -172,7 +171,7 @@ func (u *UserService) SendSmsCode(ctx context.Context, telephone string) error {
 
 // checkTelephoneExist 检查手机号是否存在
 func (u *UserService) checkTelephoneExist(ctx context.Context, telephone string) error {
-	_, err := u.repos.User.FindByTelephone(ctx, telephone)
+	_, err := u.uow.UserRepo().FindByTelephone(ctx, telephone)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			zap.L().Info("该电话不存在，可以注册")
@@ -216,7 +215,7 @@ func (u *UserService) Register(ctx context.Context, registerReq auth.RegisterReq
 	newUser.IsAdmin = 0 // 新注册用户默认非管理员
 	newUser.Status = user_status.NORMAL
 
-	err = u.repos.User.CreateUser(ctx, &newUser)
+	err = u.uow.UserRepo().CreateUser(ctx, &newUser)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -245,7 +244,7 @@ func (u *UserService) Register(ctx context.Context, registerReq auth.RegisterReq
 // 使用指针类型区分"未传字段"(nil=不更新)和"清空字段"(""=置空)
 // 警告问题修复：使用数据库事务确保用户信息和会话信息的一致性
 func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateReq userreq.UpdateUserInfoRequest) error {
-	user, err := u.repos.User.FindByUuid(ctx, userId)
+	user, err := u.uow.UserRepo().FindByUuid(ctx, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -272,9 +271,9 @@ func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateR
 	// 警告问题修复：使用事务管理确保数据一致性
 	// 事务内的操作：1.更新用户信息 2.更新会话冗余字段
 	// 任一操作失败都会回滚，保证数据一致性
-	if err := u.repos.Transaction(func(txRepos *mysql.Repositories) error {
+	if err := u.uow.Transaction(func(tx repository.UnitOfWork) error {
 		// 1. 在事务内更新用户信息
-		if err := txRepos.User.UpdateUserInfo(ctx, user); err != nil {
+		if err := tx.UserRepo().UpdateUserInfo(ctx, user); err != nil {
 			return err
 		}
 
@@ -287,7 +286,7 @@ func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateR
 			sessionUpdates["avatar"] = *updateReq.Avatar
 		}
 		if len(sessionUpdates) > 0 {
-			if err := txRepos.Session.UpdateByReceiveId(ctx, userId, sessionUpdates); err != nil {
+			if err := tx.SessionRepo().UpdateByReceiveId(ctx, userId, sessionUpdates); err != nil {
 				return err
 			}
 		}
@@ -328,7 +327,7 @@ func (u *UserService) GetUserInfo(ctx context.Context, requesterId, targetId str
 		context.Background(),
 		key,
 		func() (interface{}, error) {
-			user, err := u.repos.User.FindByUuid(ctx, targetId)
+			user, err := u.uow.UserRepo().FindByUuid(ctx, targetId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -369,7 +368,7 @@ func (u *UserService) GetPublicUserInfo(ctx context.Context, targetId string) (*
 		context.Background(),
 		key,
 		func() (interface{}, error) {
-			user, err := u.repos.User.FindByUuid(ctx, targetId)
+			user, err := u.uow.UserRepo().FindByUuid(ctx, targetId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")

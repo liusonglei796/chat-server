@@ -20,13 +20,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"kama_chat_server/internal/domain/repository"
 	messagereq "kama_chat_server/internal/dto/request/message"
 	messagersp "kama_chat_server/internal/dto/respond/message"
 	cacheutil "kama_chat_server/internal/infrastructure/cache"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
-	"kama_chat_server/internal/service/mysqlinterface"
-	redisinterface "kama_chat_server/internal/service/redisinterface"
+
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/message/message_status"
 	"kama_chat_server/pkg/enum/message/message_type"
@@ -54,13 +54,13 @@ type MsgConsumer struct {
 
 	// 依赖注入字段（遵循依赖倒置原则）
 	kafkaClient     *KafkaClient
-	messageRepo     mysqlinterface.MessageRepository
-	friendshipRepo  mysqlinterface.FriendshipRepository // 用于消息权限校验（好友关系 + 拉黑检查）
-	groupMemberRepo mysqlinterface.GroupMemberRepository
-	sessionRepo     mysqlinterface.SessionRepository // 用于更新会话最后消息
-	cacheService    redisinterface.AsyncCacheService
-	cacheHelper     *cacheutil.Helper             // Cache-Aside 辅助工具（含 singleflight 防击穿）
-	userRepo        mysqlinterface.UserRepository // 用于检查用户状态（是否被禁用）
+	messageRepo     repository.MessageRepository
+	friendshipRepo  repository.FriendshipRepository // 用于消息权限校验（好友关系 + 拉黑检查）
+	groupMemberRepo repository.GroupMemberRepository
+	sessionRepo     repository.SessionRepository // 用于更新会话最后消息
+	cacheService    repository.AsyncCacheService
+	cacheHelper     *cacheutil.Helper         // Cache-Aside 辅助工具（含 singleflight 防击穿）
+	userRepo        repository.UserRepository // 用于检查用户状态（是否被禁用）
 
 	// quit 用于接收退出信号以优雅关闭消费循环
 	quit chan os.Signal
@@ -69,12 +69,12 @@ type MsgConsumer struct {
 // NewMsgConsumer 创建 KafkaBroker 实例（依赖注入）
 func NewMsgConsumer(
 	kafkaClient *KafkaClient,
-	messageRepo mysqlinterface.MessageRepository,
-	friendshipRepo mysqlinterface.FriendshipRepository,
-	groupMemberRepo mysqlinterface.GroupMemberRepository,
-	sessionRepo mysqlinterface.SessionRepository,
-	cacheService redisinterface.AsyncCacheService,
-	userRepo mysqlinterface.UserRepository, // 新增：用户仓库，用于检查用户状态
+	messageRepo repository.MessageRepository,
+	friendshipRepo repository.FriendshipRepository,
+	groupMemberRepo repository.GroupMemberRepository,
+	sessionRepo repository.SessionRepository,
+	cacheService repository.AsyncCacheService,
+	userRepo repository.UserRepository, // 新增：用户仓库，用于检查用户状态
 ) *MsgConsumer {
 	// 初始化 Cache-Aside 辅助工具（复用 cacheService 作为底层缓存实现）
 	var helper *cacheutil.Helper
@@ -234,7 +234,7 @@ func (k *MsgConsumer) UnregisterClient(client *UserConn) {
 }
 
 // GetMessageRepo 实现 MessageBroker 接口：获取消息 Repository
-func (k *MsgConsumer) GetMessageRepo() mysqlinterface.MessageRepository {
+func (k *MsgConsumer) GetMessageRepo() repository.MessageRepository {
 	return k.messageRepo
 }
 

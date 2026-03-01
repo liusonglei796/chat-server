@@ -1,4 +1,4 @@
-package redisinterface
+package repository
 
 import (
 	"context"

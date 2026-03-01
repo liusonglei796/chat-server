@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
-	redisinterface "kama_chat_server/internal/service/redisinterface"
+	"kama_chat_server/internal/domain/repository"
 	"kama_chat_server/pkg/errorx"
 
 	"golang.org/x/sync/singleflight"
@@ -15,12 +15,12 @@ import (
 // Helper 缓存辅助工具
 // 提供 Cache-Aside 模式的标准实现，包含空值缓存和 singleflight 保护
 type Helper struct {
-	cache redisinterface.CacheService
+	cache repository.CacheService
 	sf    singleflight.Group
 }
 
 // NewHelper 创建缓存辅助工具
-func NewHelper(cache redisinterface.CacheService) *Helper {
+func NewHelper(cache repository.CacheService) *Helper {
 	return &Helper{
 		cache: cache,
 	}

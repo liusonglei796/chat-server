@@ -11,13 +11,13 @@ import (
 	"kama_chat_server/internal/config"
 	mysqlimpl "kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
+	"kama_chat_server/internal/domain/repository"
 	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/https_server"
 	"kama_chat_server/internal/infrastructure/logger"
 	"kama_chat_server/internal/infrastructure/sms"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/internal/service/chat"
-	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/pkg/jwt"
 
 	"go.uber.org/zap"
@@ -39,7 +39,7 @@ func main() {
 
 	// 4. 初始化 Redis
 	cacheService := myredis.Init()
-	var cachePort redisinterface.AsyncCacheService = cacheService
+	var cachePort repository.AsyncCacheService = cacheService
 	zap.L().Info("Redis 初始化成功")
 
 	// 5. 初始化 JWT

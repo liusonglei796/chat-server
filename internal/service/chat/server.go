@@ -5,8 +5,7 @@
 package chat
 
 import (
-	"kama_chat_server/internal/service/mysqlinterface"
-	redisinterface "kama_chat_server/internal/service/redisinterface"
+	"kama_chat_server/internal/domain/repository"
 	"strings"
 )
 
@@ -38,32 +37,32 @@ type ChatServer struct {
 	KafkaClient *KafkaClient
 
 	// messageRepo 消息 Repository
-	messageRepo mysqlinterface.MessageRepository
+	messageRepo repository.MessageRepository
 
 	// friendshipRepo 好友关系 Repository（用于消息权限校验）
-	friendshipRepo mysqlinterface.FriendshipRepository
+	friendshipRepo repository.FriendshipRepository
 
 	// groupMemberRepo 群成员 Repository
-	groupMemberRepo mysqlinterface.GroupMemberRepository
+	groupMemberRepo repository.GroupMemberRepository
 
 	// sessionRepo 会话 Repository（用于更新最后消息）
-	sessionRepo mysqlinterface.SessionRepository
+	sessionRepo repository.SessionRepository
 
 	// cacheService 缓存服务
-	cacheService redisinterface.AsyncCacheService
+	cacheService repository.AsyncCacheService
 
 	// userRepo 用户 Repository（用于检查用户状态，如是否被禁用）
-	userRepo mysqlinterface.UserRepository
+	userRepo repository.UserRepository
 }
 
 // ChatServerConfig 聊天服务器配置
 type ChatServerConfig struct {
-	MessageRepo     mysqlinterface.MessageRepository
-	FriendshipRepo  mysqlinterface.FriendshipRepository
-	GroupMemberRepo mysqlinterface.GroupMemberRepository
-	SessionRepo     mysqlinterface.SessionRepository
-	CacheService    redisinterface.AsyncCacheService
-	UserRepo        mysqlinterface.UserRepository // 新增：用户仓库，用于消息发送权限校验
+	MessageRepo     repository.MessageRepository
+	FriendshipRepo  repository.FriendshipRepository
+	GroupMemberRepo repository.GroupMemberRepository
+	SessionRepo     repository.SessionRepository
+	CacheService    repository.AsyncCacheService
+	UserRepo        repository.UserRepository // 新增：用户仓库，用于消息发送权限校验
 }
 
 // NewChatServer 创建聊天服务器实例

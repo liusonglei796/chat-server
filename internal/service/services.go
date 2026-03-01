@@ -3,7 +3,7 @@ package service
 
 import (
 	"kama_chat_server/internal/config"
-	"kama_chat_server/internal/dao/mysql"
+	"kama_chat_server/internal/domain/repository"
 	"kama_chat_server/internal/infrastructure/sms"
 	admingroup "kama_chat_server/internal/service/admin/group"
 	adminuser "kama_chat_server/internal/service/admin/user"
@@ -13,7 +13,6 @@ import (
 	"kama_chat_server/internal/service/friendship"
 	"kama_chat_server/internal/service/group"
 	"kama_chat_server/internal/service/message"
-	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/internal/service/session"
 	"kama_chat_server/internal/service/user"
 )
@@ -36,21 +35,35 @@ type Services struct {
 }
 
 // NewServices 创建并注入所有 Service 实例
+// uow: UnitOfWork 接口，提供事务支持和 Repository 访问
 // kickClient: 可选的踢人回调函数，由 ChatServer.Broker.KickClient 提供
 // pushRecallNotify: 可选的撤回通知回调，由 ChatServer.Broker.PushRecallNotify 提供
-func NewServices(repos *mysql.Repositories, cacheService redisinterface.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string), pushRecallNotify func(messageUuid, receiveId string), cfg *config.Config) *Services {
-	sessionSvc := session.NewSessionService(repos, cacheService)
-	userSvc := user.NewUserService(repos, cacheService, smsService, kickClient)
-	groupSvc := group.NewGroupService(repos, cacheService)
-	friendshipSvc := friendship.NewFriendshipService(repos, cacheService)
-	applySvc := apply.NewApplyService(repos, cacheService)
-	messageSvc := message.NewMessageService(repos, cacheService, pushRecallNotify)
-	authSvc := auth.NewAuthService(cacheService, repos.User)
-	aiSvc := ai.NewAIService(repos, cfg)
+func NewServices(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string), pushRecallNotify func(messageUuid, receiveId string), cfg *config.Config) *Services {
+	// 非事务型 Service：注入单独的 Repository 接口
+	sessionSvc := session.NewSessionService(
+		uow.SessionRepo(), uow.UserRepo(), uow.GroupRepo(),
+		uow.GroupMemberRepo(), uow.FriendshipRepo(), uow.MessageRepo(),
+		cacheService,
+	)
+	messageSvc := message.NewMessageService(
+		uow.MessageRepo(), uow.FriendshipRepo(), uow.SessionRepo(),
+		cacheService, pushRecallNotify,
+	)
+	aiSvc := ai.NewAIService(
+		uow.MessageRepo(), uow.GroupMemberRepo(), uow.SessionRepo(),
+		uow.FriendshipRepo(), cfg,
+	)
 
-	// 后台管理服务
-	userAdminSvc := adminuser.NewUserAdminService(repos, cacheService)
-	groupAdminSvc := admingroup.NewGroupAdminService(repos, cacheService)
+	// 事务型 Service：注入 UnitOfWork 接口
+	userSvc := user.NewUserService(uow, cacheService, smsService, kickClient)
+	groupSvc := group.NewGroupService(uow, cacheService)
+	friendshipSvc := friendship.NewFriendshipService(uow, cacheService)
+	applySvc := apply.NewApplyService(uow, cacheService)
+	authSvc := auth.NewAuthService(cacheService, uow.UserRepo())
+
+	// 后台管理服务（事务型）
+	userAdminSvc := adminuser.NewUserAdminService(uow, cacheService)
+	groupAdminSvc := admingroup.NewGroupAdminService(uow, cacheService)
 
 	return &Services{
 		User:       userSvc,

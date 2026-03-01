@@ -5,22 +5,21 @@ package auth
 import (
 	"context"
 
-	"kama_chat_server/internal/service/mysqlinterface"
-	redisinterface "kama_chat_server/internal/service/redisinterface"
+	"kama_chat_server/internal/domain/repository"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
 )
 
 // Service 认证服务实现
 type Service struct {
-	cache    redisinterface.CacheService   // 缓存服务（依赖倒置）
-	userRepo mysqlinterface.UserRepository // 用户仓库（用于获取管理员状态）
+	cache    repository.CacheService   // 缓存服务（依赖倒置）
+	userRepo repository.UserRepository // 用户仓库（用于获取管理员状态）
 }
 
 // NewAuthService 创建认证服务实例
 // cache: 缓存服务接口实例
 // userRepo: 用户仓库接口实例
-func NewAuthService(cache redisinterface.CacheService, userRepo mysqlinterface.UserRepository) *Service {
+func NewAuthService(cache repository.CacheService, userRepo repository.UserRepository) *Service {
 	return &Service{
 		cache:    cache,
 		userRepo: userRepo,

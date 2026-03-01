@@ -5,10 +5,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"kama_chat_server/internal/dao/mysql"
+	"kama_chat_server/internal/domain/repository"
 	adminreq "kama_chat_server/internal/dto/request/admin"
 	adminrsp "kama_chat_server/internal/dto/respond/admin"
-	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
@@ -17,21 +16,21 @@ import (
 // UserAdminService 用户管理后台服务
 // 处理用户列表、状态管理、权限管理等管理员功能
 type UserAdminService struct {
-	repos *mysql.Repositories
-	cache redisinterface.AsyncCacheService
+	uow   repository.UnitOfWork
+	cache repository.AsyncCacheService
 }
 
 // NewUserAdminService 构造函数
-func NewUserAdminService(repos *mysql.Repositories, cacheService redisinterface.AsyncCacheService) *UserAdminService {
+func NewUserAdminService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService) *UserAdminService {
 	return &UserAdminService{
-		repos: repos,
+		uow:   uow,
 		cache: cacheService,
 	}
 }
 
 // GetUserListPaged 分页获取用户列表
 func (s *UserAdminService) GetUserListPaged(ctx context.Context, req adminreq.GetUserListRequest) (*adminrsp.PagedUserListRespond, error) {
-	users, total, err := s.repos.User.FindAllPaged(ctx, req.Page, req.PageSize, req.Keyword, req.Status)
+	users, total, err := s.uow.UserRepo().FindAllPaged(ctx, req.Page, req.PageSize, req.Keyword, req.Status)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -64,7 +63,7 @@ func (s *UserAdminService) BatchUpdateUserStatus(ctx context.Context, req adminr
 
 	switch req.Action {
 	case "enable":
-		if err := s.repos.User.UpdateUserStatusByUuids(ctx, req.UserUUIDs, user_status.NORMAL); err != nil {
+		if err := s.uow.UserRepo().UpdateUserStatusByUuids(ctx, req.UserUUIDs, user_status.NORMAL); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -81,12 +80,12 @@ func (s *UserAdminService) BatchUpdateUserStatus(ctx context.Context, req adminr
 
 	case "disable":
 
-		err := s.repos.Transaction(func(txRepos *mysql.Repositories) error {
-			if err := txRepos.User.UpdateUserStatusByUuids(ctx, req.UserUUIDs, user_status.DISABLE); err != nil {
+		err := s.uow.Transaction(func(tx repository.UnitOfWork) error {
+			if err := tx.UserRepo().UpdateUserStatusByUuids(ctx, req.UserUUIDs, user_status.DISABLE); err != nil {
 				zap.L().Error("Batch disable users error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
-			if err := txRepos.Session.SoftDeleteByUsers(ctx, req.UserUUIDs); err != nil {
+			if err := tx.SessionRepo().SoftDeleteByUsers(ctx, req.UserUUIDs); err != nil {
 				zap.L().Error("Batch delete sessions error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
@@ -111,20 +110,20 @@ func (s *UserAdminService) BatchUpdateUserStatus(ctx context.Context, req adminr
 
 	case "delete":
 		// 删除用户（事务）
-		err := s.repos.Transaction(func(txRepos *mysql.Repositories) error {
-			if err := txRepos.User.SoftDeleteUserByUuids(ctx, req.UserUUIDs); err != nil {
+		err := s.uow.Transaction(func(tx repository.UnitOfWork) error {
+			if err := tx.UserRepo().SoftDeleteUserByUuids(ctx, req.UserUUIDs); err != nil {
 				zap.L().Error("Batch delete users error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
-			if err := txRepos.Session.SoftDeleteByUsers(ctx, req.UserUUIDs); err != nil {
+			if err := tx.SessionRepo().SoftDeleteByUsers(ctx, req.UserUUIDs); err != nil {
 				zap.L().Error("Batch delete sessions error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
-			if err := txRepos.Friendship.SoftDeleteByUsers(ctx, req.UserUUIDs); err != nil {
+			if err := tx.FriendshipRepo().SoftDeleteByUsers(ctx, req.UserUUIDs); err != nil {
 				zap.L().Error("Batch delete friendships error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
-			if err := txRepos.Apply.SoftDeleteByUsers(ctx, req.UserUUIDs); err != nil {
+			if err := tx.ApplyRepo().SoftDeleteByUsers(ctx, req.UserUUIDs); err != nil {
 				zap.L().Error("Batch delete contact applies error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
@@ -162,7 +161,7 @@ func (s *UserAdminService) SetAdmin(ctx context.Context, userUUIDs []string, isA
 	}
 
 	// 1. 批量更新管理员状态
-	if err := s.repos.User.UpdateUserIsAdminByUuids(ctx, userUUIDs, isAdmin); err != nil {
+	if err := s.uow.UserRepo().UpdateUserIsAdminByUuids(ctx, userUUIDs, isAdmin); err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}

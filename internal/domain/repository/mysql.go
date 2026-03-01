@@ -1,4 +1,4 @@
-package mysqlinterface
+package repository
 
 import (
 	"context"

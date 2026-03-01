@@ -7,13 +7,12 @@ import (
 
 	"go.uber.org/zap"
 
-	"kama_chat_server/internal/dao/mysql"
+	"kama_chat_server/internal/domain/repository"
 	"kama_chat_server/internal/dto/request/group"
 	grouprsp "kama_chat_server/internal/dto/respond/group"
 	cacheutil "kama_chat_server/internal/infrastructure/cache"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
-	redisinterface "kama_chat_server/internal/service/redisinterface"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/group/group_status"
 	"kama_chat_server/pkg/errorx"
@@ -22,15 +21,15 @@ import (
 // GroupService 群组业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖
 type GroupService struct {
-	repos       *mysql.Repositories
-	cache       redisinterface.AsyncCacheService
+	uow         repository.UnitOfWork
+	cache       repository.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
 }
 
 // NewGroupService 构造函数，注入所有依赖
-func NewGroupService(repos *mysql.Repositories, cacheService redisinterface.AsyncCacheService) *GroupService {
+func NewGroupService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService) *GroupService {
 	return &GroupService{
-		repos:       repos,
+		uow:         uow,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
 	}
@@ -49,8 +48,8 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 		Status:    group_status.NORMAL,
 	}
 
-	err := g.repos.Transaction(func(txRepos *mysql.Repositories) error {
-		if err := txRepos.Group.CreateGroup(ctx, &group); err != nil {
+	err := g.uow.Transaction(func(tx repository.UnitOfWork) error {
+		if err := tx.GroupRepo().CreateGroup(ctx, &group); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -60,7 +59,7 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 			UserUuid:  ownerId,
 			Role:      3,
 		}
-		if err := txRepos.GroupMember.CreateGroupMember(ctx, &member); err != nil {
+		if err := tx.GroupMemberRepo().CreateGroupMember(ctx, &member); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -72,7 +71,7 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 			ReceiveName: group.Name,
 			Avatar:      group.Avatar,
 		}
-		if err := txRepos.Session.CreateSession(ctx, &session); err != nil {
+		if err := tx.SessionRepo().CreateSession(ctx, &session); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -99,7 +98,7 @@ func (g *GroupService) LoadMyGroup(ctx context.Context, userId string, page, pag
 	}
 
 	// 数据库分页查询我创建的群组
-	groups, total, err := g.repos.Group.FindByOwnerIdPaged(ctx, userId, page, pageSize)
+	groups, total, err := g.uow.GroupRepo().FindByOwnerIdPaged(ctx, userId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find my groups by owner id error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -129,7 +128,7 @@ func (g *GroupService) GetGroupListByMember(ctx context.Context, userId string, 
 	}
 
 	// 通过 GroupMember 表分页查询用户加入的群组UUID
-	groupUuids, total, err := g.repos.GroupMember.FindGroupUuidsByUserPaged(ctx, userId, page, pageSize)
+	groupUuids, total, err := g.uow.GroupMemberRepo().FindGroupUuidsByUserPaged(ctx, userId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find group uuids by user paged error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -140,7 +139,7 @@ func (g *GroupService) GetGroupListByMember(ctx context.Context, userId string, 
 	}
 
 	// 批量获取群组信息
-	groups, err := g.repos.Group.FindByUuids(ctx, groupUuids)
+	groups, err := g.uow.GroupRepo().FindByUuids(ctx, groupUuids)
 	if err != nil {
 		zap.L().Error("Batch find groups error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -168,7 +167,7 @@ func (g *GroupService) CheckGroupAddMode(ctx context.Context, groupId string) (i
 		context.Background(),
 		cacheKey,
 		func() (interface{}, error) {
-			group, err := g.repos.Group.FindByUuid(ctx, groupId)
+			group, err := g.uow.GroupRepo().FindByUuid(ctx, groupId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeNotFound, "群组不存在")
@@ -202,7 +201,7 @@ func (g *GroupService) CheckGroupAddMode(ctx context.Context, groupId string) (i
 // LeaveGroup 退群
 func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId string) error {
 	// 校验是否是群成员
-	member, err := g.repos.GroupMember.FindByGroupAndUser(ctx, groupId, userId)
+	member, err := g.uow.GroupMemberRepo().FindByGroupAndUser(ctx, groupId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -216,13 +215,13 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 		return errorx.New(errorx.CodeInvalidParam, "群主不能退群，请先转让群主或解散群聊")
 	}
 
-	err = g.repos.Transaction(func(txRepos *mysql.Repositories) error {
-		if err := txRepos.GroupMember.DeleteByUserUuids(ctx, groupId, []string{userId}); err != nil {
+	err = g.uow.Transaction(func(tx repository.UnitOfWork) error {
+		if err := tx.GroupMemberRepo().DeleteByUserUuids(ctx, groupId, []string{userId}); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		if err := txRepos.Group.DecrementMemberCountBy(ctx, groupId, 1); err != nil {
+		if err := tx.GroupRepo().DecrementMemberCountBy(ctx, groupId, 1); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -230,7 +229,7 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 		// 3. (无需删除会话，保留历史)
 
 		// 清理申请记录
-		if err := txRepos.Apply.SoftDelete(ctx, userId, groupId); err != nil {
+		if err := tx.ApplyRepo().SoftDelete(ctx, userId, groupId); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -256,7 +255,7 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 // DismissGroup 解散群聊 (operatorId 必须是群主)
 func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId string) error {
 	// 权限校验: 必须是群主 (Role=3) 才能解散群
-	group, err := g.repos.Group.FindByUuid(ctx, groupId)
+	group, err := g.uow.GroupRepo().FindByUuid(ctx, groupId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeNotFound, "群组不存在")
@@ -270,9 +269,9 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 
 	var memberIds []string
 
-	err = g.repos.Transaction(func(txRepos *mysql.Repositories) error {
+	err = g.uow.Transaction(func(tx repository.UnitOfWork) error {
 		// 1. 获取涉及的成员ID
-		members, err := txRepos.GroupMember.FindByGroupUuid(ctx, groupId)
+		members, err := tx.GroupMemberRepo().FindByGroupUuid(ctx, groupId)
 		if err != nil {
 			zap.L().Error("Find members by group id error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -282,25 +281,25 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 		}
 
 		// 2. 删除所有群成员
-		if err := txRepos.GroupMember.DeleteByGroupUuid(ctx, groupId); err != nil {
+		if err := tx.GroupMemberRepo().DeleteByGroupUuid(ctx, groupId); err != nil {
 			zap.L().Error("Delete members error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		// 3. 软删除群组
-		if err := txRepos.Group.SoftDeleteByUuids(ctx, []string{groupId}); err != nil {
+		if err := tx.GroupRepo().SoftDeleteByUuids(ctx, []string{groupId}); err != nil {
 			zap.L().Error("Soft delete group error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		// 4. 软删除所有相关的会话
-		if err := txRepos.Session.SoftDeleteByUsers(ctx, []string{groupId}); err != nil {
+		if err := tx.SessionRepo().SoftDeleteByUsers(ctx, []string{groupId}); err != nil {
 			zap.L().Error("Soft delete sessions error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		// 5. 批量软删除涉及该群的申请记录
-		if err := txRepos.Apply.SoftDeleteByUsers(ctx, []string{groupId}); err != nil {
+		if err := tx.ApplyRepo().SoftDeleteByUsers(ctx, []string{groupId}); err != nil {
 			zap.L().Error("Soft delete applies error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -329,7 +328,7 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 // UpdateGroupInfo 更新群组信息 (operatorId 必须是群主或管理员)
 func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, req group.UpdateGroupInfoRequest) error {
 	// 权限校验: 必须是群主或管理员 (Role >= 2)
-	member, err := g.repos.GroupMember.FindByGroupAndUser(ctx, req.Uuid, operatorId)
+	member, err := g.uow.GroupMemberRepo().FindByGroupAndUser(ctx, req.Uuid, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -341,7 +340,7 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 		return errorx.New(errorx.CodeForbidden, "你没有修改权限")
 	}
 
-	group, err := g.repos.Group.FindByUuid(ctx, req.Uuid)
+	group, err := g.uow.GroupRepo().FindByUuid(ctx, req.Uuid)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -361,7 +360,7 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 		group.Avatar = *req.Avatar
 	}
 
-	if err := g.repos.Group.Update(ctx, group); err != nil {
+	if err := g.uow.GroupRepo().Update(ctx, group); err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
@@ -375,13 +374,13 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 		sessionUpdates["avatar"] = *req.Avatar
 	}
 	if len(sessionUpdates) > 0 {
-		if err := g.repos.Session.UpdateByReceiveId(ctx, req.Uuid, sessionUpdates); err != nil {
+		if err := g.uow.SessionRepo().UpdateByReceiveId(ctx, req.Uuid, sessionUpdates); err != nil {
 			zap.L().Error("同步 Session 冗余字段失败", zap.String("groupId", req.Uuid), zap.Error(err))
 		}
 	}
 
 	// 获取群成员列表用于缓存清理
-	members, _ := g.repos.GroupMember.FindByGroupUuid(ctx, req.Uuid)
+	members, _ := g.uow.GroupMemberRepo().FindByGroupUuid(ctx, req.Uuid)
 	memberIds := make([]string, 0, len(members))
 	for _, m := range members {
 		memberIds = append(memberIds, m.UserUuid)
@@ -410,7 +409,7 @@ func (g *GroupService) GetGroupMemberList(ctx context.Context, userId, groupId s
 	}
 
 	// 权限校验: 必须是群成员
-	_, err := g.repos.GroupMember.FindByGroupAndUser(ctx, groupId, userId)
+	_, err := g.uow.GroupMemberRepo().FindByGroupAndUser(ctx, groupId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return nil, 0, errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -420,7 +419,7 @@ func (g *GroupService) GetGroupMemberList(ctx context.Context, userId, groupId s
 	}
 
 	// 分页查询数据库
-	members, total, err := g.repos.GroupMember.FindMembersWithUserInfoPaged(ctx, groupId, page, pageSize)
+	members, total, err := g.uow.GroupMemberRepo().FindMembersWithUserInfoPaged(ctx, groupId, page, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -446,7 +445,7 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 	}
 
 	// 1. 权限校验: 必须是群主或管理员 (Role >= 2)
-	member, err := g.repos.GroupMember.FindByGroupAndUser(ctx, req.GroupId, operatorId)
+	member, err := g.uow.GroupMemberRepo().FindByGroupAndUser(ctx, req.GroupId, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -459,7 +458,7 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 	}
 
 	// 2. 获取群主 ID（不允许移除群主）
-	group, err := g.repos.Group.FindByUuid(ctx, req.GroupId)
+	group, err := g.uow.GroupRepo().FindByUuid(ctx, req.GroupId)
 	if err != nil {
 		zap.L().Error("Find group error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -471,28 +470,28 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 	}
 
 	// 3. 事务执行删除操作
-	err = g.repos.Transaction(func(txRepos *mysql.Repositories) error {
+	err = g.uow.Transaction(func(tx repository.UnitOfWork) error {
 		// 删除群成员
-		if err := txRepos.GroupMember.DeleteByUserUuids(ctx, req.GroupId, req.UuidList); err != nil {
+		if err := tx.GroupMemberRepo().DeleteByUserUuids(ctx, req.GroupId, req.UuidList); err != nil {
 			zap.L().Error("Delete group members error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		// 批量减少成员数
-		if err := txRepos.Group.DecrementMemberCountBy(ctx, req.GroupId, len(req.UuidList)); err != nil {
+		if err := tx.GroupRepo().DecrementMemberCountBy(ctx, req.GroupId, len(req.UuidList)); err != nil {
 			zap.L().Error("Decrement member count error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		// 软删除 Apply 记录
 		for _, uuid := range req.UuidList {
-			if err := txRepos.Apply.SoftDelete(ctx, uuid, req.GroupId); err != nil {
+			if err := tx.ApplyRepo().SoftDelete(ctx, uuid, req.GroupId); err != nil {
 				zap.L().Error("Delete contact apply error", zap.Error(err))
 			}
 		}
 
 		// 软删除 Session (无需删除，保留历史)
-		// if err := txRepos.Session.SoftDeleteByUsers(ctx, []string{req.GroupId}); err != nil {
+		// if err := tx.SessionRepo().SoftDeleteByUsers(ctx, []string{req.GroupId}); err != nil {
 		// 	zap.L().Error("Delete sessions error", zap.Error(err))
 		// }
 
@@ -525,7 +524,7 @@ func (g *GroupService) GetGroupDetail(ctx context.Context, userId, groupId strin
 	}
 
 	// 权限校验: 必须是群成员
-	_, err := g.repos.GroupMember.FindByGroupAndUser(ctx, groupId, userId)
+	_, err := g.uow.GroupMemberRepo().FindByGroupAndUser(ctx, groupId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return grouprsp.PublicGroupInfoRespond{}, errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -541,7 +540,7 @@ func (g *GroupService) GetGroupDetail(ctx context.Context, userId, groupId strin
 		context.Background(),
 		cacheKey,
 		func() (interface{}, error) {
-			grp, err := g.repos.Group.FindByUuid(ctx, groupId)
+			grp, err := g.uow.GroupRepo().FindByUuid(ctx, groupId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeNotFound, "该群聊不存在")
@@ -585,7 +584,7 @@ func (g *GroupService) GetGroupDetail(ctx context.Context, userId, groupId strin
 // MuteMember 禁言/取消禁言群成员
 func (g *GroupService) MuteMember(ctx context.Context, operatorId string, req group.MuteMemberRequest) error {
 	// 1. 权限校验: 必须是群主或管理员 (Role >= 2)
-	operator, err := g.repos.GroupMember.FindByGroupAndUser(ctx, req.GroupId, operatorId)
+	operator, err := g.uow.GroupMemberRepo().FindByGroupAndUser(ctx, req.GroupId, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -598,7 +597,7 @@ func (g *GroupService) MuteMember(ctx context.Context, operatorId string, req gr
 	}
 
 	// 2. 不能禁言群主
-	grp, err := g.repos.Group.FindByUuid(ctx, req.GroupId)
+	grp, err := g.uow.GroupRepo().FindByUuid(ctx, req.GroupId)
 	if err != nil {
 		zap.L().Error("Find group error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -608,7 +607,7 @@ func (g *GroupService) MuteMember(ctx context.Context, operatorId string, req gr
 	}
 
 	// 3. 校验被操作者是群成员
-	_, err = g.repos.GroupMember.FindByGroupAndUser(ctx, req.GroupId, req.UserId)
+	_, err = g.uow.GroupMemberRepo().FindByGroupAndUser(ctx, req.GroupId, req.UserId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeNotFound, "该用户不是群成员")
@@ -624,7 +623,7 @@ func (g *GroupService) MuteMember(ctx context.Context, operatorId string, req gr
 		muteUntil = &t
 	}
 
-	if err := g.repos.GroupMember.UpdateMuteUntil(ctx, req.GroupId, req.UserId, muteUntil); err != nil {
+	if err := g.uow.GroupMemberRepo().UpdateMuteUntil(ctx, req.GroupId, req.UserId, muteUntil); err != nil {
 		zap.L().Error("Update mute until error",
 			zap.String("group_id", req.GroupId),
 			zap.String("user_id", req.UserId),

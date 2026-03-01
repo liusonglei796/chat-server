@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/config"
-	redisinterface "kama_chat_server/internal/service/redisinterface"
+	"kama_chat_server/internal/domain/repository"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/random"
@@ -30,7 +30,7 @@ type SmsService interface {
 }
 
 type localSmsService struct {
-	cache redisinterface.CacheService
+	cache repository.CacheService
 }
 
 func (s *localSmsService) SendVerificationCode(ctx context.Context, telephone string) error {
@@ -76,12 +76,12 @@ func shouldUseMock(auth config.AuthCodeConfig) bool {
 // 实现 SmsService 接口，遵循依赖倒置原则
 type aliyunSmsService struct {
 	client *dysmsapi20170525.Client
-	cache  redisinterface.CacheService // 依赖抽象接口而非具体 Redis 实现
+	cache  repository.CacheService // 依赖抽象接口而非具体 Redis 实现
 }
 
 // Init 初始化阿里云 SMS Client 并创建服务实例
 // cacheService: 缓存服务接口实例（用于频率限制和验证码存储）
-func Init(cacheService redisinterface.CacheService) (SmsService, error) {
+func Init(cacheService repository.CacheService) (SmsService, error) {
 	authCfg := config.GetConfig().AuthCodeConfig
 	if shouldUseMock(authCfg) {
 		zap.L().Warn("SMS Service 使用本地 Mock 模式（仅写入 Redis，不调用第三方短信）")
@@ -103,7 +103,7 @@ func Init(cacheService redisinterface.CacheService) (SmsService, error) {
 }
 
 // NewAliyunSmsService 创建阿里云短信服务实例（用于依赖注入）
-func NewAliyunSmsService(client *dysmsapi20170525.Client, cacheService redisinterface.CacheService) SmsService {
+func NewAliyunSmsService(client *dysmsapi20170525.Client, cacheService repository.CacheService) SmsService {
 	return &aliyunSmsService{
 		client: client,
 		cache:  cacheService,

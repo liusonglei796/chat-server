@@ -3,9 +3,9 @@
 package router
 
 import (
+	"kama_chat_server/internal/domain/repository"
 	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/infrastructure/middleware"
-	redisinterface "kama_chat_server/internal/service/redisinterface"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,14 +15,14 @@ import (
 type Router struct {
 	handlers     *handler.Handlers
 	adminChecker middleware.AdminAuthChecker // 管理员权限实时校验回调
-	cache        redisinterface.CacheService // Redis 缓存服务（限流等中间件使用）
+	cache        repository.CacheService     // Redis 缓存服务（限流等中间件使用）
 }
 
 // NewRouter 创建路由管理器
 // handlers: 通过依赖注入传入的 handler 聚合对象
 // adminChecker: 可选的管理员权限实时校验回调（查库验证权限未被撤销）
 // cache: Redis 缓存服务，供限流等中间件使用
-func NewRouter(handlers *handler.Handlers, adminChecker middleware.AdminAuthChecker, cache redisinterface.CacheService) *Router {
+func NewRouter(handlers *handler.Handlers, adminChecker middleware.AdminAuthChecker, cache repository.CacheService) *Router {
 	return &Router{
 		handlers:     handlers,
 		adminChecker: adminChecker,
