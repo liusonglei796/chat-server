@@ -21,7 +21,7 @@ RUN go mod download
 COPY . .
 
 # 构建可执行文件
-RUN CGO_ENABLED=1 GOOS=linux go build -o kama_chat_server ./cmd/kama_chat_server/main.go
+RUN CGO_ENABLED=1 GOOS=linux go build -o chat_server ./cmd/chat_server/main.go
 
 # 阶段 2: 运行阶段
 FROM alpine:latest
@@ -33,7 +33,7 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 
 # 从构建阶段复制可执行文件
-COPY --from=builder /app/kama_chat_server .
+COPY --from=builder /app/chat_server .
 
 # 复制配置文件
 COPY configs/config.toml .
@@ -45,4 +45,4 @@ RUN mkdir -p /app/logs
 EXPOSE 8000
 
 # 启动命令
-ENTRYPOINT ["./kama_chat_server"]
+ENTRYPOINT ["./chat_server"]

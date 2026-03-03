@@ -4,14 +4,14 @@ host = "0.0.0.0"
 port = 8000
 
 [mysqlConfig]
-host = "127.0.0.1"
+host = "mysql"
 port = 3306
 user = "root"
 password = "root123456"
-databaseName = "kama_chat"
+databaseName = "chat"
 
 [redisConfig]
-host = "127.0.0.1"
+host = "redis"
 port = 6379
 password = ""
 db = 0
@@ -26,7 +26,7 @@ templateCode = "SMS_154950909"
 logPath = "your log path"
 
 [kafkaConfig]
-hostPort = "127.0.0.1:9092" # "127.0.0.1:9092,127.0.0.1:9093,127.0.0.1:9094" 多个kafka服务器
+hostPort = "kafka:9092" # "kafka:9092,kafka:9093,kafka:9094" 多个kafka服务器
 loginTopic = "login"
 chatTopic = "chat_message"
 logoutTopic = "logout"
@@ -38,7 +38,7 @@ staticAvatarPath = "./static/avatars"
 staticFilePath = "./static/files"
 
 [jwtConfig]
-secret = "kama-chat-super-secret-key-change-in-production"
+secret = "chat-super-secret-key-change-in-production"
 accessTokenExpiry = 15      # Access Token 有效期（分钟）
 refreshTokenExpiry = 168    # Refresh Token 有效期（小时），168小时 = 7天
 

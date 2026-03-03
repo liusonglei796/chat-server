@@ -8,7 +8,7 @@ host = "127.0.0.1"
 port = 3307
 user = "root"
 password = "root123456"
-databaseName = "kama_chat"
+databaseName = "chat"
 
 [redisConfig]
 host = "127.0.0.1"
@@ -38,7 +38,7 @@ staticAvatarPath = "./static/avatars"
 staticFilePath = "./static/files"
 
 [jwtConfig]
-secret = "kama-chat-super-secret-key-change-in-production"
+secret = "chat-super-secret-key-change-in-production"
 accessTokenExpiry = 15
 refreshTokenExpiry = 168
 

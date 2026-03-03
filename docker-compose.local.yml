@@ -1,12 +1,12 @@
 services:
   mysql:
     image: mysql:8.0
-    container_name: kamachat-local-mysql
+    container_name: chat-local-mysql
     ports:
       - "3307:3306"
     environment:
       MYSQL_ROOT_PASSWORD: root123456
-      MYSQL_DATABASE: kama_chat
+      MYSQL_DATABASE: chat
     volumes:
       - local_mysql_data:/var/lib/mysql
     command: --default-authentication-plugin=mysql_native_password
@@ -18,7 +18,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: kamachat-local-redis
+    container_name: chat-local-redis
     ports:
       - "6380:6379"
     volumes:
@@ -31,7 +31,7 @@ services:
 
   kafka:
     image: apache/kafka:4.1.1
-    container_name: kamachat-local-kafka
+    container_name: chat-local-kafka
     ports:
       - "9093:9092"
     environment:

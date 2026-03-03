@@ -21,3 +21,8 @@ your log path/
 
 # Worktrees
 .worktrees/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
