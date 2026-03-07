@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
+	"kama_chat_server/internal/infrastructure/jwt"
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/jwt"
 
 	"github.com/gin-gonic/gin"
 )

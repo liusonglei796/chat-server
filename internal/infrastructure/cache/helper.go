@@ -81,13 +81,19 @@ func (h *Helper) GetOrLoad(
 
 	switch v := sfResult.(type) {
 	case string:
-		return json.Unmarshal([]byte(v), result)
+		if err := json.Unmarshal([]byte(v), result); err != nil {
+			return errorx.Wrap(err, errorx.CodeCacheError, "缓存数据反序列化失败")
+		}
+		return nil
 	default:
 		jsonData, err := json.Marshal(v)
 		if err != nil {
-			return err
+			return errorx.Wrap(err, errorx.CodeCacheError, "缓存数据序列化失败")
 		}
-		return json.Unmarshal(jsonData, result)
+		if err := json.Unmarshal(jsonData, result); err != nil {
+			return errorx.Wrap(err, errorx.CodeCacheError, "缓存数据反序列化失败")
+		}
+		return nil
 	}
 }
 
@@ -95,7 +101,10 @@ func (h *Helper) GetOrLoad(
 func (h *Helper) InvalidateWithNull(ctx context.Context, key string) error {
 	nullKey := key + ":null"
 	if err := h.cache.Delete(ctx, key); err != nil {
-		return err
+		return errorx.Wrap(err, errorx.CodeCacheError, "删除缓存失败")
 	}
-	return h.cache.Delete(ctx, nullKey)
+	if err := h.cache.Delete(ctx, nullKey); err != nil {
+		return errorx.Wrap(err, errorx.CodeCacheError, "删除空值缓存标记失败")
+	}
+	return nil
 }

@@ -13,13 +13,13 @@ import (
 	userreq "kama_chat_server/internal/dto/request/user"
 	userrsp "kama_chat_server/internal/dto/respond/user"
 	cacheutil "kama_chat_server/internal/infrastructure/cache"
+	"kama_chat_server/internal/infrastructure/jwt"
 	"kama_chat_server/internal/infrastructure/sms"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/jwt"
 )
 
 // UserService 用户业务逻辑实现

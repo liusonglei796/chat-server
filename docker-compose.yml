@@ -51,6 +51,10 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_NUM_PARTITIONS: 3
+    volumes:
+      - chat-kafka-data:/var/lib/kafka/data
+      - chat-kafka-secrets:/etc/kafka/secrets
+      - chat-kafka-config:/mnt/shared/config
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
       interval: 30s
@@ -112,6 +116,9 @@ volumes:
   redis_data:
   app_logs:
   nginx_logs:
+  chat-kafka-data:
+  chat-kafka-secrets:
+  chat-kafka-config:
 
 networks:
   chat-network:

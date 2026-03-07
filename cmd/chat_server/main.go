@@ -14,11 +14,11 @@ import (
 	"kama_chat_server/internal/domain/repository"
 	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/https_server"
+	"kama_chat_server/internal/infrastructure/jwt"
 	"kama_chat_server/internal/infrastructure/logger"
 	"kama_chat_server/internal/infrastructure/sms"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/internal/service/chat"
-	"kama_chat_server/pkg/jwt"
 
 	"go.uber.org/zap"
 )

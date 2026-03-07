@@ -4,6 +4,8 @@ package jwt
 import (
 	"time" // 时间相关
 
+	"kama_chat_server/pkg/errorx"
+
 	"github.com/golang-jwt/jwt/v5" // JWT 库
 	"github.com/google/uuid"       // UUID 生成
 )
@@ -77,10 +79,10 @@ func ParseToken(tokenString string) (*Claims, error) {
 		return []byte(jwtConfig.Secret), nil // 提供签名密钥
 	})
 	if err != nil { // 解析失败
-		return nil, err
+		return nil, errorx.Wrap(err, errorx.CodeUnauthorized, "token解析失败")
 	}
 	if claims, ok := token.Claims.(*Claims); ok && token.Valid { // 类型断言并校验合法性
 		return claims, nil
 	}
-	return nil, jwt.ErrSignatureInvalid // 签名无效
+	return nil, errorx.New(errorx.CodeUnauthorized, "无效的token签名") // 签名无效
 }

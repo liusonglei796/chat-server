@@ -1,11 +1,11 @@
 package logger
 
 import (
-	"fmt"
 	"os"
 	"sync"
 
 	"kama_chat_server/internal/config"
+	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -21,7 +21,7 @@ func Init(logCfg *config.LogConfig, mode string) error {
 	var initErr error
 	loggerOnce.Do(func() {
 		if logCfg == nil {
-			initErr = fmt.Errorf("logger.Init received nil config")
+			initErr = errorx.New(errorx.CodeInvalidParam, "logger.Init received nil config")
 			return
 		}
 
@@ -34,7 +34,7 @@ func Init(logCfg *config.LogConfig, mode string) error {
 
 		var level zapcore.Level
 		if err := level.UnmarshalText([]byte(logCfg.Level)); err != nil {
-			initErr = err
+			initErr = errorx.Wrap(err, errorx.CodeInvalidParam, "无效的日志级别")
 			return
 		}
 

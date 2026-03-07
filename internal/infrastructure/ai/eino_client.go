@@ -2,14 +2,14 @@ package ai
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
+	"kama_chat_server/internal/config"
+	"kama_chat_server/pkg/errorx"
+
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/schema"
-
-	"kama_chat_server/internal/config"
 )
 
 // ChatClient AI 对话客户端抽象
@@ -25,13 +25,13 @@ type EinoClient struct {
 // NewEinoClient 创建 Eino 客户端
 func NewEinoClient(cfg config.ModelScopeConfig) (*EinoClient, error) {
 	if strings.TrimSpace(cfg.ApiKey) == "" {
-		return nil, fmt.Errorf("modelscope api key is empty")
+		return nil, errorx.New(errorx.CodeInvalidParam, "modelscope api key is empty")
 	}
 	if strings.TrimSpace(cfg.BaseUrl) == "" {
-		return nil, fmt.Errorf("modelscope base url is empty")
+		return nil, errorx.New(errorx.CodeInvalidParam, "modelscope base url is empty")
 	}
 	if strings.TrimSpace(cfg.Model) == "" {
-		return nil, fmt.Errorf("modelscope model is empty")
+		return nil, errorx.New(errorx.CodeInvalidParam, "modelscope model is empty")
 	}
 
 	temperature := float32(0.3)
@@ -45,7 +45,7 @@ func NewEinoClient(cfg config.ModelScopeConfig) (*EinoClient, error) {
 		Timeout:     12 * time.Second,
 	})
 	if err != nil {
-		return nil, err
+		return nil, errorx.Wrap(err, errorx.CodeServerBusy, "AI模型初始化失败")
 	}
 
 	return &EinoClient{model: chatModel}, nil
@@ -65,7 +65,7 @@ func (c *EinoClient) Generate(ctx context.Context, systemPrompt, userPrompt stri
 	// 返回的 outMsg.Content 是模型文本结果，后续由业务层做 JSON 解析。
 	outMsg, err := c.model.Generate(ctx, messages)
 	if err != nil {
-		return "", err
+		return "", errorx.Wrap(err, errorx.CodeServerBusy, "AI模型调用失败")
 	}
 
 	return strings.TrimSpace(outMsg.Content), nil

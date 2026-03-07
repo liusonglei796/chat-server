@@ -4,9 +4,9 @@ package handler
 
 import (
 	"kama_chat_server/internal/dto/request/auth"
+	"kama_chat_server/internal/infrastructure/jwt"
 	authsvc "kama_chat_server/internal/service/auth"
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/jwt"
 
 	"github.com/gin-gonic/gin"
 )
