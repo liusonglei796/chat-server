@@ -99,6 +99,7 @@ kama_chat_server/
 ├── go.mod
 ├── go.sum
 ├── docker-compose.yml            # Docker 编排
+├── docker-compose.local.yml      # 本地开发 Docker 编排
 ├── Dockerfile
 └── LICENSE                       # GPL-3.0 许可证
 ```
@@ -120,6 +121,7 @@ kama_chat_server/
 | **配置管理** | TOML |
 | **AI 编排** | ByteDance Eino |
 | **AI 模型接入** | ModelScope OpenAI-Compatible API (Kimi K2.5) |
+| **容器化** | Docker & Docker Compose |
 
 ## 🚀 快速开始
 
@@ -129,8 +131,9 @@ kama_chat_server/
 - MySQL 8.0+
 - Redis 6.0+
 - Kafka (可选，用于分布式消息处理)
+- Docker & Docker Compose (可选，用于容器化部署)
 
-### 安装步骤
+### 本地开发
 
 1. **克隆仓库**
    ```bash
@@ -167,7 +170,6 @@ kama_chat_server/
    db = 0
    
    [kafkaConfig]
-   messageMode = "channel"  # 或 "kafka"
    hostPort = "127.0.0.1:9092"
    ```
 
@@ -181,6 +183,44 @@ kama_chat_server/
    ```
 
    服务将在 `http://0.0.0.0:8000` 启动。
+
+### Docker 部署
+
+#### 使用 Docker Compose (推荐)
+
+```bash
+# 本地开发环境（包含 MySQL、Redis、Kafka）
+docker compose -f docker-compose.local.yml up -d
+
+# 生产环境
+docker compose -f docker-compose.yml up -d
+```
+
+#### 手动构建 Docker 镜像
+
+```bash
+# 构建镜像
+docker build -t kamachat:latest .
+
+# 运行容器
+docker run -d \
+  --name kamachat \
+  -p 8000:8000 \
+  -v ./configs/config.toml:/app/configs/config.toml \
+  kamachat:latest
+```
+
+#### 查看日志
+
+```bash
+# Docker Compose 日志
+docker compose logs -f kamachat
+
+# 单个容器日志
+docker logs -f kamachat
+```
+
+更多部署详情，请查看 [PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md) 和 [NGINX_GATEWAY_SETUP.md](NGINX_GATEWAY_SETUP.md)。
 
 ## 📡 API 模块
 
@@ -200,15 +240,11 @@ kama_chat_server/
 
 ### 消息模式
 
-KamaChat 支持两种消息处理模式：
+KamaChat 目前使用 **Kafka 分布式消息队列模式** 作为唯一的内部消息总线：
 
-- **Channel 模式** (`messageMode = "channel"`)
-  - 单机部署，使用 Go Channel 进行消息传递
-  - 适合中小规模应用
-
-- **Kafka 模式** (`messageMode = "kafka"`)
-  - 分布式部署，使用 Kafka 消息队列
-  - 支持高并发和水平扩展
+- 支持高并发和水平扩展
+- 提升了服务架构的扩展性
+- 强解耦生产者与消费者
 
 ### JWT 配置
 
@@ -251,6 +287,8 @@ go run cmd/kama_chat_server/main.go
 - `internal/dao/` - 数据库访问，Repository 模式
 - `internal/dto/` - 请求和响应的数据结构定义
 - `internal/model/` - 数据库模型定义
+- `docs/` - 项目文档与开发计划
+- `migrations/` - 数据库迁移脚本
 
 ### 返回值约定
 
@@ -281,6 +319,13 @@ curl -X POST /ai/group-summary \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"group_id": "G123456", "hours": 24, "limit": 200}'
 ```
+
+## 📚 相关文档
+
+- [生产部署指南](PRODUCTION_DEPLOYMENT.md) - 生产环境配置与部署流程
+- [Nginx 网关配置](NGINX_GATEWAY_SETUP.md) - 反向代理与网关设置
+- [架构优化计划](docs/architecture_optimization_plan.md) - 系统架构演进方向
+- [缓存策略](docs/cache_strategy.md) - Redis 缓存策略详解
 
 ## 📄 License
 
