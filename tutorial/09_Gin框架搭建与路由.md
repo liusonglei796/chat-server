@@ -328,14 +328,11 @@ func main() {
 
 	// 7. 初始化 ChatServer（依赖注入）
 	chatServer := chat.NewChatServer(chat.ChatServerConfig{
-		Mode:            conf.KafkaConfig.MessageMode,
 		MessageRepo:     repos.Message,
 		GroupMemberRepo: repos.GroupMember,
 		CacheService:    cacheService,
 	})
-	if conf.KafkaConfig.MessageMode == "kafka" {
-		chatServer.InitKafka()
-	}
+	chatServer.InitKafka()
 	zap.L().Info("ChatServer 初始化成功")
 
 	// 8. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 broker)

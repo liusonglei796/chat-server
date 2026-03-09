@@ -7,7 +7,6 @@ import (
 	"kama_chat_server/internal/infrastructure/sms"
 	admingroup "kama_chat_server/internal/service/admin/group"
 	adminuser "kama_chat_server/internal/service/admin/user"
-	"kama_chat_server/internal/service/ai"
 	"kama_chat_server/internal/service/apply"
 	"kama_chat_server/internal/service/auth"
 	"kama_chat_server/internal/service/friendship"
@@ -27,7 +26,6 @@ type Services struct {
 	Apply      *apply.ApplyService           // 申请 Service
 	Message    *message.MessageService       // 消息 Service
 	Auth       *auth.Service                 // 认证 Service
-	AI         *ai.AiService                 // AI Service
 
 	// 后台管理 Services
 	UserAdmin  *adminuser.UserAdminService   // 用户管理后台 Service
@@ -49,10 +47,6 @@ func NewServices(uow repository.UnitOfWork, cacheService repository.AsyncCacheSe
 		uow.MessageRepo(), uow.FriendshipRepo(), uow.SessionRepo(),
 		cacheService, pushRecallNotify,
 	)
-	aiSvc := ai.NewAIService(
-		uow.MessageRepo(), uow.GroupMemberRepo(), uow.SessionRepo(),
-		uow.FriendshipRepo(), cfg,
-	)
 
 	// 事务型 Service：注入 UnitOfWork 接口
 	userSvc := user.NewUserService(uow, cacheService, smsService, kickClient)
@@ -73,7 +67,6 @@ func NewServices(uow repository.UnitOfWork, cacheService repository.AsyncCacheSe
 		Apply:      applySvc,
 		Message:    messageSvc,
 		Auth:       authSvc,
-		AI:         aiSvc,
 		UserAdmin:  userAdminSvc,
 		GroupAdmin: groupAdminSvc,
 	}

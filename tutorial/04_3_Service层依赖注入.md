@@ -108,7 +108,6 @@ internal/service/
 └── chat/              # ChatServer/WebSocket/MQ（独立于 Services，由 main 负责初始化）
     ├── server.go
     ├── ws_gateway.go
-    ├── channel_broker.go
     ├── kafka_broker.go
     └── kafka_client.go
 ```
@@ -540,7 +539,6 @@ internal/service/
 └── chat/              # ChatServer/WebSocket/MQ（由 main 单独初始化）
     ├── server.go
     ├── ws_gateway.go
-    ├── channel_broker.go
     ├── kafka_broker.go
     └── kafka_client.go
 ```

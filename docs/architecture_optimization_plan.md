@@ -44,14 +44,10 @@
 - **问题**: `Read()` 方法循环读取消息，如果客户端静默断开（如断电、断网），服务端无法感知
 - **风险**: 长期运行后积累大量僵尸连接，内存泄漏
 
-#### 2. 无连接数限制
-- **位置**: `internal/service/chat/channel_broker.go:114`
-- **问题**: `s.Clients.Store(client.Uuid, client)` 直接注册，没有上限检查
+- **位置**: `internal/service/chat/kafka_broker.go:114`
 - **风险**: 可能被恶意攻击导致资源耗尽
 
-#### 3. 无消息确认机制
-- **位置**: `internal/service/chat/channel_broker.go:388-393`
-- **问题**: 消息推送到 `SendBack` 通道即认为成功，没有确认机制
+- **位置**: `internal/service/chat/kafka_broker.go:388-393`
 - **风险**: 消息丢失无法感知
 
 ### 优化方案

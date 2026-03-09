@@ -13,7 +13,6 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/message/message_status"
 	"net/http"
@@ -73,9 +72,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // Read 从 WebSocket 读取消息
-// 安全: 服务端会用连接时认证的用户 ID 覆盖消息中的 SendId，防止 IDOR 攻击
 // 退出时通过 defer 执行 cleanup：注销客户端 → 关闭通道 → 关闭连接
-// 改进建议：当前只有读超时设置，建议添加整体消息处理超时控制
 func (c *UserConn) Read() {
 	// cleanup: Read 退出时必须释放资源，防止内存泄漏和幽灵连接
 	defer c.cleanup()
@@ -105,11 +102,8 @@ func (c *UserConn) Read() {
 
 		zap.L().Debug("ws received message", zap.String("userId", c.Uuid), zap.String("message", string(jsonMessage)))
 
-		// 安全: 由服务端注入 send_id，客户端不传此字段（防止 IDOR）
-		securedMessage := injectSenderId(jsonMessage, c.Uuid)
-
 		// 通过接口发布消息，不关心具体实现
-		if err := c.broker.Publish(context.Background(), securedMessage); err != nil {
+		if err := c.broker.Publish(context.Background(), jsonMessage); err != nil {
 			zap.L().Error("publish message error", zap.String("userId", c.Uuid), zap.Error(err))
 		}
 	}
@@ -144,27 +138,6 @@ func safeCloseMessageBackChan(ch chan *MessageBack) {
 		}
 	}()
 	close(ch)
-}
-
-// injectSenderId 由服务端注入经过 JWT 认证的用户 ID 作为 send_id
-// 客户端无需（也不应）传入 send_id，防止 IDOR 攻击
-func injectSenderId(jsonMessage []byte, userId string) []byte {
-	var msg map[string]interface{}
-	if err := json.Unmarshal(jsonMessage, &msg); err != nil {
-		zap.L().Error("Failed to unmarshal message for security injection", zap.Error(err))
-		return jsonMessage // 如果解析失败，原样返回（后续会被校验拦截）
-	}
-
-	// 注入 send_id 字段
-	msg["send_id"] = userId
-
-	securedMessage, err := json.Marshal(msg)
-	if err != nil {
-		zap.L().Error("Failed to marshal secured message", zap.Error(err))
-		return jsonMessage
-	}
-
-	return securedMessage
 }
 
 // Write 从 SendBack 通道读取消息并发送给 WebSocket 客户端

@@ -520,13 +520,11 @@ func (mc *MsgConsumer) GetMessageRepo() mysql.MessageRepository {
 
 ### 8.1 configs/config.toml
 
-```toml
 [kafkaConfig]
 hostPort = "localhost:9092"  # Kafka 地址
 chatTopic = "chat_topic"     # Topic 名称
 partition = 1                # 分区数
 timeout = 10                 # 超时时间(秒)
-messageMode = "kafka"        # 消息模式（本项目仅支持 kafka）
 ```
 
 ---

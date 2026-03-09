@@ -84,23 +84,15 @@ type SnowflakeConfig struct {
 
 // Config 应用程序总配置，聚合所有子配置
 type Config struct {
-	MainConfig       `toml:"mainConfig"`       // 主配置
-	MysqlConfig      `toml:"mysqlConfig"`      // MySQL 配置
-	RedisConfig      `toml:"redisConfig"`      // Redis 配置
-	AuthCodeConfig   `toml:"authCodeConfig"`   // 短信验证码配置
-	LogConfig        `toml:"logConfig"`        // 日志配置
-	KafkaConfig      `toml:"kafkaConfig"`      // Kafka 配置
-	StaticSrcConfig  `toml:"staticSrcConfig"`  // 静态资源配置
-	JWTConfig        `toml:"jwtConfig"`        // JWT 配置
-	SnowflakeConfig  `toml:"snowflakeConfig"`  // 雪花算法配置
-	ModelScopeConfig `toml:"modelScopeConfig"` // ModelScope 配置
-}
-
-// ModelScopeConfig ModelScope (Kimi) 配置
-type ModelScopeConfig struct {
-	ApiKey  string `toml:"apiKey"`
-	BaseUrl string `toml:"baseUrl"`
-	Model   string `toml:"model"`
+	MainConfig      `toml:"mainConfig"`      // 主配置
+	MysqlConfig     `toml:"mysqlConfig"`     // MySQL 配置
+	RedisConfig     `toml:"redisConfig"`     // Redis 配置
+	AuthCodeConfig  `toml:"authCodeConfig"`  // 短信验证码配置
+	LogConfig       `toml:"logConfig"`       // 日志配置
+	KafkaConfig     `toml:"kafkaConfig"`     // Kafka 配置
+	StaticSrcConfig `toml:"staticSrcConfig"` // 静态资源配置
+	JWTConfig       `toml:"jwtConfig"`       // JWT 配置
+	SnowflakeConfig `toml:"snowflakeConfig"` // 雪花算法配置
 }
 
 // config 全局配置单例
@@ -168,25 +160,6 @@ func overlayEnvVars(c *Config) {
 	}
 	if v := os.Getenv("KAFKA_HOST_PORT"); v != "" {
 		c.KafkaConfig.HostPort = v
-	}
-
-	// ModelScope / AI 配置覆盖（优先读取 MODELSCOPE_*，其次 AI_*）
-	if v := os.Getenv("MODELSCOPE_API_KEY"); v != "" {
-		c.ModelScopeConfig.ApiKey = v
-	} else if v := os.Getenv("AI_API_KEY"); v != "" {
-		c.ModelScopeConfig.ApiKey = v
-	}
-
-	if v := os.Getenv("MODELSCOPE_BASE_URL"); v != "" {
-		c.ModelScopeConfig.BaseUrl = v
-	} else if v := os.Getenv("AI_BASE_URL"); v != "" {
-		c.ModelScopeConfig.BaseUrl = v
-	}
-
-	if v := os.Getenv("MODELSCOPE_MODEL"); v != "" {
-		c.ModelScopeConfig.Model = v
-	} else if v := os.Getenv("AI_DEFAULT_MODEL"); v != "" {
-		c.ModelScopeConfig.Model = v
 	}
 }
 
