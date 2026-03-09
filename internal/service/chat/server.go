@@ -1,7 +1,7 @@
 // Package chat 实现了聊天系统的核心服务层
 // server.go
-// 核心职责：聊天服务器聚合结构和依赖注入
-// 封装 KafkaClient 等组件，提供统一的生命周期管理
+// 核心职责：聊天服务器聚合结构
+// 封装 KafkaClient 和 MsgConsumer 组件，提供统一的生命周期管理
 package chat
 
 import (
@@ -28,7 +28,7 @@ func normalizePath(path string) string {
 }
 
 // ChatServer 聊天服务器聚合结构
-// 封装所有聊天相关组件，通过依赖注入管理生命周期
+// 封装 KafkaClient 和 MsgConsumer，统一管理生命周期
 type ChatServer struct {
 	// Broker 消息消费者（基于 Kafka）
 	Broker *MsgConsumer

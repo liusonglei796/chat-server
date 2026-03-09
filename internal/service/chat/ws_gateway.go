@@ -7,8 +7,8 @@
 // 3. **读写分离**: 每个连接启动两个协程 (ReadLoop/WriteLoop) 处理收发数据。
 //
 // 关键协作：
-// - **收消息**: 收到用户消息后，调用 `broker.Publish` (不关心是发给 Kafka 还是直接转发)。
-// - **发消息**: `kafka_broker` 最终会调用这里的 `WriteMessage` 把消息推给用户。
+// - **收消息**: 收到用户消息后，调用 `broker.Publish` 将消息发送到 Kafka。
+// - **发消息**: Kafka 消费者最终会调用这里的 `WriteMessage` 把消息推给用户。
 package chat
 
 import (
@@ -39,7 +39,7 @@ const (
 //
 //	写入 UserConn.SendBack channel，由 Write goroutine 取出后推送到浏览器
 //
-// 字段说明：
+// 字段说明：internal/service/chat/ws_gateway.go
 //   - Message: 序列化后的 JSON 响应体（即前端最终收到的完整 JSON）
 //   - Uuid:    消息 ID，Write goroutine 推送成功后据此更新 MySQL 消息状态为"已发送"
 type MessageBack struct {
@@ -54,7 +54,7 @@ type UserConn struct {
 	Conn        *websocket.Conn   // 底层 WebSocket 连接（通往用户浏览器的 TCP 管道）
 	Uuid        string            // 用户 ID（来自 JWT，可信）
 	SendBack    chan *MessageBack // 待推送消息队列：Kafka 消费者写入 → Write goroutine 读取并推送到浏览器
-	broker      *MsgConsumer      // 注入的消息消费者（用于 Publish 上行消息、注销连接等）
+	broker      *MsgConsumer      // Kafka 消费者实例，用于发送消息到 Kafka、注销连接等
 	cleanupOnce sync.Once         // 确保 cleanup 只执行一次（Read 退出和 ClientLogout 可能并发触发）
 }
 
@@ -99,10 +99,9 @@ func (c *UserConn) Read() {
 			}
 			return
 		}
-
 		zap.L().Debug("ws received message", zap.String("userId", c.Uuid), zap.String("message", string(jsonMessage)))
 
-		// 通过接口发布消息，不关心具体实现
+		// 将消息发送到 Kafka
 		if err := c.broker.Publish(context.Background(), jsonMessage); err != nil {
 			zap.L().Error("publish message error", zap.String("userId", c.Uuid), zap.Error(err))
 		}
@@ -164,9 +163,9 @@ func (c *UserConn) Write() {
 				return
 			}
 
-			// 通过 Repository 接口更新消息状态（遵循依赖倒置原则）
-			if repo := c.broker.GetMessageRepo(); repo != nil {
-				if err := repo.UpdateStatus(context.Background(), messageBack.Uuid, message_status.Sent); err != nil {
+			// 直接通过 Kafka 消费者持有的 MessageRepo 更新消息状态
+			if c.broker.MessageRepo != nil {
+				if err := c.broker.MessageRepo.UpdateStatus(context.Background(), messageBack.Uuid, message_status.Sent); err != nil {
 					zap.L().Error("更新消息状态失败", zap.Error(err))
 				}
 			}
@@ -196,7 +195,7 @@ func NewClientInit(c *gin.Context, clientId string, broker *MsgConsumer) { // [�
 		SendBack: make(chan *MessageBack, constants.CHANNEL_SIZE),
 		broker:   broker,
 	}
-	// 通过接口注册websocket客户端
+	// 注册到 Kafka 消费者的在线列表
 	broker.RegisterClient(client)
 	go client.Read()
 	go client.Write()

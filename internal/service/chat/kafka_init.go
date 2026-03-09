@@ -19,7 +19,6 @@
 package chat
 
 import (
-	"context"
 	myconfig "kama_chat_server/internal/config"
 	"time"
 
@@ -71,14 +70,4 @@ func (k *KafkaClient) KafkaClose() {
 	if err := k.Consumer.Close(); err != nil { // [第三方库: github.com/segmentio/kafka-go] Reader.Close 关闭消费者
 		zap.L().Error("service error", zap.Error(err)) // [第三方库: go.uber.org/zap]
 	}
-}
-
-// SendMessage 提供给 Producer (UserConn) 使用的写入接口
-// 用于向 Kafka集群 发送消息
-func (k *KafkaClient) SendMessage(ctx context.Context, key, value []byte) error {
-	// [第三方库: github.com/segmentio/kafka-go] Writer.WriteMessages 写入消息，kafka.Message 为消息载体
-	return k.Producer.WriteMessages(ctx, kafka.Message{
-		Key:   key,
-		Value: value,
-	})
 }

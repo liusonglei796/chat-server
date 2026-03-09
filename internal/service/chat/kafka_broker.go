@@ -1,19 +1,9 @@
 // kafka_broker.go
-// 核心职责：连接 WebSocket 和 Kafka 的桥梁 (Bridge)
-//
-// 架构角色：
-// 1. **上行 (Upstream)**: 实现 MessageBroker 接口的 Publish 方法，把 WebSocket 收到的消息**投递到 Kafka**。
-// 2. **下行 (Downstream)**: 作为一个 Kafka Consumer，不断从 Kafka 拉取消息。
+// 核心职责：Kafka 消息消费者，负责上行投递与下行分发
 //
 // 工作流程：
-// [WebSocket] -> (Publish) -> [KafkaBroker] -> (Write) -> [Kafka Cluster]
-//
-//	^
-//	| (Consume)
-//
-// [WebSocket] <- (Push) <- [KafkaBroker] <- (Read) <- [Kafka Cluster]
-//
-// 为什么叫 Broker？因为它不生产消息，只是在 Go 服务器内部和 Kafka 集群之间做**消息搬运工**。
+// 上行：[WebSocket] -> Publish() -> [Kafka Cluster]
+// 下行：[Kafka Cluster] -> Start() 消费循环 -> dispatchToUser/dispatchToGroup -> [WebSocket]
 package chat
 
 import (
@@ -36,10 +26,12 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 )
 
-// MsgConsumer 定义了基于 Kafka 的聊天服务结构
+// MsgConsumer Kafka 消息消费者
+// 负责：1) 接收 WebSocket 上行消息并投递到 Kafka  2) 从 Kafka 消费消息并分发到在线用户
 type MsgConsumer struct {
 	// Clients 存储所有在线客户端的映射表，Key 为 UserUUID，Value 为 *UserConn
 	// 使用 sync.Map 实现并发安全，无需手动加锁
@@ -54,7 +46,7 @@ type MsgConsumer struct {
 
 	// 依赖注入字段（遵循依赖倒置原则）
 	kafkaClient     *KafkaClient
-	messageRepo     repository.MessageRepository
+	MessageRepo     repository.MessageRepository    // 导出字段，供 ws_gateway 的 Write goroutine 直接访问
 	friendshipRepo  repository.FriendshipRepository // 用于消息权限校验（好友关系 + 拉黑检查）
 	groupMemberRepo repository.GroupMemberRepository
 	sessionRepo     repository.SessionRepository // 用于更新会话最后消息
@@ -66,7 +58,7 @@ type MsgConsumer struct {
 	quit chan os.Signal
 }
 
-// NewMsgConsumer 创建 KafkaBroker 实例（依赖注入）
+// NewMsgConsumer 创建 Kafka 消息消费者实例（依赖注入）
 func NewMsgConsumer(
 	kafkaClient *KafkaClient,
 	messageRepo repository.MessageRepository,
@@ -87,7 +79,7 @@ func NewMsgConsumer(
 		Login:           make(chan *UserConn),
 		Logout:          make(chan *UserConn),
 		kafkaClient:     kafkaClient,
-		messageRepo:     messageRepo,
+		MessageRepo:     messageRepo,
 		friendshipRepo:  friendshipRepo,
 		groupMemberRepo: groupMemberRepo,
 		sessionRepo:     sessionRepo,
@@ -98,10 +90,14 @@ func NewMsgConsumer(
 	}
 }
 
-// Publish 实现 MessageBroker 接口：producer发布消息到 Kafka
+// Publish 将消息投递到 Kafka（由 WebSocket Read goroutine 调用）
 func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
 	key := []byte("0") // 默认分区
-	return k.kafkaClient.SendMessage(ctx, key, msg)
+	// [第三方库: github.com/segmentio/kafka-go] Writer.WriteMessages 写入消息，kafka.Message 为消息载体
+	return k.kafkaClient.Producer.WriteMessages(ctx, kafka.Message{
+		Key:   key,
+		Value: msg,
+	})
 }
 
 // normalizePath 函数已在 channel_server.go 中定义
@@ -214,7 +210,7 @@ func (k *MsgConsumer) Close() {
 	})
 }
 
-// GetClient 实现 MessageBroker 接口
+// GetClient 从在线用户列表中获取指定用户的 WebSocket 连接
 func (k *MsgConsumer) GetClient(userId string) *UserConn {
 	value, ok := k.Clients.Load(userId)
 	if !ok {
@@ -223,23 +219,17 @@ func (k *MsgConsumer) GetClient(userId string) *UserConn {
 	return value.(*UserConn)
 }
 
-// RegisterClient 实现 MessageBroker 接口：注册客户端
+// RegisterClient 将用户连接加入登录队列
 func (k *MsgConsumer) RegisterClient(client *UserConn) {
 	k.Login <- client
 }
 
-// UnregisterClient 实现 MessageBroker 接口：注销客户端
+// UnregisterClient 将用户连接加入登出队列
 func (k *MsgConsumer) UnregisterClient(client *UserConn) {
 	k.Logout <- client
 }
 
-// GetMessageRepo 实现 MessageBroker 接口：获取消息 Repository
-func (k *MsgConsumer) GetMessageRepo() repository.MessageRepository {
-	return k.messageRepo
-}
-
-// KickClient 实现 MessageBroker 接口：向指定用户推送下线通知并断开连接
-// 用于实现单点登录互踢功能
+// KickClient 向指定用户推送下线通知并断开连接（单点登录互踢）
 func (k *MsgConsumer) KickClient(userId string, reason string) {
 	client := k.GetClient(userId)
 	if client == nil {
@@ -391,8 +381,8 @@ func (k *MsgConsumer) buildMessageFromRequest(req messagereq.ChatMessageRequest)
 
 // persistMessage 持久化消息到数据库
 func (k *MsgConsumer) persistMessage(message *model.Message) {
-	if k.messageRepo != nil {
-		if err := k.messageRepo.Create(context.Background(), message); err != nil {
+	if k.MessageRepo != nil {
+		if err := k.MessageRepo.Create(context.Background(), message); err != nil {
 			zap.L().Error("创建消息失败", zap.Error(err))
 		}
 	}
@@ -562,8 +552,8 @@ func (k *MsgConsumer) handleAVMessage(req messagereq.ChatMessageRequest) {
 	// 关键信令入库（仅 PROXY 类型中的 start_call/receive_call/reject_call 三种信令会持久化）
 	if avData.MessageId == "PROXY" && (avData.Type == "start_call" || avData.Type == "receive_call" || avData.Type == "reject_call") {
 		message.SendAvatar = normalizePath(message.SendAvatar)
-		if k.messageRepo != nil {
-			if err := k.messageRepo.Create(context.Background(), &message); err != nil {
+		if k.MessageRepo != nil {
+			if err := k.MessageRepo.Create(context.Background(), &message); err != nil {
 				zap.L().Error("创建音视频消息失败", zap.Error(err))
 			}
 		}
