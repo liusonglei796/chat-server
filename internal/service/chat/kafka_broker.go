@@ -40,10 +40,8 @@ type MsgConsumer struct {
 	Login chan *UserConn
 	// Logout 客户端登出通道，当连接断开时写入此通道
 	Logout chan *UserConn
-
 	// closeOnce 确保 channel 只被关闭一次，防止 double-close panic
 	closeOnce sync.Once
-
 	// 依赖注入字段（遵循依赖倒置原则）
 	kafkaClient     *KafkaClient
 	MessageRepo     repository.MessageRepository    // 导出字段，供 ws_gateway 的 Write goroutine 直接访问
@@ -53,7 +51,6 @@ type MsgConsumer struct {
 	cacheService    repository.AsyncCacheService
 	cacheHelper     *cacheutil.Helper         // Cache-Aside 辅助工具（含 singleflight 防击穿）
 	userRepo        repository.UserRepository // 用于检查用户状态（是否被禁用）
-
 	// quit 用于接收退出信号以优雅关闭消费循环
 	quit chan os.Signal
 }
@@ -222,6 +219,7 @@ func (k *MsgConsumer) GetClient(userId string) *UserConn {
 // RegisterClient 将用户连接加入登录队列
 func (k *MsgConsumer) RegisterClient(client *UserConn) {
 	k.Login <- client
+
 }
 
 // UnregisterClient 将用户连接加入登出队列

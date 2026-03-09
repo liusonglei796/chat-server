@@ -33,7 +33,6 @@ func RateLimit(cache repository.CacheService, keyPrefix string, keyFunc RateLimi
 
 		key := keyPrefix + identifier
 		ctx := c.Request.Context()
-
 		// 原子递增
 		count, err := cache.Incr(ctx, key)
 		if err != nil {

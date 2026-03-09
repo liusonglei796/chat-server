@@ -8,7 +8,7 @@
 - 使用 kafka 作为消息总线，ws 网关收到消息后发布到 kafka，消费者按消息类型（文本/文件/音视频信令）分发到目标用户的 channel，实现消息收发解耦和流量削峰。
 - 基于 gorm 搭建数据访问层，采用 Repository 模式封装 CRUD，使用 redis 做缓存降低数据库查询压力。
 - 封装 `cache.Helper` 组件实现 Cache-Aside 模式，集成 singleflight 防缓存击穿、空值缓存防穿透、TTL 随机抖动防雪崩。
-- 实现 JWT 双 Token 认证（Access Token + Refresh Token），Refresh Token 通过 tokenID 存 Redis 实现单点登录互踢和无感刷新。
+- 实现 JWT 双 Token 认证（Access Token + Refresh Token），Refresh Token 通过 tokenID 存 Redis 实现单点登录互踢。
 - 实现基于 Redis 的固定窗口限流中间件，支持按 IP、手机号等维度限流，Redis 故障时降级放行。
 - 集成阿里云短信服务实现验证码登录，包含频率限制、验证码缓存预占和发送失败回滚机制。
 - 支持 HTTPS 部署，生产环境由 Nginx 做 SSL 终止后反向代理到 Go 服务，避免应用层重复加解密。
