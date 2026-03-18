@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=for-the-badge" alt="License">
 </p>
 
-KamaChat Server 是一个基于 Go 语言开发的高性能即时通讯服务端，支持单聊、群聊、WebSocket 实时通信、Kafka 消息队列，以及 AI 智能回复、群聊总结、多语言翻译等功能。
+KamaChat Server 是一个基于 Go 语言开发的高性能即时通讯服务端，支持单聊、群聊、WebSocket 实时通信、Kafka 消息队列等功能。
 
 ## ✨ 功能特性
 
@@ -27,9 +27,6 @@ KamaChat Server 是一个基于 Go 语言开发的高性能即时通讯服务端
 - 📌 **会话置顶** - 支持将重要会话置顶显示
 - 🔇 **群成员禁言** - 群主/管理员可对群成员进行禁言操作
 - 📝 **好友备注** - 支持设置好友备注名，方便管理联系人
-- 🤖 **AI 智能回复建议** - 基于上下文生成 3 条可选回复
-- 📋 **AI 群聊总结** - 自动提炼群聊要点、待办与决策（支持自定义时间范围和消息数量）
-- 🌍 **AI 多语言翻译** - 支持自动识别源语言并翻译到目标语言
 - 🛡️ **IDOR 防护** - 基于用户会话的 IDOR 安全检查
 
 ## 🏗️ 项目架构
@@ -61,16 +58,13 @@ kama_chat_server/
 │   ├── handler/                  # HTTP 处理器
 │   ├── https_server/             # HTTPS 服务器配置
 │   ├── infrastructure/           # 基础设施层
-│   │   ├── ai/                   # AI 客户端（Eino SDK）
 │   │   ├── logger/               # 日志组件 (Zap)
 │   │   ├── middleware/           # 中间件
-│   │   ├── mq/                   # 消息队列 (Kafka)
 │   │   ├── sms/                  # 短信服务
 │   │   └── snowflake/            # 雪花算法 ID 生成
 │   ├── model/                    # 数据模型
 │   ├── router/                   # 路由定义
 │   └── service/                  # 业务逻辑层
-│       ├── ai/                   # AI 业务
 │       ├── apply/                # 申请业务
 │       ├── auth/                 # 认证业务
 │       ├── friendship/          # 好友业务
@@ -83,7 +77,6 @@ kama_chat_server/
 ├── pkg/
 │   ├── aes/                      # AES 加密工具
 │   ├── constants/                # 常量定义
-│   │   ├── ai.go                 # AI 常量
 │   │   ├── cache_key.go          # Redis Key 常量
 │   │   └── constants.go          # 通用常量
 │   ├── enum/                     # 枚举定义
@@ -119,8 +112,7 @@ kama_chat_server/
 | **认证** | JWT (golang-jwt/jwt) |
 | **短信服务** | 阿里云 SMS |
 | **配置管理** | TOML |
-| **AI 编排** | ByteDance Eino |
-| **AI 模型接入** | ModelScope OpenAI-Compatible API (Kimi K2.5) |
+
 | **容器化** | Docker & Docker Compose |
 
 ## 🚀 快速开始
@@ -179,7 +171,7 @@ kama_chat_server/
 
 5. **启动服务**
    ```bash
-   go run cmd/kama_chat_server/main.go
+   go run ./cmd/chat_server
    ```
 
    服务将在 `http://0.0.0.0:8000` 启动。
@@ -233,7 +225,6 @@ docker logs -f kamachat
 | 会话模块 | `/sessions` | 会话列表、会话管理、会话置顶 |
 | 消息模块 | `/messages` | 消息记录、撤回 |
 | 上传模块 | `/upload` | 头像、文件上传 |
-| AI 模块 | `/ai` | 智能回复建议、群聊总结、翻译 |
 | WebSocket | `/ws` | 实时通信 |
 
 ## 🔧 配置说明
@@ -255,28 +246,7 @@ accessTokenExpiry = 15      # Access Token 有效期（分钟）
 refreshTokenExpiry = 168    # Refresh Token 有效期（小时）
 ```
 
-### AI 配置（ModelScope + Kimi K2.5）
 
-```toml
-[modelScopeConfig]
-apiKey = "" # 建议通过环境变量注入，不要写死在仓库
-baseUrl = "https://api-inference.modelscope.cn/v1"
-model = "moonshotai/Kimi-K2.5"
-```
-
-推荐环境变量：
-
-- `MODELSCOPE_API_KEY`
-- `MODELSCOPE_BASE_URL`
-- `MODELSCOPE_MODEL`
-
-PowerShell 示例：
-
-```powershell
-$env:MODELSCOPE_API_KEY="ms-你的Key"
-$env:MODELSCOPE_MODEL="moonshotai/Kimi-K2.5"
-go run cmd/kama_chat_server/main.go
-```
 
 ## 📝 开发指南
 
@@ -301,24 +271,7 @@ Service 层返回值约定：
 
 - 通用常量：`pkg/constants/constants.go`
 - Redis Key：`pkg/constants/cache_key.go`
-- AI 常量：`pkg/constants/ai.go`
 - 枚举定义：`pkg/enum/<模块>/<类型>/`
-
-### AI 群聊总结参数说明
-
-| 参数 | 类型 | 说明 | 默认值 |
-|------|------|------|--------|
-| group_id | string | 群组 ID（必须以 G 开头） | - |
-| hours | int | 总结过去多少小时的消息 | 24 |
-| limit | int | 最多拉取多少条消息 | 200（最大 500） |
-| style | string | 总结风格（brief/comprehensive） | brief |
-
-示例请求：
-```bash
-curl -X POST /ai/group-summary \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"group_id": "G123456", "hours": 24, "limit": 200}'
-```
 
 ## 📚 相关文档
 

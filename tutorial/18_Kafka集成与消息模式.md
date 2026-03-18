@@ -473,22 +473,6 @@ func (mc *MsgConsumer) GetClient(userId string) *UserConn {
 	return value.(*UserConn)
 }
 
-// KickClient 单点登录互踢
-func (mc *MsgConsumer) KickClient(userId string, reason string) {
-	client := mc.GetClient(userId)
-	if client != nil {
-		// 推送下线通知
-		notify := map[string]interface{}{
-			"type":    message_type.KickNotification,
-			"content": reason,
-		}
-		data, _ := json.Marshal(notify)
-		_ = client.Conn.WriteMessage(websocket.TextMessage, data)
-		// 断开连接
-		client.cleanup()
-	}
-}
-
 // PushRecallNotify 推送撤回通知
 func (mc *MsgConsumer) PushRecallNotify(messageUuid, receiveId string) {
 	client := mc.GetClient(receiveId)
@@ -574,7 +558,7 @@ func main() {
 - `*MsgConsumer` 实现了消息消费者的所有功能
 - `MsgConsumer` 负责从 Kafka 消费消息并处理
 - WebSocket 网关通过 `Publish` 接口发布消息，不关心底层实现
-- 支持单点登录互踢（KickClient）和消息撤回通知（PushRecallNotify）
+- 支持消息撤回通知（PushRecallNotify）
 
 ---
 

@@ -266,7 +266,6 @@ func ClientLogout(clientId string, broker *MsgConsumer) error {
 - `Publish()`：producer 写入 Kafka
 - `Start()`：启动 goroutine 从 Kafka 消费消息，并对本机在线用户做推送
 - 维护 `Clients sync.Map`，用于判断某用户是否在本机在线
-- `KickClient()`：单点登录互踢，推送下线通知并断开连接
 - `PushRecallNotify()`：本地直推撤回通知（非 Kafka）
 
 缓存（异步）：通过注入的 `AsyncCacheService.SubmitTask()` 更新 Redis。
@@ -365,7 +364,6 @@ type ChatMessageRequest struct {
 - `2`：File（文件）
 - `3`：AudioOrVideo（音视频通话）
 - `4`：Recall（消息撤回）
-- `99`：KickNotification（设备下线通知/单点登录互踢）
 
 ---
 

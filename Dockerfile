@@ -1,48 +1,33 @@
-# 设置 Docker 镜像代理 + Go 模块代理
-# 阶段 1: 构建阶段
-FROM golang:1.26-alpine AS builder
+# 多阶段构建：编译 → 运行
+FROM golang:1.21-alpine AS builder
 
-# 设置 Go 模块代理（使用国内镜像）
-ENV GOPROXY=https://goproxy.cn,direct
-
-# 安装构建所需工具
-RUN apk add --no-cache gcc musl-dev git
-
-# 设置工作目录
 WORKDIR /app
 
-# 复制 go.mod 和 go.sum
+# 缓存依赖层
 COPY go.mod go.sum ./
-
-# 下载依赖
 RUN go mod download
 
-# 复制源代码
+# 编译应用
 COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app .
 
-# 构建可执行文件
-RUN CGO_ENABLED=1 GOOS=linux go build -o chat_server ./cmd/chat_server/main.go
+# 运行阶段 - 使用精简镜像
+FROM alpine:3.18
 
-# 阶段 2: 运行阶段
-FROM alpine:latest
+RUN apk add --no-cache ca-certificates curl
 
-# 安装运行时依赖 (ca-certificates 用于 HTTPS, tzdata 用于时区)
-RUN apk add --no-cache ca-certificates tzdata
-
-# 设置工作目录
 WORKDIR /app
 
-# 从构建阶段复制可执行文件
-COPY --from=builder /app/chat_server .
+# 从构建阶段复制二进制文件
+COPY --from=builder /app/app .
 
-# 复制配置文件
-COPY configs/config.toml .
+# 非 root 用户运行
+RUN addgroup -S appuser && adduser -S appuser -G appuser
+USER appuser
 
-# 创建日志目录
-RUN mkdir -p /app/logs
+EXPOSE 8080
 
-# 暴露端口
-EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
 
-# 启动命令
-ENTRYPOINT ["./chat_server"]
+ENTRYPOINT ["./app"]

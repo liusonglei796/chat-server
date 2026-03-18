@@ -17,8 +17,8 @@ password = ""
 db = 0
 
 [authCodeConfig]
-accessKeyID = "your accessKeyID in alibaba cloud"
-accessKeySecret = "your accessKeySecret in alibaba cloud"
+accessKeyID = "YOUR_ACCESS_KEY_ID"
+accessKeySecret = "YOUR_ACCESS_KEY_SECRET"
 signName = "阿里云短信测试"
 templateCode = "SMS_154950909"
 
@@ -44,8 +44,3 @@ refreshTokenExpiry = 168    # Refresh Token 有效期（小时），168小时 = 
 
 [snowflakeConfig]
 machineId = 1  # 雪花算法节点 ID (0-1023)，分布式部署时每个节点需不同
-
-[modelScopeConfig]
-apiKey = "" # 建议通过环境变量 MODELSCOPE_API_KEY 或 AI_API_KEY 注入
-baseUrl = "https://api-inference.modelscope.cn/v1"
-model = "moonshotai/Kimi-K2.5"

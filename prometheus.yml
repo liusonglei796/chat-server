@@ -1,0 +1,47 @@
+# Prometheus 监控配置
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'sms-service'
+
+# 告警规则
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # Prometheus 自身
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Redis 监控
+  - job_name: 'redis-master'
+    static_configs:
+      - targets: ['redis-master:6379']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'redis-replica'
+    static_configs:
+      - targets: ['redis-replica:6379']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Nginx 监控（需要安装 nginx-prometheus-exporter）
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['localhost:9113']
+    scrape_interval: 10s
+
+  # 应用指标（假设应用提供 /metrics 端点）
+  - job_name: 'sms-app'
+    static_configs:
+      - targets: ['app1:8080', 'app2:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 10s

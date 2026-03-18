@@ -89,7 +89,28 @@ func NewMsgConsumer(
 
 // Publish 将消息投递到 Kafka（由 WebSocket Read goroutine 调用）
 func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
-	key := []byte("0") // 默认分区
+	// 默认使用 "0" 作为分区 Key
+	key := []byte("0")
+
+	// 尝试解析消息以获取发送者和接收者 ID，生成逻辑会话 Key (Logical Session Key) 以保证有序性
+	var req struct {
+		SendId    string `json:"send_id"`
+		ReceiveId string `json:"receive_id"`
+	}
+	if err := json.Unmarshal(msg, &req); err == nil && req.ReceiveId != "" {
+		if req.ReceiveId[0] == 'U' {
+			// 私聊：确保 A->B 和 B->A 的 Key 一致（字典序排序）
+			id1, id2 := req.SendId, req.ReceiveId
+			if id1 > id2 {
+				id1, id2 = id2, id1
+			}
+			key = []byte(id1 + "_" + id2)
+		} else if req.ReceiveId[0] == 'G' {
+			// 群聊：直接使用 GroupId 作为 Key
+			key = []byte(req.ReceiveId)
+		}
+	}
+
 	// [第三方库: github.com/segmentio/kafka-go] Writer.WriteMessages 写入消息，kafka.Message 为消息载体
 	return k.kafkaClient.Producer.WriteMessages(ctx, kafka.Message{
 		Key:   key,
@@ -116,8 +137,7 @@ func (k *MsgConsumer) Start() {
 			close(k.Logout)
 		})
 	}()
-
-	// 启动一个 Goroutine 专门负责从 Kafka 读取消息
+	// 1. 启动一个 Goroutine 专门负责从 Kafka 读取消息
 	go func() {
 		// 同样需要捕获 panic
 		defer func() {
@@ -128,15 +148,12 @@ func (k *MsgConsumer) Start() {
 		// Kafka 消费死循环
 		for {
 			// 从 Kafka 读取一条消息
-			//  // 3. 阻塞读取：这里会卡住，直到 Kafka 集群里有新消息
-			// k.kafkaClient.Consumer 就是 kafka_client.go 里初始化的那个 Reader 对象
-			kafkaMessage, err := k.kafkaClient.Consumer.ReadMessage(context.Background()) // [第三方库: github.com/segmentio/kafka-go] Reader.ReadMessage 阻塞读取一条 Kafka 消息
+			kafkaMessage, err := k.kafkaClient.Consumer.ReadMessage(context.Background())
 			if err != nil {
 				zap.L().Error("service error", zap.Error(err))
 				continue // 读取失败，重试
 			}
-			// 记录详细的 Kafka 消息元数据（调试用）
-			// [第三方库: go.uber.org/zap] 结构化日志：zap.L() 获取全局 Logger，zap.String/Int/Int64/ByteString 为类型安全的字段构造器
+			// 记录详细的 Kafka 消息元数据
 			zap.L().Debug("kafka message received",
 				zap.String("topic", kafkaMessage.Topic),
 				zap.Int("partition", kafkaMessage.Partition),
@@ -147,52 +164,43 @@ func (k *MsgConsumer) Start() {
 			// 获取消息体
 			messageData := kafkaMessage.Value
 			var chatMessageReq messagereq.ChatMessageRequest
-			// 反序列化为请求对象
-			if err := json.Unmarshal(messageData, &chatMessageReq); err != nil { // [标准库: encoding/json] 反序列化 JSON
+			if err := json.Unmarshal(messageData, &chatMessageReq); err != nil {
 				zap.L().Error("service error", zap.Error(err))
-				continue // 反序列化失败，直接跳过
+				continue
 			}
 			zap.L().Debug("kafka message deserialized", zap.String("type", fmt.Sprintf("%d", chatMessageReq.Type)), zap.String("sendId", chatMessageReq.SendId))
 
 			// 根据消息类型分发处理逻辑
 			switch chatMessageReq.Type {
 			case message_type.Text:
-				// 处理文本消息
 				k.handleTextMessage(chatMessageReq)
 			case message_type.File:
-				// 处理文件消息
 				k.handleFileMessage(chatMessageReq)
 			case message_type.AudioOrVideo:
-				// 处理音视频消息
 				k.handleAVMessage(chatMessageReq)
 			}
 		}
 	}()
 
-	// 主循环：负责处理客户端的登录和登出事件
-	// 这部分逻辑与 Channel 模式的 Server 类似，主要维护内存中的 Clients 映射表
+	// 2. 主循环：负责处理客户端的登录和登出事件（同步阻塞）
 	for {
 		select {
 		// 处理登录
 		case client := <-k.Login:
-			// 将新连接的客户端加入映射表 (sync.Map 自动处理并发安全)
 			k.Clients.Store(client.Uuid, client)
 			zap.L().Debug(fmt.Sprintf("欢迎来到kama聊天服务器，亲爱的用户%s\n", client.Uuid))
-			// 发送欢迎语
-			if err := client.Conn.WriteMessage(websocket.TextMessage, []byte("欢迎来到kama聊天服务器")); err != nil { // [第三方库: github.com/gorilla/websocket] Conn.WriteMessage 写入 WebSocket 消息，TextMessage 为文本帧类型常量
+			if err := client.Conn.WriteMessage(websocket.TextMessage, []byte("欢迎来到kama聊天服务器")); err != nil {
 				zap.L().Error("service error", zap.Error(err))
 			}
 
 		// 处理退出
 		case client := <-k.Logout:
-			// 从映射表中移除断开的客户端 (sync.Map 自动处理并发安全)
 			k.Clients.Delete(client.Uuid)
 			zap.L().Info(fmt.Sprintf("用户%s退出登录\n", client.Uuid))
-			// 发送退出提示
 			if err := client.Conn.WriteMessage(websocket.TextMessage, []byte("已退出登录")); err != nil {
 				zap.L().Error("service error", zap.Error(err))
 			}
-		// 处理系统退出信号（如果启用）
+		// 处理系统退出信号
 		case <-k.quit:
 			return
 		}
@@ -227,34 +235,6 @@ func (k *MsgConsumer) UnregisterClient(client *UserConn) {
 	k.Logout <- client
 }
 
-// KickClient 向指定用户推送下线通知并断开连接（单点登录互踢）
-func (k *MsgConsumer) KickClient(userId string, reason string) {
-	client := k.GetClient(userId)
-	if client == nil {
-		return // 用户不在线，无需踢人
-	}
-
-	// 1. 构造下线通知消息
-	kickMsg := map[string]interface{}{
-		"type":    message_type.KickNotification,
-		"message": reason,
-	}
-	jsonMsg, err := json.Marshal(kickMsg) // [标准库: encoding/json] 序列化为 JSON
-	if err != nil {
-		zap.L().Error("序列化踢人消息失败", zap.Error(err))
-		return
-	}
-
-	// 2. 推送给客户端（尝试发送，失败也不影响后续 cleanup）
-	if err := client.Conn.WriteMessage(websocket.TextMessage, jsonMsg); err != nil {
-		zap.L().Warn("发送踢人消息失败", zap.Error(err))
-	}
-
-	// 3. 通过 cleanup 统一释放资源（sync.Once 保证幂等）
-	client.cleanup()
-
-	zap.L().Info("用户已被踢下线", zap.String("userId", userId), zap.String("reason", reason))
-}
 
 // PushRecallNotify 向指定用户推送撤回通知（直接本地推送，不走 Kafka）
 // messageUuid: 被撤回的消息 UUID

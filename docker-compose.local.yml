@@ -3,7 +3,7 @@ services:
     image: mysql:8.0
     container_name: chat-local-mysql
     ports:
-      - "3307:3306"
+      - "3310:3306"
     environment:
       MYSQL_ROOT_PASSWORD: root123456
       MYSQL_DATABASE: chat
@@ -20,7 +20,7 @@ services:
     image: redis:7-alpine
     container_name: chat-local-redis
     ports:
-      - "6380:6379"
+      - "6382:6379"
     volumes:
       - local_redis_data:/data
     healthcheck:
@@ -33,12 +33,12 @@ services:
     image: apache/kafka:4.1.1
     container_name: chat-local-kafka
     ports:
-      - "9093:9092"
+      - "9095:9092"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9094
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9095
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9094

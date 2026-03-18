@@ -5,20 +5,20 @@ port = 8001
 
 [mysqlConfig]
 host = "127.0.0.1"
-port = 3307
+port = 3310
 user = "root"
 password = "root123456"
 databaseName = "chat"
 
 [redisConfig]
 host = "127.0.0.1"
-port = 6380
+port = 6382
 password = ""
 db = 0
 
 [authCodeConfig]
-accessKeyID = "your accessKeyID in alibaba cloud"
-accessKeySecret = "your accessKeySecret in alibaba cloud"
+accessKeyID = "YOUR_ACCESS_KEY_ID"
+accessKeySecret = "YOUR_ACCESS_KEY_SECRET"
 signName = "阿里云短信测试"
 templateCode = "SMS_154950909"
 
@@ -26,7 +26,7 @@ templateCode = "SMS_154950909"
 logPath = "your log path"
 
 [kafkaConfig]
-hostPort = "127.0.0.1:9093"
+hostPort = "127.0.0.1:9095"
 loginTopic = "login"
 chatTopic = "chat_message"
 logoutTopic = "logout"

@@ -72,8 +72,8 @@ func main() {
 	chatServer.InitKafka()
 	zap.L().Info("ChatServer 初始化成功")
 
-	// 8. 初始化 Service 层 (依赖注入，传入 kickClient 和 pushRecallNotify 回调)
-	services := service.NewServices(repos, cachePort, smsService, chatServer.GetBroker().KickClient, chatServer.GetBroker().PushRecallNotify, conf)
+	// 8. 初始化 Service 层 (依赖注入，传入 pushRecallNotify 回调)
+	services := service.NewServices(repos, cachePort, smsService, chatServer.GetBroker().PushRecallNotify, conf)
 	zap.L().Info("Service 层初始化成功")
 
 	// 9. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 broker)

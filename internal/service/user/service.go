@@ -29,18 +29,15 @@ type UserService struct {
 	cache       repository.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
 	smsService  sms.SmsService
-	kickClient  func(userId, reason string) // 踢人回调函数（解耦 chat 包）
 }
 
 // NewUserService 构造函数，注入所有依赖
-// kickClient: 可选的踢人回调函数，用于登录时踢掉旧设备
-func NewUserService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, smsService sms.SmsService, kickClient func(userId, reason string)) *UserService {
+func NewUserService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, smsService sms.SmsService) *UserService {
 	return &UserService{
 		uow:         uow,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
 		smsService:  smsService,
-		kickClient:  kickClient,
 	}
 }
 
@@ -72,10 +69,7 @@ func (u *UserService) buildLoginResponse(ctx context.Context, user *model.UserIn
 		return nil, errorx.New(errorx.CodeForbidden, "该账号已被禁用，请联系管理员")
 	}
 
-	// 2. 踢掉旧设备（如果在线）
-	if u.kickClient != nil {
-		u.kickClient(user.Uuid, "您的账号已在其他设备登录")
-	}
+	// 2. 踢掉旧设备（如果在线）- 已移除
 
 	// 3. 生成双 Token (传入 isAdmin 用于 JWT Claims)
 	accessToken, err := jwt.GenerateAccessToken(user.Uuid, user.IsAdmin == 1)

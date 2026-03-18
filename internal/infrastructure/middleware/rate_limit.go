@@ -22,6 +22,7 @@ type RateLimitKeyFunc func(c *gin.Context) string
 // keyPrefix: 缓存 key 前缀（如 "rate:sms:"）
 // keyFunc: 从请求中提取限流标识的函数
 // maxRequests: 窗口内允许的最大请求数
+
 // window: 窗口时间长度
 func RateLimit(cache repository.CacheService, keyPrefix string, keyFunc RateLimitKeyFunc, maxRequests int64, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
