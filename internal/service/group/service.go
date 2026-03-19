@@ -164,7 +164,7 @@ func (g *GroupService) CheckGroupAddMode(ctx context.Context, groupId string) (i
 	var groupInfo grouprsp.GetGroupInfoRespond
 
 	err := g.cacheHelper.GetOrLoad(
-		context.Background(),
+		ctx,
 		cacheKey,
 		func() (interface{}, error) {
 			group, err := g.uow.GroupRepo().FindByUuid(ctx, groupId)

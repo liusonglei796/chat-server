@@ -87,7 +87,7 @@ func (s *FriendshipService) GetFriendList(ctx context.Context, userId string, pa
 
 		var userInfo userrsp.GetUserInfoRespond
 		err := s.cacheHelper.GetOrLoad(
-			context.Background(),
+			ctx,
 			cacheKey,
 			func() (interface{}, error) {
 				user, err := s.uow.UserRepo().FindByUuid(ctx, friendId)
@@ -133,7 +133,7 @@ func (s *FriendshipService) GetFriendInfo(ctx context.Context, userId, friendId 
 	var userRsp userrsp.GetUserInfoRespond
 
 	err = s.cacheHelper.GetOrLoad(
-		context.Background(),
+		ctx,
 		cacheKey,
 		func() (interface{}, error) {
 			user, err := s.uow.UserRepo().FindByUuid(ctx, friendId)

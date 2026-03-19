@@ -274,7 +274,7 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, targetI
 		var userRsp user.GetUserInfoRespond
 
 		err := s.cacheHelper.GetOrLoad(
-			context.Background(),
+			ctx,
 			key,
 			func() (interface{}, error) {
 				u, err := s.userRepo.FindByUuid(ctx, targetId)
@@ -308,7 +308,7 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, targetI
 		var groupRsp group.GetGroupInfoRespond
 
 		err := s.cacheHelper.GetOrLoad(
-			context.Background(),
+			ctx,
 			key,
 			func() (interface{}, error) {
 				g, err := s.groupRepo.FindByUuid(ctx, targetId)

@@ -28,11 +28,11 @@ type UserService struct {
 	uow         repository.UnitOfWork
 	cache       repository.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
-	smsService  sms.SmsService
+	smsService  *sms.AliyunSmsService
 }
 
 // NewUserService 构造函数，注入所有依赖
-func NewUserService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, smsService sms.SmsService) *UserService {
+func NewUserService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, smsService *sms.AliyunSmsService) *UserService {
 	return &UserService{
 		uow:         uow,
 		cache:       cacheService,
@@ -318,7 +318,7 @@ func (u *UserService) GetUserInfo(ctx context.Context, requesterId, targetId str
 	var rsp userrsp.GetUserInfoRespond
 
 	err := u.cacheHelper.GetOrLoad(
-		context.Background(),
+		ctx,
 		key,
 		func() (interface{}, error) {
 			user, err := u.uow.UserRepo().FindByUuid(ctx, targetId)
@@ -359,7 +359,7 @@ func (u *UserService) GetPublicUserInfo(ctx context.Context, targetId string) (*
 	var rsp userrsp.PublicUserInfoRespond
 
 	err := u.cacheHelper.GetOrLoad(
-		context.Background(),
+		ctx,
 		key,
 		func() (interface{}, error) {
 			user, err := u.uow.UserRepo().FindByUuid(ctx, targetId)
