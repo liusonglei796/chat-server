@@ -14,8 +14,6 @@ import (
 	userrsp "kama_chat_server/internal/dto/respond/user"
 	cacheutil "kama_chat_server/internal/infrastructure/cache"
 	"kama_chat_server/internal/infrastructure/jwt"
-	"kama_chat_server/internal/infrastructure/sms"
-	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/user/user_status"
@@ -28,16 +26,14 @@ type UserService struct {
 	uow         repository.UnitOfWork
 	cache       repository.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
-	smsService  *sms.AliyunSmsService
 }
 
 // NewUserService 构造函数，注入所有依赖
-func NewUserService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, smsService *sms.AliyunSmsService) *UserService {
+func NewUserService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService) *UserService {
 	return &UserService{
 		uow:         uow,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
-		smsService:  smsService,
 	}
 }
 
@@ -61,17 +57,15 @@ func (u *UserService) checkEmailValid(email string) bool {
 	return match
 }
 
-// buildLoginResponse 构建登录/短信登录的公共响应
-// 包含：状态检查 → 踢旧设备 → 生成双 Token → 存 Redis → 构建响应
-func (u *UserService) buildLoginResponse(ctx context.Context, user *model.UserInfo) (*userrsp.LoginRespond, error) {
+// buildLoginResponse 构建登录的公共响应
+// 包含：状态检查 → 生成双 Token → SSO 存储 → 构建响应
+func (u *UserService) buildLoginResponse(ctx context.Context, user *model.UserInfo, clientIP string) (*userrsp.LoginRespond, error) {
 	// 1. 检查用户状态
 	if user.Status == user_status.DISABLE {
 		return nil, errorx.New(errorx.CodeForbidden, "该账号已被禁用，请联系管理员")
 	}
 
-	// 2. 踢掉旧设备（如果在线）- 已移除
-
-	// 3. 生成双 Token (传入 isAdmin 用于 JWT Claims)
+	// 2. 生成双 Token (传入 isAdmin 用于 JWT Claims)
 	accessToken, err := jwt.GenerateAccessToken(user.Uuid, user.IsAdmin == 1)
 	if err != nil {
 		zap.L().Error("生成 Access Token 失败", zap.Error(err))
@@ -84,11 +78,20 @@ func (u *UserService) buildLoginResponse(ctx context.Context, user *model.UserIn
 		return nil, errorx.ErrServerBusy
 	}
 
+	// 3. SSO: 将 Access Token 存入 Redis，实现单点登录（覆盖旧 token）
+	ssoTokenKey := constants.CacheKeySSOToken + user.Uuid
+	ssoTTL := time.Duration(constants.SSO_TOKEN_EXPIRY_HOURS) * time.Hour
+
+	// 存储 token（SSO: 新登录会覆盖旧 token）
+	if err := u.cache.Set(ctx, ssoTokenKey, accessToken, ssoTTL); err != nil {
+		zap.L().Error("存储 SSO Token 到 Redis 失败", zap.Error(err))
+		return nil, errorx.ErrServerBusy
+	}
+
 	// 4. 将 Refresh Token ID 存入缓存，实现单点互踢
 	redisKey := constants.CacheKeyUserToken + user.Uuid
 	if err := u.cache.Set(ctx, redisKey, tokenID, time.Duration(constants.REFRESH_TOKEN_EXPIRY_HOURS)*time.Hour); err != nil {
 		zap.L().Error("存储 Token ID 到缓存失败", zap.Error(err))
-		// 不阻塞登录流程，仅记录日志
 	}
 
 	// 5. 构建响应
@@ -112,12 +115,13 @@ func (u *UserService) buildLoginResponse(ctx context.Context, user *model.UserIn
 	return loginRsp, nil
 }
 
-// Login 登录
-func (u *UserService) Login(ctx context.Context, loginReq auth.LoginRequest) (*userrsp.LoginRespond, error) {
-	user, err := u.uow.UserRepo().FindByTelephone(ctx, loginReq.Telephone)
+// Login 登录（密码登录）
+// SSO: 登录时会将 token 存入 Redis，实现单点登录
+func (u *UserService) Login(ctx context.Context, loginReq auth.LoginRequest, clientIP string) (*userrsp.LoginRespond, error) {
+	user, err := u.uow.UserRepo().FindByNickname(ctx, loginReq.Username)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
-			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在，请注册")
+			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
 		}
 		zap.L().Error("service error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -126,111 +130,75 @@ func (u *UserService) Login(ctx context.Context, loginReq auth.LoginRequest) (*u
 		return nil, errorx.New(errorx.CodeInvalidPassword, "密码不正确，请重试")
 	}
 
-	return u.buildLoginResponse(ctx, user)
+	return u.buildLoginResponse(ctx, user, clientIP)
 }
 
-// SmsLogin 验证码登录
-func (u *UserService) SmsLogin(ctx context.Context, req auth.SmsLoginRequest) (*userrsp.LoginRespond, error) {
-	user, err := u.uow.UserRepo().FindByTelephone(ctx, req.Telephone)
-	if err != nil {
-		if errorx.GetCode(err) == errorx.CodeNotFound {
-			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在，请注册")
-		}
-		zap.L().Error("service error", zap.Error(err))
+// Register 用户注册
+func (u *UserService) Register(ctx context.Context, registerReq auth.RegisterRequest, clientIP string) (*userrsp.LoginRespond, error) {
+	// 检查用户名是否已存在
+	existing, err := u.uow.UserRepo().FindByNickname(ctx, registerReq.Username)
+	if err == nil && existing != nil {
+		return nil, errorx.New(errorx.CodeUserExist, "用户名已被占用")
+	}
+
+	// 生成 UUID
+	uuid := "U" + fmt.Sprintf("%d", time.Now().UnixMilli())
+
+	// 创建用户
+	user := &model.UserInfo{
+		Uuid:        uuid,
+		Nickname:    registerReq.Username,
+		Telephone:   "",
+		Password:    "", // Will be set via RawPassword + BeforeSave
+		RawPassword: registerReq.Password,
+		IsAdmin:     0,
+		Status:      0,
+	}
+
+	if err := u.uow.UserRepo().CreateUser(ctx, user); err != nil {
+		zap.L().Error("创建用户失败", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
-	// 校验短信验证码
-	key := constants.CacheKeyAuthCode + req.Telephone
-	code, err := u.cache.Get(context.Background(), key)
-	if err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
-	if code != req.SmsCode {
-		return nil, errorx.New(errorx.CodeInvalidParam, "验证码不正确，请重试")
-	}
-	if err := u.cache.Delete(context.Background(), key); err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
-
-	return u.buildLoginResponse(ctx, user)
+	return u.buildLoginResponse(ctx, user, clientIP)
 }
 
-// SendSmsCode 发送短信验证码 - 验证码登录
-func (u *UserService) SendSmsCode(ctx context.Context, telephone string) error {
-	return u.smsService.SendVerificationCode(ctx, telephone)
+// Logout 用户登出
+// 从 Redis 删除 SSO token
+func (u *UserService) Logout(ctx context.Context, userId string) error {
+	ssoTokenKey := constants.CacheKeySSOToken + userId
+
+	// 删除 SSO token
+	if err := u.cache.Delete(ctx, ssoTokenKey); err != nil {
+		zap.L().Error("删除 SSO Token 失败", zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+
+	return nil
 }
 
-// checkTelephoneExist 检查手机号是否存在
-func (u *UserService) checkTelephoneExist(ctx context.Context, telephone string) error {
-	_, err := u.uow.UserRepo().FindByTelephone(ctx, telephone)
+// KickUser 管理员踢人下线
+// 从 Redis 删除指定用户的 SSO token
+func (u *UserService) KickUser(ctx context.Context, userId string) error {
+	// 检查用户是否存在
+	_, err := u.uow.UserRepo().FindByUuid(ctx, userId)
 	if err != nil {
-		if errorx.GetCode(err) == errorx.CodeNotFound {
-			zap.L().Info("该电话不存在，可以注册")
-			return nil
+		if errorx.IsNotFound(err) {
+			return errorx.New(errorx.CodeUserNotExist, "用户不存在")
 		}
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
-	zap.L().Info("该电话已经存在，注册失败")
-	return errorx.New(errorx.CodeUserExist, "该电话已经存在，注册失败")
-}
 
-// Register 注册
-func (u *UserService) Register(ctx context.Context, registerReq auth.RegisterRequest) (*userrsp.RegisterRespond, error) {
-	key := constants.CacheKeyAuthCode + registerReq.Telephone
-	code, err := u.cache.Get(context.Background(), key)
-	if err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
-	if code != registerReq.SmsCode {
-		return nil, errorx.New(errorx.CodeInvalidParam, "验证码不正确，请重试")
-	}
-	if err := u.cache.Delete(context.Background(), key); err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+	ssoTokenKey := constants.CacheKeySSOToken + userId
+
+	// 删除 SSO token
+	if err := u.cache.Delete(ctx, ssoTokenKey); err != nil {
+		zap.L().Error("删除 SSO Token 失败", zap.Error(err))
+		return errorx.ErrServerBusy
 	}
 
-	// 判断电话是否已经被注册过了
-	if err := u.checkTelephoneExist(ctx, registerReq.Telephone); err != nil {
-		return nil, err
-	}
-
-	var newUser model.UserInfo
-	newUser.Uuid = "U" + snowflake.GenerateIDString()
-	newUser.Telephone = registerReq.Telephone
-	newUser.RawPassword = registerReq.Password
-	newUser.Nickname = registerReq.Nickname
-	newUser.Avatar = "https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"
-	newUser.CreatedAt = time.Now()
-	newUser.IsAdmin = 0 // 新注册用户默认非管理员
-	newUser.Status = user_status.NORMAL
-
-	err = u.uow.UserRepo().CreateUser(ctx, &newUser)
-	if err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
-	}
-
-	registerRsp := &userrsp.RegisterRespond{
-		Uuid:      newUser.Uuid,
-		Telephone: newUser.Telephone,
-		Nickname:  newUser.Nickname,
-		Email:     newUser.Email,
-		Avatar:    newUser.Avatar,
-		Gender:    newUser.Gender,
-		Birthday:  newUser.Birthday,
-		Signature: newUser.Signature,
-		IsAdmin:   newUser.IsAdmin,
-		Status:    newUser.Status,
-	}
-	year, month, day := newUser.CreatedAt.Date()
-	registerRsp.CreatedAt = fmt.Sprintf("%d.%d.%d", year, month, day)
-
-	return registerRsp, nil
+	return nil
 }
 
 // UpdateUserInfo 修改用户信息
@@ -320,8 +288,8 @@ func (u *UserService) GetUserInfo(ctx context.Context, requesterId, targetId str
 	err := u.cacheHelper.GetOrLoad(
 		ctx,
 		key,
-		func() (interface{}, error) {
-			user, err := u.uow.UserRepo().FindByUuid(ctx, targetId)
+		func(loaderCtx context.Context) (interface{}, error) {
+			user, err := u.uow.UserRepo().FindByUuid(loaderCtx, targetId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -361,8 +329,8 @@ func (u *UserService) GetPublicUserInfo(ctx context.Context, targetId string) (*
 	err := u.cacheHelper.GetOrLoad(
 		ctx,
 		key,
-		func() (interface{}, error) {
-			user, err := u.uow.UserRepo().FindByUuid(ctx, targetId)
+		func(loaderCtx context.Context) (interface{}, error) {
+			user, err := u.uow.UserRepo().FindByUuid(loaderCtx, targetId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")

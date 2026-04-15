@@ -7,7 +7,7 @@ const (
 	CacheKeyUserInfo       = "user:info:"        // 完整用户信息（GetUserInfo）
 	CacheKeyUserPublicInfo = "user:public_info:" // 公开用户信息（GetPublicUserInfo）
 	CacheKeyUserToken      = "user:token:"       // Refresh Token ID（单点互踢）
-	CacheKeyAuthCode       = "auth:code:"        // 短信验证码
+	CacheKeySSOToken       = "sso:token:"        // SSO Access Token（单点登录）
 
 	// 群组相关
 	CacheKeyGroupInfo      = "group:info:"       // 群组详情
