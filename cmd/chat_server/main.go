@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"kama_chat_server/internal/config"
 	mysqlimpl "kama_chat_server/internal/dao/mysql"
@@ -16,9 +17,9 @@ import (
 	"kama_chat_server/internal/https_server"
 	"kama_chat_server/internal/infrastructure/jwt"
 	"kama_chat_server/internal/infrastructure/logger"
-	"kama_chat_server/internal/infrastructure/sms"
 	"kama_chat_server/internal/service"
 	"kama_chat_server/internal/service/chat"
+	otelinit "kama_chat_server/pkg/otel"
 
 	"go.uber.org/zap"
 )
@@ -32,6 +33,21 @@ func main() {
 		log.Fatalf("init logger failed: %v", err)
 	}
 	zap.L().Info("日志初始化成功")
+
+	// 2.5. 初始化 OpenTelemetry（如果启用）
+	var otelShutdown func(context.Context) error
+	otelCfg := conf.OtelConfig
+	if otelCfg.Enabled {
+		var err error
+		otelShutdown, err = otelinit.InitTracer(context.Background(), otelCfg.Endpoint, otelCfg.ServiceName)
+		if err != nil {
+			zap.L().Fatal("OpenTelemetry 初始化失败", zap.Error(err))
+		}
+		zap.L().Info("OpenTelemetry 初始化成功",
+			zap.String("endpoint", otelCfg.Endpoint),
+			zap.String("serviceName", otelCfg.ServiceName),
+		)
+	}
 
 	// 3. 初始化数据库
 	repos := mysqlimpl.Init()
@@ -52,14 +68,7 @@ func main() {
 	}
 	zap.L().Info("Validator 国际化初始化成功")
 
-	// 7. 初始化 SMS Service (依赖注入缓存服务)
-	smsService, err := sms.Init(cachePort)
-	if err != nil {
-		zap.L().Fatal("SMS Service 初始化失败", zap.Error(err))
-	}
-	zap.L().Info("SMS Service 初始化成功")
-
-	// 8. 初始化 ChatServer（必须在 Services 之前，因为 UserService 需要 KickClient）
+	// 7. 初始化 ChatServer（必须在 Services 之前，因为 UserService 需要 KickClient）
 	// 新增：传入 UserRepo 用于消息发送权限校验（检查用户是否被禁用）
 	chatServer := chat.NewChatServer(chat.ChatServerConfig{
 		MessageRepo:     repos.Message,
@@ -73,7 +82,7 @@ func main() {
 	zap.L().Info("ChatServer 初始化成功")
 
 	// 8. 初始化 Service 层 (依赖注入，传入 pushRecallNotify 回调)
-	services := service.NewServices(repos, cachePort, smsService, chatServer.GetBroker().PushRecallNotify, conf)
+	services := service.NewServices(repos, cachePort, chatServer.GetBroker().PushRecallNotify, conf)
 	zap.L().Info("Service 层初始化成功")
 
 	// 9. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 broker)
@@ -115,6 +124,15 @@ func main() {
 	chatServer.Shutdown()
 
 	zap.L().Info("关闭服务器...")
+
+	// 关闭 OpenTelemetry TracerProvider，确保未导出的 span 被刷新
+	if otelShutdown != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := otelShutdown(shutdownCtx); err != nil {
+			zap.L().Error("OpenTelemetry shutdown error", zap.Error(err))
+		}
+	}
 
 	zap.L().Info("服务器已关闭")
 }

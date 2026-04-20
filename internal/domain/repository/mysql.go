@@ -9,6 +9,7 @@ import (
 type UserRepository interface {
 	FindByUuid(ctx context.Context, uuid string) (*model.UserInfo, error)
 	FindByTelephone(ctx context.Context, telephone string) (*model.UserInfo, error)
+	FindByNickname(ctx context.Context, nickname string) (*model.UserInfo, error)
 	FindByUuids(ctx context.Context, uuids []string) ([]model.UserInfo, error)
 	CreateUser(ctx context.Context, user *model.UserInfo) error
 	UpdateUserInfo(ctx context.Context, user *model.UserInfo) error

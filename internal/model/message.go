@@ -19,6 +19,11 @@ type Message struct {
 	// char(20) 类型支持
 	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);not null;comment:消息雪花ID"`
 
+	// ClientMsgId 客户端生成的消息唯一标识
+	// 用于幂等去重，防止 Redis 宕机时重复插入
+	// varchar(64) 类型，允许为空（兼容旧客户端）
+	ClientMsgId string `gorm:"column:client_msg_id;uniqueIndex;type:varchar(64);default:null;comment:客户端消息唯一标识（幂等去重）"`
+
 	// SessionId 会话 UUID
 	// 关联到 Session 表，标识消息属于哪个会话
 	SessionId string `gorm:"column:session_id;index;type:char(20);not null;comment:会话uuid"`

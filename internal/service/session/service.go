@@ -276,8 +276,8 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, targetI
 		err := s.cacheHelper.GetOrLoad(
 			ctx,
 			key,
-			func() (interface{}, error) {
-				u, err := s.userRepo.FindByUuid(ctx, targetId)
+			func(loaderCtx context.Context) (interface{}, error) {
+				u, err := s.userRepo.FindByUuid(loaderCtx, targetId)
 				if err != nil {
 					if errorx.IsNotFound(err) {
 						return nil, errorx.New(errorx.CodeUserNotExist, "对方用户不存在")
@@ -310,8 +310,8 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, targetI
 		err := s.cacheHelper.GetOrLoad(
 			ctx,
 			key,
-			func() (interface{}, error) {
-				g, err := s.groupRepo.FindByUuid(ctx, targetId)
+			func(loaderCtx context.Context) (interface{}, error) {
+				g, err := s.groupRepo.FindByUuid(loaderCtx, targetId)
 				if err != nil {
 					if errorx.IsNotFound(err) {
 						return nil, errorx.New(errorx.CodeNotFound, "对方群组不存在")

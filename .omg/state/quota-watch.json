@@ -1,0 +1,12 @@
+{
+  "turn_count": 9,
+  "last_session_id": "2aedee9c-afea-4dba-a3a9-184c2790d6a6",
+  "last_event_key": "2aedee9c-afea-4dba-a3a9-184c2790d6a6:transcript:ff71406cad6a4dc8574c982e8a3e5287accef7399094a658749bcce357866e53",
+  "last_transcript_hash": "ff71406cad6a4dc8574c982e8a3e5287accef7399094a658749bcce357866e53",
+  "last_model": "gemini-3-flash-preview",
+  "last_turn_total_tokens": 29204,
+  "last_session_total_tokens": 293748,
+  "cwd_mode": "parent-leaf",
+  "last_cwd_label": "project/chat-server-1.0.0",
+  "updated_at": "2026-04-08T03:19:09.356Z"
+}

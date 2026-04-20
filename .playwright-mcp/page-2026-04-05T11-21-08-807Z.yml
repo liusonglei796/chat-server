@@ -1,0 +1,49 @@
+- generic [active] [ref=e8]:
+  - generic [ref=e13]:
+    - complementary [ref=e14]:
+      - generic [ref=e16]:
+        - link [ref=e17] [cursor=pointer]:
+          - /url: /
+          - img [ref=e19]
+        - button [ref=e24] [cursor=pointer]:
+          - paragraph
+          - img [ref=e26]
+      - button "折叠边栏" [expanded] [ref=e31] [cursor=pointer]:
+        - img
+    - generic [ref=e32]:
+      - banner [ref=e33]:
+        - generic [ref=e34]:
+          - button "支持" [ref=e35] [cursor=pointer]:
+            - img [ref=e36]
+            - generic [ref=e38]: 支持
+          - button "User menu" [ref=e39] [cursor=pointer]:
+            - img [ref=e40]
+      - generic [ref=e43]: 404 | 我们找不到您要查找的页面。
+      - contentinfo [ref=e44]:
+        - list [ref=e46]:
+          - listitem [ref=e47]:
+            - link "支持" [ref=e48] [cursor=pointer]:
+              - /url: https://support.cloudflare.com
+          - listitem [ref=e49]:
+            - link "系统状态" [ref=e50] [cursor=pointer]:
+              - /url: https://www.cloudflarestatus.com
+          - listitem [ref=e51]:
+            - link "招贤纳士" [ref=e52] [cursor=pointer]:
+              - /url: https://www.cloudflare.com/careers/
+          - listitem [ref=e53]:
+            - link "使用条款" [ref=e54] [cursor=pointer]:
+              - /url: https://www.cloudflare.com/website-terms/
+          - listitem [ref=e55]:
+            - link "报告安全问题" [ref=e56] [cursor=pointer]:
+              - /url: https://www.cloudflare.com/disclosure/
+          - listitem [ref=e57]:
+            - link "隐私政策" [ref=e58] [cursor=pointer]:
+              - /url: https://www.cloudflare.com/privacypolicy/
+          - listitem [ref=e59]:
+            - button "一个蓝白相间的胶囊形图标，带有对勾和叉号，用于表示隐私选项 您的隐私选择" [ref=e60] [cursor=pointer]:
+              - img "一个蓝白相间的胶囊形图标，带有对勾和叉号，用于表示隐私选项" [ref=e61]
+              - text: 您的隐私选择
+          - listitem [ref=e62]:
+            - generic [ref=e63]: © 2026 Cloudflare, Inc.
+  - generic:
+    - region "Notifications"

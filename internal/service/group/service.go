@@ -166,8 +166,8 @@ func (g *GroupService) CheckGroupAddMode(ctx context.Context, groupId string) (i
 	err := g.cacheHelper.GetOrLoad(
 		ctx,
 		cacheKey,
-		func() (interface{}, error) {
-			group, err := g.uow.GroupRepo().FindByUuid(ctx, groupId)
+		func(loaderCtx context.Context) (interface{}, error) {
+			group, err := g.uow.GroupRepo().FindByUuid(loaderCtx, groupId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeNotFound, "群组不存在")
@@ -537,10 +537,10 @@ func (g *GroupService) GetGroupDetail(ctx context.Context, userId, groupId strin
 	var groupInfo grouprsp.GetGroupInfoRespond
 
 	err = g.cacheHelper.GetOrLoad(
-		context.Background(),
+		ctx,
 		cacheKey,
-		func() (interface{}, error) {
-			grp, err := g.uow.GroupRepo().FindByUuid(ctx, groupId)
+		func(loaderCtx context.Context) (interface{}, error) {
+			grp, err := g.uow.GroupRepo().FindByUuid(loaderCtx, groupId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeNotFound, "该群聊不存在")

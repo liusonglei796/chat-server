@@ -1,0 +1,24 @@
+- generic [ref=e3]:
+  - generic [ref=e4]: 💬
+  - heading "Kama Chat" [level=1] [ref=e5]
+  - paragraph [ref=e6]: 注册新账号
+  - paragraph [ref=e16]:
+    - text: 没有账号？
+    - link "注册" [active] [ref=e17] [cursor=pointer]:
+      - /url: javascript:void(0)
+  - generic [ref=e18]:
+    - generic [ref=e19]:
+      - generic [ref=e20]: 用户名
+      - textbox "请输入用户名（2-32字符）" [ref=e21]
+    - generic [ref=e22]:
+      - generic [ref=e23]: 密码
+      - textbox "请输入密码（6-32字符）" [ref=e24]
+    - generic [ref=e25]:
+      - generic [ref=e26]: 确认密码
+      - textbox "请再次输入密码" [ref=e27]
+    - button "注 册" [ref=e28] [cursor=pointer]:
+      - generic [ref=e29]: 注 册
+  - paragraph [ref=e30]:
+    - text: 已有账号？
+    - link "登录" [ref=e31] [cursor=pointer]:
+      - /url: javascript:void(0)

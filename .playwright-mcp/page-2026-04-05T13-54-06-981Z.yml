@@ -1,0 +1,21 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: 💬
+    - heading "Kama Chat" [level=1] [ref=e5]
+    - paragraph [ref=e6]: 登录以开始聊天
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]: 用户名
+        - textbox "请输入用户名" [ref=e10]
+      - generic [ref=e11]:
+        - generic [ref=e12]: 密码
+        - textbox "请输入密码" [ref=e13]
+      - button "登 录" [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: 登 录
+    - paragraph [ref=e16]:
+      - text: 没有账号？
+      - link "注册" [ref=e17] [cursor=pointer]:
+        - /url: javascript:void(0)
+  - generic [ref=e61]:
+    - generic [ref=e62]: ℹ
+    - generic [ref=e63]: 已退出登录

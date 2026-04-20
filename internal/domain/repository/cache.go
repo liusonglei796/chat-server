@@ -12,6 +12,7 @@ type CacheService interface {
 	GetByPrefix(ctx context.Context, prefix string) (string, error)
 	Delete(ctx context.Context, key string) error
 	DeleteByPattern(ctx context.Context, patterns ...string) error
+	SetNX(ctx context.Context, key string, value string, ttl time.Duration) (bool, error)
 	Incr(ctx context.Context, key string) (int64, error)
 	Expire(ctx context.Context, key string, ttl time.Duration) error
 	AddToSet(ctx context.Context, key string, members ...interface{}) error

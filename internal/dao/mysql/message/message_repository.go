@@ -13,6 +13,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // messageRepository MessageRepository 接口的实现
@@ -114,8 +115,15 @@ func (r *messageRepository) UpdateStatus(ctx context.Context, uuid string, statu
 // Create 创建新消息
 // message: 消息结构体
 // 返回: 操作错误
+// 注意：使用 Clauses 实现 ON DUPLICATE KEY UPDATE，当 client_msg_id 冲突时静默忽略
+// 这是 Redis 宕机时的兜底防重复机制
 func (r *messageRepository) Create(ctx context.Context, message *model.Message) error {
-	if err := r.db.WithContext(ctx).Create(message).Error; err != nil {
+	if err := r.db.WithContext(ctx).Clauses(
+		clause.OnConflict{
+			Columns:   []clause.Column{{Name: "client_msg_id"}},
+			DoNothing: true,
+		},
+	).Create(message).Error; err != nil {
 		return dberr.WrapDBError(err, "创建消息")
 	}
 	return nil

@@ -48,6 +48,18 @@ func (r *userRepository) FindByTelephone(ctx context.Context, telephone string) 
 	return &user, nil
 }
 
+// FindByNickname 根据昵称(用户名)查找用户
+// 用于登录验证和注册检查
+// nickname: 昵称/用户名
+// 返回: 用户信息和错误
+func (r *userRepository) FindByNickname(ctx context.Context, nickname string) (*model.UserInfo, error) {
+	var user model.UserInfo
+	if err := r.db.WithContext(ctx).First(&user, "nickname = ?", nickname).Error; err != nil {
+		return nil, dberr.WrapDBErrorf(err, "查询用户 nickname=%s", nickname)
+	}
+	return &user, nil
+}
+
 // FindByUuids 批量根据 UUID 查找用户
 // 用于批量获取用户信息
 // uuids: UUID 列表

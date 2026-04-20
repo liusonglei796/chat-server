@@ -14,6 +14,7 @@ import (
 	messagereq "kama_chat_server/internal/dto/request/message"
 	messagersp "kama_chat_server/internal/dto/respond/message"
 	cacheutil "kama_chat_server/internal/infrastructure/cache"
+	"kama_chat_server/internal/infrastructure/metrics"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 
@@ -21,6 +22,7 @@ import (
 	"kama_chat_server/pkg/enum/message/message_status"
 	"kama_chat_server/pkg/enum/message/message_type"
 	"kama_chat_server/pkg/enum/user/user_status"
+	"kama_chat_server/pkg/otel"
 	"os"
 	"sync"
 	"time"
@@ -89,6 +91,11 @@ func NewMsgConsumer(
 
 // Publish 将消息投递到 Kafka（由 WebSocket Read goroutine 调用）
 func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
+	start := time.Now()
+	defer func() {
+		metrics.PublishDuration.Observe(time.Since(start).Seconds())
+	}()
+
 	// 默认使用 "0" 作为分区 Key
 	key := []byte("0")
 
@@ -96,8 +103,21 @@ func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
 	var req struct {
 		SendId    string `json:"send_id"`
 		ReceiveId string `json:"receive_id"`
+		Type      int    `json:"type"`
 	}
 	if err := json.Unmarshal(msg, &req); err == nil && req.ReceiveId != "" {
+		// 指标埋点：发布消息到 Kafka
+		msgType := "unknown"
+		switch req.Type {
+		case message_type.Text:
+			msgType = "text"
+		case message_type.File:
+			msgType = "file"
+		case message_type.AudioOrVideo:
+			msgType = "audio_video"
+		}
+		metrics.MessagesPublished.WithLabelValues(msgType).Inc()
+
 		if req.ReceiveId[0] == 'U' {
 			// 私聊：确保 A->B 和 B->A 的 Key 一致（字典序排序）
 			id1, id2 := req.SendId, req.ReceiveId
@@ -111,10 +131,15 @@ func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
 		}
 	}
 
+	// Build headers with trace context propagation
+	var headers []kafka.Header
+	otel.InjectTraceContext(ctx, &headers)
+
 	// [第三方库: github.com/segmentio/kafka-go] Writer.WriteMessages 写入消息，kafka.Message 为消息载体
 	return k.kafkaClient.Producer.WriteMessages(ctx, kafka.Message{
-		Key:   key,
-		Value: msg,
+		Key:     key,
+		Value:   msg,
+		Headers: headers,
 	})
 }
 
@@ -151,6 +176,7 @@ func (k *MsgConsumer) Start() {
 			kafkaMessage, err := k.kafkaClient.Consumer.ReadMessage(context.Background())
 			if err != nil {
 				zap.L().Error("service error", zap.Error(err))
+				metrics.KafkaConsumeErrors.Inc()
 				continue // 读取失败，重试
 			}
 			// 记录详细的 Kafka 消息元数据
@@ -170,14 +196,17 @@ func (k *MsgConsumer) Start() {
 			}
 			zap.L().Debug("kafka message deserialized", zap.String("type", fmt.Sprintf("%d", chatMessageReq.Type)), zap.String("sendId", chatMessageReq.SendId))
 
+			// Extract trace context from Kafka message headers for distributed tracing
+			msgCtx := otel.ExtractTraceContext(context.Background(), kafkaMessage.Headers)
+
 			// 根据消息类型分发处理逻辑
 			switch chatMessageReq.Type {
 			case message_type.Text:
-				k.handleTextMessage(chatMessageReq)
+				k.handleTextMessage(msgCtx, chatMessageReq)
 			case message_type.File:
-				k.handleFileMessage(chatMessageReq)
+				k.handleFileMessage(msgCtx, chatMessageReq)
 			case message_type.AudioOrVideo:
-				k.handleAVMessage(chatMessageReq)
+				k.handleAVMessage(msgCtx, chatMessageReq)
 			}
 		}
 	}()
@@ -226,15 +255,23 @@ func (k *MsgConsumer) GetClient(userId string) *UserConn {
 
 // RegisterClient 将用户连接加入登录队列
 func (k *MsgConsumer) RegisterClient(client *UserConn) {
+	defer func() {
+		if r := recover(); r != nil {
+			zap.L().Warn("RegisterClient: Login channel is closed", zap.Any("recover", r))
+		}
+	}()
 	k.Login <- client
-
 }
 
 // UnregisterClient 将用户连接加入登出队列
 func (k *MsgConsumer) UnregisterClient(client *UserConn) {
+	defer func() {
+		if r := recover(); r != nil {
+			zap.L().Warn("UnregisterClient: Logout channel is closed", zap.Any("recover", r))
+		}
+	}()
 	k.Logout <- client
 }
-
 
 // PushRecallNotify 向指定用户推送撤回通知（直接本地推送，不走 Kafka）
 // messageUuid: 被撤回的消息 UUID
@@ -256,6 +293,29 @@ func (k *MsgConsumer) PushRecallNotify(messageUuid, receiveId string) {
 		client := value.(*UserConn)
 		trySendBack(client, &MessageBack{Message: jsonMsg, Uuid: ""})
 	}
+}
+
+// isDuplicateMessage 幂等检查：通过 Redis SETNX 判断消息是否已处理过
+// clientMsgId: 客户端生成的消息唯一标识
+// 返回值：
+//   - isDuplicate: true 表示重复（已处理过），false 表示新消息
+//   - isDegraded:  true 表示 Redis 异常，已降级放行（依赖 MySQL 唯一索引兜底）
+func (k *MsgConsumer) isDuplicateMessage(clientMsgId string) (isDuplicate bool, isDegraded bool) {
+	if clientMsgId == "" {
+		return false, false // 未携带 client_msg_id，跳过幂等检查（兼容旧客户端）
+	}
+	dedupKey := "msg:dedup:" + clientMsgId
+	ok, err := k.cacheService.SetNX(context.Background(), dedupKey, "1", 24*time.Hour)
+	if err != nil {
+		zap.L().Error("幂等检查失败，降级放行（依赖 MySQL 唯一索引兜底）",
+			zap.String("client_msg_id", clientMsgId), zap.Error(err))
+		metrics.MessagesDegrade.Inc() // 记录降级指标
+		return false, true            // Redis 异常时放行，依赖 MySQL ON DUPLICATE KEY 兜底
+	}
+	if !ok {
+		metrics.MessagesDuplicated.Inc() // SETNX 返回 false 表示键已存在，即重复消息
+	}
+	return !ok, false
 }
 
 // checkSendPermission 校验发送者是否有权向目标发消息
@@ -329,10 +389,12 @@ func trySendBack(client *UserConn, msg *MessageBack) {
 	select {
 	case client.SendBack <- msg:
 		// 成功发送
+		metrics.MessagesDispatched.Inc()
 	default:
 		zap.L().Warn("SendBack channel full, message dropped",
 			zap.String("userId", client.Uuid),
 			zap.String("msgUuid", msg.Uuid))
+		metrics.MessagesDropped.Inc()
 	}
 }
 
@@ -340,20 +402,21 @@ func trySendBack(client *UserConn, msg *MessageBack) {
 // 改进建议实现：提取公共逻辑，减少代码重复
 func (k *MsgConsumer) buildMessageFromRequest(req messagereq.ChatMessageRequest) model.Message {
 	return model.Message{
-		Uuid:       "M" + snowflake.GenerateIDString(),
-		SessionId:  req.SessionId,
-		Type:       req.Type,
-		Content:    req.Content,
-		Url:        req.Url,
-		SendId:     req.SendId,
-		SendName:   req.SendName,
-		SendAvatar: normalizePath(req.SendAvatar), // 规范化头像路径
-		ReceiveId:  req.ReceiveId,
-		FileSize:   req.FileSize,
-		FileType:   req.FileType,
-		FileName:   req.FileName,
-		Status:     message_status.Unsent,
-		AVdata:     req.AVdata,
+		Uuid:        "M" + snowflake.GenerateIDString(),
+		ClientMsgId: req.ClientMsgId, // 携带客户端消息 ID，用于 MySQL 层面幂等兜底
+		SessionId:   req.SessionId,
+		Type:        req.Type,
+		Content:     req.Content,
+		Url:         req.Url,
+		SendId:      req.SendId,
+		SendName:    req.SendName,
+		SendAvatar:  normalizePath(req.SendAvatar), // 规范化头像路径
+		ReceiveId:   req.ReceiveId,
+		FileSize:    req.FileSize,
+		FileType:    req.FileType,
+		FileName:    req.FileName,
+		Status:      message_status.Unsent,
+		AVdata:      req.AVdata,
 	}
 }
 
@@ -376,7 +439,8 @@ func (k *MsgConsumer) updateSessionLastMessage(message *model.Message, content s
 	}
 
 	go func() {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		// 1. 更新发送者的会话
 		if err := k.sessionRepo.UpdateLastMessage(ctx,
 			message.SendId,
@@ -417,7 +481,17 @@ func (k *MsgConsumer) updateSessionLastMessage(message *model.Message, content s
 // 2. 将消息持久化到 MySQL
 // 3. 根据接收者类型 (User/Group) 路由消息
 // 4. 更新 Redis 缓存
-func (k *MsgConsumer) handleTextMessage(req messagereq.ChatMessageRequest) {
+func (k *MsgConsumer) handleTextMessage(ctx context.Context, req messagereq.ChatMessageRequest) {
+	// 幂等检查：防止客户端重发消息导致重复消费
+	isDup, _ := k.isDuplicateMessage(req.ClientMsgId)
+	if isDup {
+		zap.L().Warn("重复消息，跳过处理", zap.String("client_msg_id", req.ClientMsgId))
+		return
+	}
+
+	// 指标埋点：消费文本消息
+	metrics.MessagesConsumed.WithLabelValues("text").Inc()
+
 	// 权限校验：检查发送者是否有权向目标发消息
 	if err := k.checkSendPermission(req.SendId, req.ReceiveId); err != nil {
 		zap.L().Warn("消息权限校验失败", zap.String("sendId", req.SendId), zap.String("receiveId", req.ReceiveId), zap.String("reason", err.Error()))
@@ -441,9 +515,9 @@ func (k *MsgConsumer) handleTextMessage(req messagereq.ChatMessageRequest) {
 	k.updateSessionLastMessage(&message, message.Content)
 
 	// 路由分发
-	if message.ReceiveId[0] == 'U' { // 发送给User
+	if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' { // 发送给User
 		k.dispatchToUser(message, req.SendAvatar)
-	} else if message.ReceiveId[0] == 'G' { // 发送给Group
+	} else if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'G' { // 发送给Group
 		k.dispatchToGroup(message, req.SendAvatar)
 	}
 }
@@ -451,7 +525,17 @@ func (k *MsgConsumer) handleTextMessage(req messagereq.ChatMessageRequest) {
 // handleFileMessage 处理文件消息
 // 逻辑与文本消息类似，区别在于 Content 为空，Url 字段存储文件链接
 // 改进建议实现：使用提取的公共函数减少代码重复
-func (k *MsgConsumer) handleFileMessage(req messagereq.ChatMessageRequest) {
+func (k *MsgConsumer) handleFileMessage(ctx context.Context, req messagereq.ChatMessageRequest) {
+	// 幂等检查：防止客户端重发消息导致重复消费
+	isDup, _ := k.isDuplicateMessage(req.ClientMsgId)
+	if isDup {
+		zap.L().Warn("重复消息，跳过处理", zap.String("client_msg_id", req.ClientMsgId))
+		return
+	}
+
+	// 指标埋点：消费文件消息
+	metrics.MessagesConsumed.WithLabelValues("file").Inc()
+
 	// 权限校验：检查发送者是否有权向目标发消息
 	if err := k.checkSendPermission(req.SendId, req.ReceiveId); err != nil {
 		zap.L().Warn("文件消息权限校验失败", zap.String("sendId", req.SendId), zap.String("receiveId", req.ReceiveId), zap.String("reason", err.Error()))
@@ -473,9 +557,9 @@ func (k *MsgConsumer) handleFileMessage(req messagereq.ChatMessageRequest) {
 	k.updateSessionLastMessage(&message, content)
 
 	// 路由分发
-	if message.ReceiveId[0] == 'U' {
+	if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
 		k.dispatchToUser(message, req.SendAvatar)
-	} else if message.ReceiveId[0] == 'G' {
+	} else if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'G' {
 		k.dispatchToGroup(message, req.SendAvatar)
 	}
 }
@@ -495,7 +579,17 @@ func (k *MsgConsumer) handleFileMessage(req messagereq.ChatMessageRequest) {
 //     而 offer/answer/candidate 等 WebRTC 连接协商信令是纯技术细节，不入库也不显示。
 //
 // 3. 不更新会话最后消息：信令不应覆盖会话列表的最后消息摘要，因此不调用 updateSessionLastMessage。
-func (k *MsgConsumer) handleAVMessage(req messagereq.ChatMessageRequest) {
+func (k *MsgConsumer) handleAVMessage(ctx context.Context, req messagereq.ChatMessageRequest) {
+	// 幂等检查：防止客户端重发消息导致重复消费
+	isDup, _ := k.isDuplicateMessage(req.ClientMsgId)
+	if isDup {
+		zap.L().Warn("重复消息，跳过处理", zap.String("client_msg_id", req.ClientMsgId))
+		return
+	}
+
+	// 指标埋点：消费音视频信令
+	metrics.MessagesConsumed.WithLabelValues("audio_video").Inc()
+
 	// 权限校验：检查发送者是否有权向目标发消息
 	if err := k.checkSendPermission(req.SendId, req.ReceiveId); err != nil {
 		zap.L().Warn("AV消息权限校验失败", zap.String("sendId", req.SendId), zap.String("receiveId", req.ReceiveId), zap.String("reason", err.Error()))
@@ -550,7 +644,7 @@ func (k *MsgConsumer) handleAVMessage(req messagereq.ChatMessageRequest) {
 	}
 
 	// 处理单聊信令转发（只推送给接收者，不回显给发送者）
-	if req.ReceiveId[0] == 'U' {
+	if len(req.ReceiveId) > 0 && req.ReceiveId[0] == 'U' {
 		// 构造响应
 		messageRsp := messagersp.AVMessageRespond{
 			SendId:     message.SendId,
@@ -752,7 +846,7 @@ func (k *MsgConsumer) getGroupMembersCached(groupId string) []model.GroupMember 
 	err := k.cacheHelper.GetOrLoad(
 		context.Background(),
 		cacheKey,
-		func() (interface{}, error) {
+		func(ctx context.Context) (interface{}, error) {
 			// loader: 缓存 miss 时查 DB，仅存储 UserUuid 列表（减少缓存体积）
 			members, err := k.groupMemberRepo.FindByGroupUuid(ctx, groupId)
 			if err != nil {

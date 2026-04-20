@@ -13,6 +13,7 @@ package chat
 
 import (
 	"context"
+	"kama_chat_server/internal/infrastructure/metrics"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/message/message_status"
 	"net/http"
@@ -104,6 +105,7 @@ func (c *UserConn) Read() {
 		// 将消息发送到 Kafka
 		if err := c.broker.Publish(context.Background(), jsonMessage); err != nil {
 			zap.L().Error("publish message error", zap.String("userId", c.Uuid), zap.Error(err))
+			metrics.KafkaProduceErrors.Inc()
 		}
 	}
 }
@@ -114,11 +116,18 @@ func (c *UserConn) cleanup() {
 	c.cleanupOnce.Do(func() {
 		zap.L().Info("ws cleanup start", zap.String("userId", c.Uuid))
 
+		// 指标埋点：断开连接
+		metrics.OnlineConnections.Dec()
+		metrics.TotalDisconnections.Inc()
+
 		// 1. 从 broker 注销，防止新消息写入 SendBack
 		c.broker.UnregisterClient(c)
 
 		// 2. 安全关闭 SendBack 通道（让 Write goroutine 退出 range 循环）
-		safeCloseMessageBackChan(c.SendBack)
+		// 因为 cleanup() 被 sync.Once 包裹，它本身就保证了只执行一次，
+		// 所以底层必定只会 close(SendBack) 一次，绝对不会触发 "close of closed channel" 的 panic
+		// 因此这里不需要任何额外的 recover() 操作了。
+		close(c.SendBack)
 
 		// 3. 关闭 WebSocket 连接
 		if err := c.Conn.Close(); err != nil {
@@ -127,16 +136,6 @@ func (c *UserConn) cleanup() {
 
 		zap.L().Info("ws cleanup done", zap.String("userId", c.Uuid))
 	})
-}
-
-// safeCloseMessageBackChan 安全关闭 *MessageBack 通道，防止 double-close panic
-func safeCloseMessageBackChan(ch chan *MessageBack) {
-	defer func() {
-		if r := recover(); r != nil {
-			zap.L().Warn("SendBack channel already closed", zap.Any("recover", r))
-		}
-	}()
-	close(ch)
 }
 
 // Write 从 SendBack 通道读取消息并发送给 WebSocket 客户端
@@ -197,6 +196,11 @@ func NewClientInit(c *gin.Context, clientId string, broker *MsgConsumer) { // [�
 	}
 	// 注册到 Kafka 消费者的在线列表
 	broker.RegisterClient(client)
+
+	// 指标埋点：新连接
+	metrics.OnlineConnections.Inc()
+	metrics.TotalConnections.Inc()
+
 	go client.Read()
 	go client.Write()
 	zap.L().Info("ws连接成功")

@@ -87,6 +87,12 @@ func (r *RedisCache) startWorker() {
 // 确保 RedisCache 实现了 AsyncCacheService 接口
 var _ repository.AsyncCacheService = (*RedisCache)(nil)
 
+// SetNX 设置键值对，仅当键不存在时生效（原子操作）
+// 返回 bool 表示是否设置成功（true=新键，false=键已存在）
+func (r *RedisCache) SetNX(ctx context.Context, key string, value string, ttl time.Duration) (bool, error) {
+	return ops.SetNX(r.client, ctx, key, value, ttl)
+}
+
 // Set 设置键值对并指定过期时间
 func (r *RedisCache) Set(ctx context.Context, key string, value string, ttl time.Duration) error {
 	return ops.Set(r.client, ctx, key, value, ttl)

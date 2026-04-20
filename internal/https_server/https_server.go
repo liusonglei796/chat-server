@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-contrib/cors" // CORS 跨域中间件
 	"github.com/gin-gonic/gin"    // Gin Web 框架
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Init 初始化 HTTP/HTTPS 服务器并返回 Gin 引擎实例
@@ -30,6 +31,11 @@ import (
 func Init(handlers *handler.Handlers, adminChecker middleware.AdminAuthChecker, cache repository.CacheService) *gin.Engine {
 	// 创建空白 Gin 引擎（不使用 gin.Default() 以便完全控制中间件）
 	engine := gin.New()
+	// 注册 OpenTelemetry 追踪中间件（必须在最前面，确保所有请求都被追踪）
+	// 使用 otelgin 官方中间件自动创建 span、提取/传播 trace context
+	engine.Use(middleware.OtelTracing())
+	// 注入 traceId 到响应头 X-Trace-Id，方便客户端关联日志
+	engine.Use(middleware.InjectTraceId())
 	// 注册自定义 Zap 日志中间件，替代 Gin 默认的日志
 	// GinLogger: 记录每个请求的详细信息（路径、状态码、耗时等）
 	engine.Use(logger.GinLogger())
@@ -53,8 +59,23 @@ func Init(handlers *handler.Handlers, adminChecker middleware.AdminAuthChecker, 
 	engine.Static("/static/avatars", config.GetConfig().StaticAvatarPath)
 	// /static/files -> 普通上传文件目录
 	engine.Static("/static/files", config.GetConfig().StaticFilePath)
+	// /web -> 前端页面（SPA 应用）
+	engine.Static("/web", "./web")
+	// 根路径返回前端页面
+	engine.NoRoute(func(c *gin.Context) {
+		// API 路由返回 404
+		if len(c.Request.URL.Path) > 1 && c.Request.URL.Path != "/" {
+			c.File("./web/index.html")
+		} else {
+			c.File("./web/index.html")
+		}
+	})
 	// 创建路由管理器并注册所有业务路由
 	rt := router.NewRouter(handlers, adminChecker, cache)
 	rt.RegisterRoutes(engine)
+
+	// 注册 Prometheus /metrics 端点
+	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
 	return engine
 }

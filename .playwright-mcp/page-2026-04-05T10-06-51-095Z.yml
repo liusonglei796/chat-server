@@ -1,0 +1,531 @@
+- generic [active] [ref=e1]:
+  - link "跳转至主内容" [ref=e2] [cursor=pointer]:
+    - /url: "#app"
+  - generic:
+    - generic:
+      - dialog "展开产品面板":
+        - navigation "产品与服务" [ref=e3]:
+          - generic [ref=e4]:
+            - generic "我的资源" [ref=e5] [cursor=pointer]:
+              - generic [ref=e6]:
+                - generic [ref=e8]: 
+                - generic [ref=e9]: 我的资源
+            - generic "我的收藏" [ref=e10] [cursor=pointer]:
+              - generic [ref=e11]:
+                - generic [ref=e13]: 
+                - generic [ref=e14]: 我的收藏
+            - generic "产品与服务" [ref=e15] [cursor=pointer]:
+              - generic [ref=e16]:
+                - generic [ref=e18]: 
+                - generic [ref=e19]: 产品与服务
+            - generic [ref=e21]:
+              - button "全部" [ref=e22] [cursor=pointer]
+              - button "人工智能与机器学习" [ref=e23] [cursor=pointer]
+              - button "计算" [ref=e24] [cursor=pointer]
+              - button "容器" [ref=e25] [cursor=pointer]
+              - button "存储" [ref=e26] [cursor=pointer]
+              - button "网络与CDN" [ref=e27] [cursor=pointer]
+              - button "安全" [ref=e28] [cursor=pointer]
+              - button "中间件" [ref=e29] [cursor=pointer]
+              - button "数据库" [ref=e30] [cursor=pointer]
+              - button "大数据计算" [ref=e31] [cursor=pointer]
+              - button "媒体服务" [ref=e32] [cursor=pointer]
+              - button "企业服务与云通信" [ref=e33] [cursor=pointer]
+              - button "域名与网站" [ref=e34] [cursor=pointer]
+              - button "终端用户计算" [ref=e35] [cursor=pointer]
+              - button "物联网" [ref=e36] [cursor=pointer]
+              - button "开发工具" [ref=e37] [cursor=pointer]
+              - button "迁移与运维管理" [ref=e38] [cursor=pointer]
+              - button "云市场" [ref=e39] [cursor=pointer]
+              - button "支持与服务" [ref=e40] [cursor=pointer]
+              - button "其他" [ref=e41] [cursor=pointer]
+        - main "我的资源" [ref=e42]:
+          - generic [ref=e43]:
+            - generic [ref=e44]: 我的资源
+            - generic [ref=e46]:
+              - generic [ref=e48]:
+                - generic [ref=e50]: 最近访问
+                - generic [ref=e51]:
+                  - link "访问控制 RAM" [ref=e52] [cursor=pointer]:
+                    - /url: //ram.console.aliyun.com
+                    - generic [ref=e53]: 访问控制 RAM
+                  - link "云服务器 ECS" [ref=e54] [cursor=pointer]:
+                    - /url: //ecs.console.aliyun.com
+                    - generic [ref=e55]: 云服务器 ECS
+                  - link "域名与网站" [ref=e56] [cursor=pointer]:
+                    - /url: //dc.console.aliyun.com/next/index
+                    - generic [ref=e57]: 域名与网站
+                  - link "大模型服务平台百炼" [ref=e58] [cursor=pointer]:
+                    - /url: //bailian.console.aliyun.com
+                    - generic [ref=e59]: 大模型服务平台百炼
+                  - link "短信服务" [ref=e60] [cursor=pointer]:
+                    - /url: //dysms.console.aliyun.com/dysms.htm
+                    - generic [ref=e61]: 短信服务
+                  - link "云监控" [ref=e62] [cursor=pointer]:
+                    - /url: //cloudmonitornext.console.aliyun.com
+                    - generic [ref=e63]: 云监控
+              - generic [ref=e66]:
+                - generic [ref=e67]:
+                  - generic "计算" [ref=e68]:
+                    - img "computing" [ref=e69]
+                    - generic [ref=e70]: 计算
+                  - generic [ref=e72]:
+                    - link "云服务器 ECS forward-line" [ref=e73] [cursor=pointer]:
+                      - /url: //ecs.console.aliyun.com
+                      - generic "云服务器 ECS" [ref=e75]
+                      - img "forward-line" [ref=e78]:
+                        - img [ref=e79]
+                    - generic [ref=e81]:
+                      - link "1 实例" [ref=e82] [cursor=pointer]:
+                        - /url: //ecs.console.aliyun.com/home
+                        - generic [ref=e83]: "1"
+                        - generic [ref=e84]: 实例
+                      - link "1 磁盘" [ref=e85] [cursor=pointer]:
+                        - /url: //ecs.console.aliyun.com/home
+                        - generic [ref=e86]: "1"
+                        - generic [ref=e87]: 磁盘
+                      - link "1 安全组" [ref=e88] [cursor=pointer]:
+                        - /url: //ecs.console.aliyun.com/home
+                        - generic [ref=e89]: "1"
+                        - generic [ref=e90]: 安全组
+                      - link "1 弹性网卡" [ref=e91] [cursor=pointer]:
+                        - /url: //ecs.console.aliyun.com/home
+                        - generic [ref=e92]: "1"
+                        - generic [ref=e93]: 弹性网卡
+                      - link "1 密钥对" [ref=e94] [cursor=pointer]:
+                        - /url: //ecs.console.aliyun.com/home
+                        - generic [ref=e95]: "1"
+                        - generic [ref=e96]: 密钥对
+                - generic [ref=e97]:
+                  - generic "网络与CDN" [ref=e98]:
+                    - img "netcdn" [ref=e99]
+                    - generic [ref=e100]: 网络与CDN
+                  - generic [ref=e101]:
+                    - generic [ref=e102]:
+                      - link "专有网络 VPC forward-line" [ref=e103] [cursor=pointer]:
+                        - /url: //vpc.console.aliyun.com
+                        - generic "专有网络 VPC" [ref=e105]
+                        - img "forward-line" [ref=e108]:
+                          - img [ref=e109]
+                      - generic [ref=e111]:
+                        - link "1 专有网络" [ref=e112] [cursor=pointer]:
+                          - /url: //vpc.console.aliyun.com/overview
+                          - generic [ref=e113]: "1"
+                          - generic [ref=e114]: 专有网络
+                        - link "1 交换机" [ref=e115] [cursor=pointer]:
+                          - /url: //vpc.console.aliyun.com/overview
+                          - generic [ref=e116]: "1"
+                          - generic [ref=e117]: 交换机
+                        - link "1 路由表" [ref=e118] [cursor=pointer]:
+                          - /url: //vpc.console.aliyun.com/overview
+                          - generic [ref=e119]: "1"
+                          - generic [ref=e120]: 路由表
+                    - generic [ref=e121]:
+                      - link "云数据传输 forward-line" [ref=e122] [cursor=pointer]:
+                        - /url: //cdt.console.aliyun.com
+                        - generic "云数据传输" [ref=e124]
+                        - img "forward-line" [ref=e127]:
+                          - img [ref=e128]
+                      - generic [ref=e131] [cursor=pointer]:
+                        - generic [ref=e132]: "-"
+                        - img "help-line" [ref=e134]:
+                          - img [ref=e135]
+                - generic [ref=e137]:
+                  - generic "迁移与运维管理" [ref=e138]:
+                    - img "migrationom" [ref=e139]
+                    - generic [ref=e140]: 迁移与运维管理
+                  - generic [ref=e142]:
+                    - link "访问控制 RAM forward-line" [ref=e143] [cursor=pointer]:
+                      - /url: //ram.console.aliyun.com
+                      - generic "访问控制 RAM" [ref=e145]
+                      - img "forward-line" [ref=e148]:
+                        - img [ref=e149]
+                    - generic [ref=e151]:
+                      - link "1 用户" [ref=e152] [cursor=pointer]:
+                        - /url: //ram.console.aliyun.com/users
+                        - generic [ref=e153]: "1"
+                        - generic [ref=e154]: 用户
+                      - link "4 角色" [ref=e155] [cursor=pointer]:
+                        - /url: //ram.console.aliyun.com/roles
+                        - generic [ref=e156]: "4"
+                        - generic [ref=e157]: 角色
+          - text:                                                                                                                                                                                                                                                   
+          - button "收起产品面板" [ref=e159] [cursor=pointer]:
+            - generic [ref=e160]: 
+        - button "收起产品面板" [ref=e161]
+      - text:        
+      - generic [ref=e162]:
+        - button "展开产品面板" [ref=e164]:
+          - button [ref=e165] [cursor=pointer]
+        - link "前往官网" [ref=e169] [cursor=pointer]:
+          - /url: //www.aliyun.com
+          - generic [ref=e170]:
+            - img [ref=e171]
+            - img [ref=e175]
+        - link "前往控制台首页" [ref=e180] [cursor=pointer]:
+          - /url: //home.console.aliyun.com
+          - generic [ref=e181]:
+            - generic [ref=e183]: 
+            - generic [ref=e184]: 工作台
+        - generic [ref=e185]:
+          - button [ref=e188]:
+            - generic [ref=e189]:
+              - img [ref=e191]
+              - textbox "搜索..." [ref=e199]
+          - navigation [ref=e200]:
+            - link "文档" [ref=e202] [cursor=pointer]:
+              - /url: //help.aliyun.com/product/28625.html
+            - link [ref=e206] [cursor=pointer]:
+              - /url: //www.aliyun.com/ai-assistant/?options=%7B%22displayMode%22%3A%22side%22%7D
+              - img [ref=e212]
+            - button "费用" [ref=e215]:
+              - link "费用" [ref=e216] [cursor=pointer]:
+                - /url: //usercenter2.aliyun.com
+            - button "备案" [ref=e219]:
+              - link "备案" [ref=e220] [cursor=pointer]:
+                - /url: //beian.aliyun.com
+            - button "工单" [ref=e223]:
+              - link "工单" [ref=e224] [cursor=pointer]:
+                - /url: //smartservice.console.aliyun.com/service/list?entrance=100&product=ram
+            - button "" [ref=e227]:
+              - button "" [ref=e228] [cursor=pointer]:
+                - generic [ref=e230]: 
+            - button " 27" [ref=e233]:
+              - link " 27" [ref=e234] [cursor=pointer]:
+                - /url: //notifications.console.aliyun.com/#/innerMsg/unread/0
+                - generic [ref=e235]:
+                  - generic [ref=e237]: 
+                  - generic [ref=e238]: "27"
+            - text:      
+            - generic [ref=e243] [cursor=pointer]:
+              - generic [ref=e244]:
+                - generic "aliyun8178271275" [ref=e245]
+                - generic [ref=e246]: 主账号
+              - img "avatar" [ref=e247]
+      - complementary [ref=e248]:
+        - generic [ref=e250]:
+          - separator [ref=e251]
+          - link "配置清单" [ref=e253] [cursor=pointer]:
+            - /url: //www.aliyun.com/price/cpq/detail?isDefault=true
+            - generic [ref=e254]: 
+          - button "" [ref=e256] [cursor=pointer]:
+            - generic [ref=e257]: 
+          - button "云命令行（Cloud Shell）" [ref=e259] [cursor=pointer]:
+            - generic [ref=e260]: 
+          - button "偏好设置" [ref=e262] [cursor=pointer]:
+            - generic [ref=e263]: 
+          - button "提交您的宝贵建议" [ref=e265] [cursor=pointer]:
+            - generic [ref=e266]: 
+          - button "联系我们" [ref=e270] [cursor=pointer]:
+            - generic [ref=e271]: 
+          - link "AI 助理" [ref=e273] [cursor=pointer]:
+            - /url: //www.aliyun.com/ai-assistant/?options=%7B%22displayMode%22%3A%22float%22%7D
+            - img [ref=e276]
+        - button "隐藏侧边栏" [ref=e278] [cursor=pointer]:
+          - generic [ref=e279]: 
+  - generic [ref=e281]:
+    - generic [ref=e282]:
+      - listbox [ref=e284]:
+        - listitem [ref=e285]:
+          - heading "RAM 访问控制" [level=2] [ref=e286]:
+            - generic [ref=e287]: RAM 访问控制
+        - list [ref=e288]:
+          - option "概览" [ref=e289] [cursor=pointer]:
+            - link "概览" [ref=e292]:
+              - /url: /overview
+          - option "设置" [ref=e293] [cursor=pointer]:
+            - link "设置" [ref=e296]:
+              - /url: /settings
+          - option "身份管理" [ref=e297]:
+            - listitem [ref=e298] [cursor=pointer]:
+              - generic [ref=e300]: 身份管理
+            - listbox [ref=e302]:
+              - option "用户" [ref=e303] [cursor=pointer]:
+                - link "用户" [ref=e306]:
+                  - /url: /users
+              - option "用户组" [ref=e307] [cursor=pointer]:
+                - link "用户组" [ref=e310]:
+                  - /url: /groups
+              - option "角色" [ref=e311] [cursor=pointer]:
+                - link "角色" [ref=e314]:
+                  - /url: /roles
+          - option "权限管理" [ref=e315]:
+            - listitem [ref=e316] [cursor=pointer]:
+              - generic [ref=e318]: 权限管理
+            - listbox [ref=e320]:
+              - option "授权" [ref=e321] [cursor=pointer]:
+                - link "授权" [ref=e324]:
+                  - /url: /permissions
+              - option "权限策略" [ref=e325] [cursor=pointer]:
+                - link "权限策略" [ref=e328]:
+                  - /url: /policies
+              - option "权限诊断" [ref=e329] [cursor=pointer]:
+                - link "权限诊断" [ref=e332]:
+                  - /url: /permissions/troubleshoot
+          - option "集成管理" [ref=e333]:
+            - listitem [ref=e334] [cursor=pointer]:
+              - generic [ref=e336]: 集成管理
+            - listbox [ref=e338]:
+              - option "SSO 管理" [ref=e339] [cursor=pointer]:
+                - link "SSO 管理" [ref=e342]:
+                  - /url: /providers
+              - option "OAuth 应用（公测）" [ref=e343] [cursor=pointer]:
+                - link "OAuth 应用（公测）" [ref=e346]:
+                  - /url: /applications
+              - option "多账号身份权限（云 SSO） " [ref=e347] [cursor=pointer]:
+                - link "多账号身份权限（云 SSO） " [ref=e350]:
+                  - /url: //cloudsso.console.aliyun.com
+                  - text: 多账号身份权限（云 SSO）
+                  - generic [ref=e351]: 
+          - option "访问分析Beta" [ref=e352]:
+            - listitem [ref=e353] [cursor=pointer]:
+              - generic [ref=e356]: 访问分析Beta
+            - listbox [ref=e358]:
+              - option "分析器" [ref=e359] [cursor=pointer]:
+                - link "分析器" [ref=e362]:
+                  - /url: /analyzers
+              - option "分析结果" [ref=e363] [cursor=pointer]:
+                - link "分析结果" [ref=e366]:
+                  - /url: /findings
+          - separator [ref=e367]
+          - option "云治理中心 " [ref=e368] [cursor=pointer]:
+            - link "云治理中心 " [ref=e371]:
+              - /url: //governance.console.aliyun.com
+              - text: 云治理中心
+              - generic [ref=e372]: 
+      - generic [ref=e375] [cursor=pointer]: 
+    - generic [ref=e640]:
+      - generic [ref=e641]:
+        - navigation "Breadcrumb" [ref=e643]:
+          - list [ref=e644]:
+            - listitem [ref=e645]:
+              - link "RAM 访问控制" [ref=e647] [cursor=pointer]:
+                - /url: /
+              - generic [ref=e648]: /
+            - listitem [ref=e649]:
+              - link "用户" [ref=e651] [cursor=pointer]:
+                - /url: /users
+              - generic [ref=e652]: /
+            - listitem [ref=e653]:
+              - generic [ref=e654]: chat-server@1223229399378024.onaliyun.com
+        - generic [ref=e656]:
+          - link "关于用户" [ref=e658] [cursor=pointer]:
+            - /url: https://help.aliyun.com/document_detail/121941.html
+          - link "治理检测" [ref=e660] [cursor=pointer]:
+            - /url: "#"
+      - generic [ref=e672]:
+        - generic [ref=e673]:
+          - generic [ref=e675] [cursor=pointer]: 
+          - heading "chat-server@1223229399378024.onaliyun.com" [level=3] [ref=e676]:
+            - generic [ref=e679]: chat-server@1223229399378024.onaliyun.com
+        - button "删除用户" [ref=e682] [cursor=pointer]:
+          - generic [ref=e683]: 删除用户
+      - generic [ref=e686]:
+        - generic [ref=e687]:
+          - heading "基本信息" [level=3] [ref=e689]
+          - row "登录名称 chat-server@1223229399378024.onaliyun.com  复制 编辑 用户 ID 205516073834185209 显示名称 chat-server 编辑 同步类型 手动添加 备注 - 编辑 ARN acs:ram::1223229399378024:user/chat-server  复制 标签 未绑定标签  创建时间 2026年3月18日 19:43:05 查看其他信息" [ref=e691]:
+            - gridcell "登录名称 chat-server@1223229399378024.onaliyun.com  复制 编辑" [ref=e692]:
+              - row "登录名称 chat-server@1223229399378024.onaliyun.com  复制 编辑" [ref=e693]:
+                - gridcell "登录名称" [ref=e694]
+                - gridcell "chat-server@1223229399378024.onaliyun.com  复制 编辑" [ref=e695]:
+                  - generic [ref=e696]:
+                    - generic [ref=e697]: chat-server@1223229399378024.onaliyun.com
+                    - generic [ref=e698]:
+                      - button " 复制" [ref=e699] [cursor=pointer]:
+                        - generic [ref=e700]: 
+                        - generic [ref=e701]: 复制
+                      - button "编辑" [ref=e702] [cursor=pointer]:
+                        - generic [ref=e703]: 编辑
+            - gridcell "用户 ID 205516073834185209" [ref=e704]:
+              - row "用户 ID 205516073834185209" [ref=e705]:
+                - gridcell "用户 ID" [ref=e706]
+                - gridcell "205516073834185209" [ref=e707]
+            - gridcell "显示名称 chat-server 编辑" [ref=e708]:
+              - row "显示名称 chat-server 编辑" [ref=e709]:
+                - gridcell "显示名称" [ref=e710]
+                - gridcell "chat-server 编辑" [ref=e711]:
+                  - generic [ref=e712]:
+                    - generic [ref=e713]: chat-server
+                    - button "编辑" [ref=e715] [cursor=pointer]:
+                      - generic [ref=e716]: 编辑
+            - gridcell "同步类型 手动添加" [ref=e717]:
+              - row "同步类型 手动添加" [ref=e718]:
+                - gridcell "同步类型" [ref=e719]
+                - gridcell "手动添加" [ref=e720]
+            - gridcell "备注 - 编辑" [ref=e721]:
+              - row "备注 - 编辑" [ref=e722]:
+                - gridcell "备注" [ref=e723]
+                - gridcell "- 编辑" [ref=e724]:
+                  - generic [ref=e725]:
+                    - generic [ref=e726]: "-"
+                    - button "编辑" [ref=e728] [cursor=pointer]:
+                      - generic [ref=e729]: 编辑
+            - gridcell "ARN acs:ram::1223229399378024:user/chat-server  复制" [ref=e730]:
+              - row "ARN acs:ram::1223229399378024:user/chat-server  复制" [ref=e731]:
+                - gridcell "ARN" [ref=e732]
+                - gridcell "acs:ram::1223229399378024:user/chat-server  复制" [ref=e733]:
+                  - generic [ref=e734]:
+                    - generic [ref=e735]: acs:ram::1223229399378024:user/chat-server
+                    - button " 复制" [ref=e737] [cursor=pointer]:
+                      - generic [ref=e738]: 
+                      - generic [ref=e739]: 复制
+            - gridcell "标签 未绑定标签 " [ref=e740]:
+              - row "标签 未绑定标签 " [ref=e741]:
+                - gridcell "标签" [ref=e742]
+                - gridcell "未绑定标签 " [ref=e743]:
+                  - generic [ref=e744]:
+                    - generic [ref=e745]: 未绑定标签
+                    - generic [ref=e746]: 
+            - gridcell "创建时间 2026年3月18日 19:43:05" [ref=e747]:
+              - row "创建时间 2026年3月18日 19:43:05" [ref=e748]:
+                - gridcell "创建时间" [ref=e749]
+                - gridcell "2026年3月18日 19:43:05" [ref=e750]
+            - gridcell "查看其他信息" [ref=e751]:
+              - row "查看其他信息" [ref=e752]:
+                - gridcell "查看其他信息" [ref=e753]:
+                  - button "查看其他信息" [ref=e754] [cursor=pointer]
+        - generic [ref=e755]:
+          - tablist [ref=e760]:
+            - tab "认证管理" [ref=e761]:
+              - generic [ref=e762] [cursor=pointer]: 认证管理
+            - tab "AccessKey" [ref=e763]:
+              - generic [ref=e764] [cursor=pointer]: AccessKey
+            - tab "加入的组" [ref=e765]:
+              - generic [ref=e766] [cursor=pointer]: 加入的组
+            - tab "权限管理" [selected] [ref=e767]:
+              - generic [ref=e768] [cursor=pointer]: 权限管理
+            - tab "操作记录" [ref=e769]:
+              - generic [ref=e770] [cursor=pointer]: 操作记录
+            - tab "权限审计 Beta" [ref=e771]:
+              - generic [ref=e772] [cursor=pointer]: 权限审计 Beta
+          - tabpanel [ref=e892]:
+            - generic [ref=e893]:
+              - tablist [ref=e898]:
+                - tab "个人权限" [selected] [ref=e899]:
+                  - generic [ref=e900] [cursor=pointer]: 个人权限
+                - tab "继承用户组的权限" [ref=e901]:
+                  - generic [ref=e902] [cursor=pointer]: 继承用户组的权限
+              - tabpanel [ref=e904]:
+                - generic [ref=e908]:
+                  - row "新增授权 搜索 搜索 策略类型 所有策略 资源范围 所有范围 " [ref=e909]:
+                    - gridcell "新增授权 搜索 搜索 策略类型 所有策略 资源范围 所有范围" [ref=e910]:
+                      - button "新增授权" [ref=e911] [cursor=pointer]:
+                        - generic [ref=e912]: 新增授权
+                      - generic [ref=e914]:
+                        - searchbox "搜索" [ref=e918]
+                        - button "搜索" [ref=e921] [cursor=pointer]:
+                          - generic [ref=e922]: 
+                      - generic [ref=e924] [cursor=pointer]:
+                        - generic [ref=e925]: 策略类型
+                        - generic [ref=e926]:
+                          - emphasis [ref=e927]: 所有策略
+                          - combobox [ref=e929]
+                        - generic [ref=e932]: 
+                      - generic [ref=e935] [cursor=pointer]:
+                        - generic [ref=e936]: 资源范围
+                        - generic [ref=e937]:
+                          - emphasis [ref=e938]: 所有范围
+                          - combobox [ref=e940]
+                        - generic [ref=e943]: 
+                    - gridcell "" [ref=e945]:
+                      - button "" [ref=e946] [cursor=pointer]:
+                        - generic [ref=e947]: 
+                  - generic [ref=e1474]:
+                    - table [ref=e1477]:
+                      - rowgroup [ref=e1485]:
+                        - row " 全选 权限策略 备注 资源范围 授权时间 操作" [ref=e1486]:
+                          - gridcell " 全选" [ref=e1487]:
+                            - generic [ref=e1490]:
+                              - generic [ref=e1492]: 
+                              - checkbox "全选" [ref=e1493] [cursor=pointer]
+                          - gridcell "权限策略" [ref=e1494]:
+                            - generic [ref=e1495]: 权限策略
+                          - gridcell "备注" [ref=e1496]:
+                            - generic [ref=e1497]: 备注
+                          - gridcell "资源范围" [ref=e1498]:
+                            - generic [ref=e1499]: 资源范围
+                          - gridcell "授权时间" [ref=e1500]:
+                            - generic [ref=e1501]: 授权时间
+                          - gridcell "操作" [ref=e1502]:
+                            - generic [ref=e1503]: 操作
+                    - table [ref=e1506]:
+                      - rowgroup [ref=e1514]:
+                        - row " PowerUserAccess 系统策略 提供对阿里云服务和资源的完全访问权限，但不允许管理 RAM 身份及其权限，管理资源目录和资源共享关系，或是修改资金账号信息。 账号级别 2026年3月18日 19:43:06 解除授权" [ref=e1515]:
+                          - gridcell "" [ref=e1516]:
+                            - generic [ref=e1519]:
+                              - generic [ref=e1521]: 
+                              - checkbox "" [ref=e1522] [cursor=pointer]
+                          - gridcell "PowerUserAccess 系统策略" [ref=e1523]:
+                            - generic [ref=e1524]:
+                              - link "PowerUserAccess" [ref=e1525] [cursor=pointer]:
+                                - /url: https://ram.console.aliyun.com/policies/detail?policyType=System&policyName=PowerUserAccess
+                                - generic [ref=e1526]: PowerUserAccess
+                              - text: 系统策略
+                          - gridcell "提供对阿里云服务和资源的完全访问权限，但不允许管理 RAM 身份及其权限，管理资源目录和资源共享关系，或是修改资金账号信息。" [ref=e1527]:
+                            - generic [ref=e1529]: 提供对阿里云服务和资源的完全访问权限，但不允许管理 RAM 身份及其权限，管理资源目录和资源共享关系，或是修改资金账号信息。
+                          - gridcell "账号级别" [ref=e1530]:
+                            - generic [ref=e1531]: 账号级别
+                          - gridcell "2026年3月18日 19:43:06" [ref=e1532]:
+                            - generic [ref=e1533]: 2026年3月18日 19:43:06
+                          - gridcell "解除授权" [ref=e1534]:
+                            - button "解除授权" [ref=e1536] [cursor=pointer]
+                        - row " AliyunDysmsFullAccess 系统策略 管理短信服务（SMS）的权限 账号级别 2026年4月5日 18:06:15 解除授权" [ref=e1537]:
+                          - gridcell "" [ref=e1538]:
+                            - generic [ref=e1541]:
+                              - generic [ref=e1543]: 
+                              - checkbox "" [ref=e1544] [cursor=pointer]
+                          - gridcell "AliyunDysmsFullAccess 系统策略" [ref=e1545]:
+                            - generic [ref=e1546]:
+                              - link "AliyunDysmsFullAccess" [ref=e1547] [cursor=pointer]:
+                                - /url: https://ram.console.aliyun.com/policies/detail?policyType=System&policyName=AliyunDysmsFullAccess
+                                - generic [ref=e1548]: AliyunDysmsFullAccess
+                              - text: 系统策略
+                          - gridcell "管理短信服务（SMS）的权限" [ref=e1549]:
+                            - generic [ref=e1551]: 管理短信服务（SMS）的权限
+                          - gridcell "账号级别" [ref=e1552]:
+                            - generic [ref=e1553]: 账号级别
+                          - gridcell "2026年4月5日 18:06:15" [ref=e1554]:
+                            - generic [ref=e1555]: 2026年4月5日 18:06:15
+                          - gridcell "解除授权" [ref=e1556]:
+                            - button "解除授权" [ref=e1558] [cursor=pointer]
+                  - row " 解除授权 每页显示 10 上一页，当前第1页 1/1 下一页，当前第1页" [ref=e949]:
+                    - gridcell " 解除授权" [ref=e950]:
+                      - generic [ref=e951]:
+                        - generic [ref=e954]:
+                          - generic [ref=e956]: 
+                          - checkbox "" [ref=e957] [cursor=pointer]
+                        - button "解除授权" [disabled] [ref=e958]:
+                          - generic [ref=e959]: 解除授权
+                    - gridcell "每页显示 10 上一页，当前第1页 1/1 下一页，当前第1页" [ref=e960]:
+                      - generic [ref=e961]:
+                        - generic [ref=e962]:
+                          - text: 每页显示
+                          - generic [ref=e964] [cursor=pointer]:
+                            - generic [ref=e965]:
+                              - emphasis [ref=e966]: "10"
+                              - combobox "请选择每页显示几条" [ref=e968]
+                            - generic [ref=e971]: 
+                        - generic [ref=e973]:
+                          - button "上一页，当前第1页" [disabled] [ref=e974]:
+                            - generic [ref=e975]: 
+                            - generic [ref=e976]: 上一页
+                          - generic [ref=e977]:
+                            - emphasis [ref=e978]: "1"
+                            - text: /1
+                          - button "下一页，当前第1页" [disabled] [ref=e979]:
+                            - generic [ref=e980]: 下一页
+                            - generic [ref=e981]: 
+  - iframe [ref=e638]:
+    - generic [active]:
+      - generic: "{\"successResponse\":false,\"code\":\"ServiceNotSupported\",\"message\":\"Could not find target Api\",\"requestId\":\"0bc1366d17753833140503932ec4c7\"}"
+  - iframe [ref=e639]:
+    
+  - iframe [ref=e861]:
+    - generic [active]:
+      - generic: "{\"successResponse\":false,\"code\":\"ServiceNotSupported\",\"message\":\"Could not find target Api\",\"requestId\":\"0bc1366d17753833630784931ec4c7\"}"
+  - iframe [ref=e982]:
+    - generic [active]:
+      - generic: "{\"successResponse\":false,\"code\":\"ServiceNotSupported\",\"message\":\"Could not find target Api\",\"requestId\":\"0bc1366d17753833985455695ec4c7\"}"
+  - iframe [ref=e1157]:
+    - generic [active]:
+      - generic: "{\"successResponse\":false,\"code\":\"ServiceNotSupported\",\"message\":\"Could not find target Api\",\"requestId\":\"0bc1366d17753834343656478ec4c7\"}"

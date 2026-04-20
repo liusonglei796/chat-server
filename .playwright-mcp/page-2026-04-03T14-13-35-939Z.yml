@@ -1,0 +1,303 @@
+- generic [ref=e8]:
+  - link "跳至主要内容" [ref=e9] [cursor=pointer]:
+    - /url: "#pageContent"
+    - generic [ref=e10]: 跳至主要内容
+  - generic [ref=e11]:
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - link "Grafana" [ref=e14] [cursor=pointer]:
+          - /url: /
+          - img "Grafana" [ref=e15]
+        - generic [ref=e16]: Grafana
+      - button "取消停靠菜单" [ref=e17] [cursor=pointer]:
+        - img [ref=e18]
+      - button "关闭菜单" [ref=e20] [cursor=pointer]:
+        - img [ref=e21]
+    - navigation [ref=e23]:
+      - list "导航" [ref=e27]:
+        - listitem [ref=e28]:
+          - link "首页" [ref=e32] [cursor=pointer]:
+            - /url: /
+            - generic [ref=e34]:
+              - img [ref=e35]
+              - paragraph [ref=e37]: 首页
+        - listitem [ref=e38]:
+          - generic [ref=e39]:
+            - link "书签" [ref=e42] [cursor=pointer]:
+              - /url: /bookmarks
+              - generic [ref=e44]:
+                - img [ref=e45]
+                - paragraph [ref=e47]: 书签
+            - button "展开部分：书签" [ref=e49] [cursor=pointer]:
+              - img [ref=e50]
+        - listitem [ref=e52]:
+          - generic [ref=e53]:
+            - link "已加星标" [ref=e56] [cursor=pointer]:
+              - /url: /dashboards?starred
+              - generic [ref=e58]:
+                - img [ref=e59]
+                - paragraph [ref=e61]: 已加星标
+            - button "展开部分：已加星标" [ref=e63] [cursor=pointer]:
+              - img [ref=e64]
+        - listitem [ref=e66]:
+          - generic [ref=e67]:
+            - link "仪表板" [ref=e70] [cursor=pointer]:
+              - /url: /dashboards
+              - generic [ref=e72]:
+                - img [ref=e73]
+                - paragraph [ref=e75]: 仪表板
+            - button "展开部分：仪表板" [ref=e77] [cursor=pointer]:
+              - img [ref=e78]
+        - listitem [ref=e80]:
+          - link "探索" [ref=e84] [cursor=pointer]:
+            - /url: /explore
+            - generic [ref=e86]:
+              - img [ref=e87]
+              - paragraph [ref=e89]: 探索
+        - listitem [ref=e90]:
+          - generic [ref=e91]:
+            - link "Drilldown" [ref=e94] [cursor=pointer]:
+              - /url: /drilldown
+              - generic [ref=e96]:
+                - img [ref=e97]
+                - paragraph [ref=e102]: Drilldown
+            - button "展开部分：Drilldown" [ref=e104] [cursor=pointer]:
+              - img [ref=e105]
+        - listitem [ref=e107]:
+          - generic [ref=e108]:
+            - link "警报" [ref=e111] [cursor=pointer]:
+              - /url: /alerting
+              - generic [ref=e113]:
+                - img [ref=e114]
+                - paragraph [ref=e116]: 警报
+            - button "展开部分：警报" [ref=e118] [cursor=pointer]:
+              - img [ref=e119]
+        - listitem [ref=e121]:
+          - generic [ref=e122]:
+            - link "连接" [ref=e125] [cursor=pointer]:
+              - /url: /connections
+              - generic [ref=e127]:
+                - img [ref=e128]
+                - paragraph [ref=e130]: 连接
+            - button "收起部分：连接" [expanded] [ref=e132] [cursor=pointer]:
+              - img [ref=e133]
+          - list [ref=e135]:
+            - listitem [ref=e136]:
+              - link "添加新连接" [ref=e140] [cursor=pointer]:
+                - /url: /connections/add-new-connection
+                - paragraph [ref=e143]: 添加新连接
+            - listitem [ref=e144]:
+              - link "数据源" [ref=e148] [cursor=pointer]:
+                - /url: /connections/datasources
+                - paragraph [ref=e151]: 数据源
+        - listitem [ref=e152]:
+          - generic [ref=e153]:
+            - link "管理" [ref=e156] [cursor=pointer]:
+              - /url: /admin
+              - generic [ref=e158]:
+                - img [ref=e159]
+                - paragraph [ref=e161]: 管理
+            - button "收起部分：管理" [expanded] [ref=e163] [cursor=pointer]:
+              - img [ref=e164]
+          - list [ref=e166]:
+            - listitem [ref=e167]:
+              - generic [ref=e168]:
+                - link "概况" [ref=e171] [cursor=pointer]:
+                  - /url: /admin/general
+                  - paragraph [ref=e174]: 概况
+                - button "收起部分：概况" [expanded] [ref=e176] [cursor=pointer]:
+                  - img [ref=e177]
+              - list [ref=e179]:
+                - listitem [ref=e180]:
+                  - link "统计信息和许可证" [ref=e185] [cursor=pointer]:
+                    - /url: /admin/upgrading
+                    - paragraph [ref=e188]: 统计信息和许可证
+                - listitem [ref=e189]:
+                  - link "默认首选项" [ref=e194] [cursor=pointer]:
+                    - /url: /org
+                    - paragraph [ref=e197]: 默认首选项
+                - listitem [ref=e198]:
+                  - link "设置" [ref=e203] [cursor=pointer]:
+                    - /url: /admin/settings
+                    - paragraph [ref=e206]: 设置
+                - listitem [ref=e207]:
+                  - link "组织" [ref=e212] [cursor=pointer]:
+                    - /url: /admin/orgs
+                    - paragraph [ref=e215]: 组织
+                - listitem [ref=e216]:
+                  - link "迁移到Grafana Cloud" [ref=e221] [cursor=pointer]:
+                    - /url: /admin/migrate-to-cloud
+                    - paragraph [ref=e224]: 迁移到Grafana Cloud
+            - listitem [ref=e225]:
+              - generic [ref=e226]:
+                - link "插件和数据" [ref=e229] [cursor=pointer]:
+                  - /url: /admin/plugins
+                  - paragraph [ref=e232]: 插件和数据
+                - button "展开部分：插件和数据" [ref=e234] [cursor=pointer]:
+                  - img [ref=e235]
+            - listitem [ref=e237]:
+              - generic [ref=e238]:
+                - link "用户和访问权限" [ref=e241] [cursor=pointer]:
+                  - /url: /admin/access
+                  - paragraph [ref=e244]: 用户和访问权限
+                - button "展开部分：用户和访问权限" [ref=e246] [cursor=pointer]:
+                  - img [ref=e247]
+            - listitem [ref=e249]:
+              - link "身份验证" [ref=e253] [cursor=pointer]:
+                - /url: /admin/authentication
+                - paragraph [ref=e256]: 身份验证
+  - banner [ref=e257]:
+    - generic [ref=e258]:
+      - navigation "面包屑" [ref=e260]:
+        - list [ref=e261]:
+          - listitem [ref=e262]:
+            - link "仪表板" [ref=e263] [cursor=pointer]:
+              - /url: /dashboards
+            - img [ref=e265]
+          - listitem [ref=e267]:
+            - generic "Kama Chat Server 监控" [ref=e268]
+      - generic [ref=e269]:
+        - generic [ref=e271]:
+          - img [ref=e273]
+          - button "搜索..." [ref=e275] [cursor=pointer]
+          - generic [ref=e277]: ctrl+k
+        - button "新建" [ref=e278] [cursor=pointer]:
+          - img [ref=e279]
+          - img [ref=e281]
+        - button "帮助" [ref=e284] [cursor=pointer]:
+          - img [ref=e285]
+        - button "个人资料" [ref=e288] [cursor=pointer]:
+          - img "User avatar" [ref=e289]
+    - generic [ref=e293]:
+      - button "Mark \"Kama Chat Server 监控\" as favorite" [ref=e295] [cursor=pointer]:
+        - img [ref=e296]
+      - img [ref=e300]
+      - button "编辑" [ref=e305] [cursor=pointer]:
+        - generic [ref=e306]: 编辑
+      - button "导出数据面板" [ref=e311] [cursor=pointer]:
+        - generic [ref=e312]:
+          - text: 导出
+          - img [ref=e313]
+      - generic [ref=e316]:
+        - button "分享" [ref=e317] [cursor=pointer]:
+          - generic [ref=e318]: 分享
+        - button "切换共享菜单" [ref=e319] [cursor=pointer]:
+          - img [ref=e320]
+  - main [ref=e324]:
+    - generic [ref=e327]:
+      - generic [ref=e331]:
+        - generic [ref=e332]:
+          - button "Move 30m backward" [ref=e333] [cursor=pointer]:
+            - img [ref=e334]
+          - button "选择的时间范围：Last 1 hour" [ref=e336] [cursor=pointer]:
+            - img [ref=e337]
+            - generic [ref=e341]: Last 1 hour
+            - img [ref=e342]
+          - button "向前移动时间范围" [ref=e344] [cursor=pointer]:
+            - img [ref=e345]
+          - button "缩放时间范围" [ref=e347] [cursor=pointer]:
+            - img [ref=e348]
+        - generic [ref=e350]:
+          - button "刷新" [ref=e351] [cursor=pointer]:
+            - img [ref=e352]
+            - generic [ref=e354]: 刷新
+          - button "自动刷新已关闭。选择刷新时间间隔" [ref=e355] [cursor=pointer]:
+            - img [ref=e356]
+      - generic [ref=e362]:
+        - region "在线连接数" [ref=e368]:
+          - heading "在线连接数" [level=2] [ref=e371]
+          - generic "在线数" [ref=e375]:
+            - generic [ref=e378]: "0"
+        - region "消息发布速率 (RPS)" [ref=e392]:
+          - heading "消息发布速率 (RPS)" [level=2] [ref=e395]
+          - generic [ref=e402]: No data
+        - region "消息消费速率 (RPS)" [ref=e408]:
+          - heading "消息消费速率 (RPS)" [level=2] [ref=e411]
+          - generic [ref=e418]: No data
+        - region "Kafka 生产错误数" [ref=e424]:
+          - heading "Kafka 生产错误数" [level=2] [ref=e427]
+          - generic "错误数" [ref=e431]:
+            - generic [ref=e434]: "0"
+        - region "在线连接数趋势" [ref=e448]:
+          - heading "在线连接数趋势" [level=2] [ref=e451]
+          - table [ref=e467]:
+            - rowgroup [ref=e468]:
+              - row "Name" [ref=e469]:
+                - columnheader "Name" [ref=e470] [cursor=pointer]
+            - rowgroup [ref=e471]:
+              - row "在线连接" [ref=e472]:
+                - cell "在线连接" [ref=e473]:
+                  - button "在线连接" [ref=e476] [cursor=pointer]
+        - region "消息吞吐量 (按类型)" [ref=e482]:
+          - heading "消息吞吐量 (按类型)" [level=2] [ref=e485]
+          - generic [ref=e488]: 无数据
+        - region "消息处理延迟 (P50/P95/P99)" [ref=e494]:
+          - heading "消息处理延迟 (P50/P95/P99)" [level=2] [ref=e497]
+          - generic [ref=e500]: 无数据
+        - region "Kafka 发布延迟 (P50/P95/P99)" [ref=e506]:
+          - heading "Kafka 发布延迟 (P50/P95/P99)" [level=2] [ref=e509]
+          - table [ref=e524]:
+            - rowgroup [ref=e525]:
+              - row "Name" [ref=e526]:
+                - columnheader "Name" [ref=e527] [cursor=pointer]
+            - rowgroup [ref=e528]:
+              - row "P50" [ref=e529]:
+                - cell "P50" [ref=e530]:
+                  - button "P50" [ref=e533] [cursor=pointer]
+              - row "P95" [ref=e534]:
+                - cell "P95" [ref=e535]:
+                  - button "P95" [ref=e538] [cursor=pointer]
+              - row "P99" [ref=e539]:
+                - cell "P99" [ref=e540]:
+                  - button "P99" [ref=e543] [cursor=pointer]
+        - region "缓存命中率" [ref=e549]:
+          - heading "缓存命中率" [level=2] [ref=e552]
+          - table [ref=e568]:
+            - rowgroup [ref=e569]:
+              - row "Name" [ref=e570]:
+                - columnheader "Name" [ref=e571] [cursor=pointer]
+            - rowgroup [ref=e572]:
+              - row "命中" [ref=e573]:
+                - cell "命中" [ref=e574]:
+                  - button "命中" [ref=e577] [cursor=pointer]
+              - row "未命中" [ref=e578]:
+                - cell "未命中" [ref=e579]:
+                  - button "未命中" [ref=e582] [cursor=pointer]
+              - row "命中率" [ref=e583]:
+                - cell "命中率" [ref=e584]:
+                  - button "命中率" [ref=e587] [cursor=pointer]
+        - region "错误统计" [ref=e593]:
+          - heading "错误统计" [level=2] [ref=e596]
+          - table [ref=e612]:
+            - rowgroup [ref=e613]:
+              - row "Name" [ref=e614]:
+                - columnheader "Name" [ref=e615] [cursor=pointer]
+            - rowgroup [ref=e616]:
+              - row "Kafka 生产错误" [ref=e617]:
+                - cell "Kafka 生产错误" [ref=e618]:
+                  - button "Kafka 生产错误" [ref=e621] [cursor=pointer]
+              - row "Kafka 消费错误" [ref=e622]:
+                - cell "Kafka 消费错误" [ref=e623]:
+                  - button "Kafka 消费错误" [ref=e626] [cursor=pointer]
+              - row "缓存错误" [ref=e627]:
+                - cell "缓存错误" [ref=e628]:
+                  - button "缓存错误" [ref=e631] [cursor=pointer]
+              - row "消息丢弃" [ref=e632]:
+                - cell "消息丢弃" [ref=e633]:
+                  - button "消息丢弃" [ref=e636] [cursor=pointer]
+        - region "累计连接数" [ref=e642]:
+          - heading "累计连接数" [level=2] [ref=e645]
+          - generic "累计连接" [ref=e649]:
+            - generic [ref=e652]: "0"
+        - region "累计断开连接数" [ref=e666]:
+          - heading "累计断开连接数" [level=2] [ref=e669]
+          - generic "累计断开" [ref=e673]:
+            - generic [ref=e676]: "0"
+        - region "重复消息数" [ref=e690]:
+          - heading "重复消息数" [level=2] [ref=e693]
+          - generic "去重数" [ref=e697]:
+            - generic [ref=e700]: "0"
+        - region "丢弃消息数" [ref=e714]:
+          - heading "丢弃消息数" [level=2] [ref=e717]
+          - generic "丢弃数" [ref=e721]:
+            - generic [ref=e724]: "0"

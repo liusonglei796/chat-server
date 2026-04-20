@@ -4,7 +4,7 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    monitor: 'sms-service'
+    monitor: 'kama-chat-server'
 
 # 告警规则
 alerting:
@@ -20,28 +20,9 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  # Redis 监控
-  - job_name: 'redis-master'
+  # 应用指标（Gin 应用暴露的 /metrics 端点）
+  - job_name: 'kama-chat-app'
     static_configs:
-      - targets: ['redis-master:6379']
-    metrics_path: '/metrics'
-    scrape_interval: 10s
-
-  - job_name: 'redis-replica'
-    static_configs:
-      - targets: ['redis-replica:6379']
-    metrics_path: '/metrics'
-    scrape_interval: 10s
-
-  # Nginx 监控（需要安装 nginx-prometheus-exporter）
-  - job_name: 'nginx'
-    static_configs:
-      - targets: ['localhost:9113']
-    scrape_interval: 10s
-
-  # 应用指标（假设应用提供 /metrics 端点）
-  - job_name: 'sms-app'
-    static_configs:
-      - targets: ['app1:8080', 'app2:8080']
+      - targets: ['host.docker.internal:8000']
     metrics_path: '/metrics'
     scrape_interval: 10s

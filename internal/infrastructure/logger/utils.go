@@ -1,11 +1,14 @@
 package logger
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
 	"runtime/debug"
 	"strings"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 // isBrokenPipeError 检查错误链中是否包含 broken pipe
@@ -34,4 +37,14 @@ func isBrokenPipeError(err error) bool {
 // getStackTrace 获取堆栈信息
 func getStackTrace() string {
 	return string(debug.Stack())
+}
+
+// GetTraceId 从上下文中提取 OTel trace ID
+// 如果上下文中没有 span 信息，返回空字符串
+func GetTraceId(ctx context.Context) string {
+	spanCtx := trace.SpanContextFromContext(ctx)
+	if spanCtx.IsValid() {
+		return spanCtx.TraceID().String()
+	}
+	return ""
 }

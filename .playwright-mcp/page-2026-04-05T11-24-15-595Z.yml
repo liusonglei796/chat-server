@@ -1,0 +1,702 @@
+- generic [ref=e8]:
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - complementary [ref=e14]:
+        - generic [ref=e15]:
+          - generic [ref=e16]:
+            - link [ref=e17] [cursor=pointer]:
+              - /url: /
+              - img [ref=e19]
+            - button "2123680589@qq.com's Account" [ref=e24] [cursor=pointer]:
+              - paragraph [ref=e25]: 2123680589@qq.com's Account
+              - img [ref=e27]
+          - navigation [ref=e30]:
+            - generic [ref=e34]:
+              - button "快速搜索..." [ref=e36] [cursor=pointer]:
+                - generic [ref=e37]:
+                  - img [ref=e38]
+                  - generic [ref=e40]: 快速搜索...
+                  - generic [ref=e41]: Ctrl K
+              - generic [ref=e44]:
+                - link "Back to Domains" [ref=e47] [cursor=pointer]:
+                  - /url: /a597e14bd2013a1000c59b5adc282b45/domains/overview
+                  - generic [ref=e48]:
+                    - img [ref=e49]
+                    - generic [ref=e51]: Back to Domains
+                - list [ref=e54]:
+                  - listitem [ref=e55]:
+                    - link "概述" [ref=e56] [cursor=pointer]:
+                      - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/
+                      - generic [ref=e57]:
+                        - img [ref=e58]
+                        - generic [ref=e61]: 概述
+                  - listitem [ref=e62]:
+                    - button "最近访问" [ref=e63] [cursor=pointer]:
+                      - generic [ref=e64]:
+                        - img [ref=e65]
+                        - generic [ref=e68]: 最近访问
+                        - img [ref=e69]
+                    - list [ref=e71]:
+                      - listitem [ref=e73]:
+                        - link "lay.dpdns.org 域" [ref=e74] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org
+                          - generic [ref=e75]:
+                            - generic [ref=e76]: lay.dpdns.org
+                            - generic [ref=e78]: 域
+                        - button "固定" [ref=e80] [cursor=pointer]:
+                          - generic [ref=e81]:
+                            - img [ref=e82]
+                            - img [ref=e87]
+                      - listitem [ref=e89]:
+                        - link "Registrations Domains" [ref=e90] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/domains/registrations
+                          - generic [ref=e91]:
+                            - generic [ref=e92]: Registrations
+                            - generic [ref=e94]: Domains
+                        - button "固定" [ref=e96] [cursor=pointer]:
+                          - generic [ref=e97]:
+                            - img [ref=e98]
+                            - img [ref=e103]
+                      - listitem [ref=e105]:
+                        - link "记录 lay.dpdns.org / DNS" [ref=e106] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/dns/records
+                          - generic [ref=e107]:
+                            - generic [ref=e108]: 记录
+                            - generic [ref=e109]:
+                              - generic [ref=e110]: lay.dpdns.org
+                              - generic [ref=e111]: /
+                              - generic [ref=e112]: DNS
+                        - button "固定" [ref=e114] [cursor=pointer]:
+                          - generic [ref=e115]:
+                            - img [ref=e116]
+                            - img [ref=e121]
+                      - listitem [ref=e123]:
+                        - link "Zero Trust 保护和连接" [ref=e124] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/zero-trust/landing-page
+                          - generic [ref=e125]:
+                            - generic [ref=e126]: Zero Trust
+                            - generic [ref=e128]: 保护和连接
+                        - button "固定" [ref=e130] [cursor=pointer]:
+                          - generic [ref=e131]:
+                            - img [ref=e132]
+                            - img [ref=e137]
+                      - listitem [ref=e139]:
+                        - link "帐户 API 令牌 管理帐户" [ref=e140] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/api-tokens
+                          - generic [ref=e141]:
+                            - generic [ref=e142]: 帐户 API 令牌
+                            - generic [ref=e144]: 管理帐户
+                        - button "固定" [ref=e146] [cursor=pointer]:
+                          - generic [ref=e147]:
+                            - img [ref=e148]
+                            - img [ref=e153]
+                  - listitem [ref=e155]:
+                    - button "AI Crawl Control" [ref=e156] [cursor=pointer]:
+                      - generic [ref=e157]:
+                        - img [ref=e158]
+                        - generic [ref=e161]: AI Crawl Control
+                        - img [ref=e162]
+                    - list [ref=e164]:
+                      - listitem [ref=e166]:
+                        - link "概述" [ref=e167] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/ai/overview
+                          - generic [ref=e168]: 概述
+                      - listitem [ref=e169]:
+                        - link "爬网程序" [ref=e170] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/ai/bots
+                          - generic [ref=e171]: 爬网程序
+                      - listitem [ref=e172]:
+                        - link "指标" [ref=e173] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/ai/metrics
+                          - generic [ref=e174]: 指标
+                      - listitem [ref=e175]:
+                        - link "Robots.txt" [ref=e176] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/ai/robots
+                          - generic [ref=e177]: Robots.txt
+                  - listitem [ref=e178]:
+                    - button "Log Explorer" [ref=e179] [cursor=pointer]:
+                      - generic [ref=e180]:
+                        - img [ref=e181]
+                        - generic [ref=e184]: Log Explorer
+                        - img [ref=e185]
+                    - list [ref=e187]:
+                      - listitem [ref=e189]:
+                        - link "日志搜索" [ref=e190] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/log-explorer/log-search
+                          - generic [ref=e191]: 日志搜索
+                  - listitem [ref=e192]:
+                    - button "分析和日志" [ref=e193] [cursor=pointer]:
+                      - generic [ref=e194]:
+                        - img [ref=e195]
+                        - generic [ref=e198]: 分析和日志
+                        - img [ref=e199]
+                    - list [ref=e201]:
+                      - listitem [ref=e203]:
+                        - link "HTTP 流量" [ref=e204] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/analytics/traffic
+                          - generic [ref=e205]: HTTP 流量
+                      - listitem [ref=e206]:
+                        - link "Web Analytics" [ref=e207] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/analytics/web/overview
+                          - generic [ref=e208]: Web Analytics
+                      - listitem [ref=e209]:
+                        - link "性能" [ref=e210] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/analytics/performance
+                          - generic [ref=e211]: 性能
+                      - listitem [ref=e212]:
+                        - link "Workers" [ref=e213] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/analytics/workers
+                          - generic [ref=e214]: Workers
+                  - listitem [ref=e215]:
+                    - button "DNS" [expanded] [ref=e216] [cursor=pointer]:
+                      - generic [ref=e217]:
+                        - img [ref=e218]
+                        - generic [ref=e220]: DNS
+                        - img [ref=e221]
+                    - list [ref=e225]:
+                      - listitem [ref=e227]:
+                        - link "记录" [ref=e228] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/dns/records
+                          - generic [ref=e229]: 记录
+                      - listitem [ref=e230]:
+                        - link "数据分析" [ref=e231] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/dns/analytics
+                          - generic [ref=e232]: 数据分析
+                      - listitem [ref=e233]:
+                        - link "设置" [ref=e234] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/dns/settings
+                          - generic [ref=e235]: 设置
+                  - listitem [ref=e236]:
+                    - button "电子邮件" [ref=e237] [cursor=pointer]:
+                      - generic [ref=e238]:
+                        - img [ref=e239]
+                        - generic [ref=e243]: 电子邮件
+                        - img [ref=e244]
+                    - list [ref=e246]:
+                      - listitem [ref=e248]:
+                        - link "电子邮件路由" [ref=e249] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/email/routing
+                          - generic [ref=e250]: 电子邮件路由
+                      - listitem [ref=e251]:
+                        - link "DMARC 管理" [ref=e252] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/email/dmarc-management
+                          - generic [ref=e253]: DMARC 管理
+                      - listitem [ref=e254]:
+                        - link "电子邮件安全" [ref=e255] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/email/security
+                          - generic [ref=e256]: 电子邮件安全
+                  - listitem [ref=e257]:
+                    - button "SSL/TLS" [ref=e258] [cursor=pointer]:
+                      - generic [ref=e259]:
+                        - img [ref=e260]
+                        - generic [ref=e263]: SSL/TLS
+                        - img [ref=e264]
+                    - list [ref=e266]:
+                      - listitem [ref=e268]:
+                        - link "概述" [ref=e269] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/ssl-tls
+                          - generic [ref=e270]: 概述
+                      - listitem [ref=e271]:
+                        - link "边缘证书" [ref=e272] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/ssl-tls/edge-certificates
+                          - generic [ref=e273]: 边缘证书
+                      - listitem [ref=e274]:
+                        - link "客户端证书" [ref=e275] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/ssl-tls/client-certificates
+                          - generic [ref=e276]: 客户端证书
+                      - listitem [ref=e277]:
+                        - link "源服务器" [ref=e278] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/ssl-tls/origin
+                          - generic [ref=e279]: 源服务器
+                      - listitem [ref=e280]:
+                        - link "自定义主机名" [ref=e281] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/ssl-tls/custom-hostnames
+                          - generic [ref=e282]: 自定义主机名
+                  - listitem [ref=e283]:
+                    - button "安全性" [ref=e284] [cursor=pointer]:
+                      - generic [ref=e285]:
+                        - img [ref=e286]
+                        - generic [ref=e288]: 安全性
+                        - img [ref=e289]
+                    - list [ref=e291]:
+                      - listitem [ref=e293]:
+                        - link "概述" [ref=e294] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/security/overview
+                          - generic [ref=e295]: 概述
+                      - listitem [ref=e296]:
+                        - link "分析" [ref=e297] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/security/analytics
+                          - generic [ref=e298]: 分析
+                      - listitem [ref=e299]:
+                        - link "Web 资产" [ref=e300] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/security/web-assets
+                          - generic [ref=e301]: Web 资产
+                      - listitem [ref=e302]:
+                        - link "安全规则" [ref=e303] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/security/security-rules
+                          - generic [ref=e304]: 安全规则
+                      - listitem [ref=e305]:
+                        - link "设置" [ref=e306] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/security/settings
+                          - generic [ref=e307]: 设置
+                  - listitem [ref=e308]:
+                    - link "Access" [ref=e309] [cursor=pointer]:
+                      - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/access
+                      - generic [ref=e310]:
+                        - img [ref=e311]
+                        - generic [ref=e314]: Access
+                  - listitem [ref=e315]:
+                    - button "速度" [ref=e316] [cursor=pointer]:
+                      - generic [ref=e317]:
+                        - img [ref=e318]
+                        - generic [ref=e320]: 速度
+                        - img [ref=e321]
+                    - list [ref=e323]:
+                      - listitem [ref=e325]:
+                        - link "Observatory Beta" [ref=e326] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/speed
+                          - generic [ref=e327]: Observatory
+                          - generic [ref=e329]: Beta
+                      - listitem [ref=e330]:
+                        - link "真实用户监视" [ref=e331] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/speed/rum
+                          - generic [ref=e332]: 真实用户监视
+                      - listitem [ref=e333]:
+                        - link "合成监视 Beta" [ref=e334] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/speed/test
+                          - generic [ref=e335]: 合成监视
+                          - generic [ref=e337]: Beta
+                      - listitem [ref=e338]:
+                        - link "设置" [ref=e339] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/speed/optimization
+                          - generic [ref=e340]: 设置
+                      - listitem [ref=e341]:
+                        - link "Smart Shield" [ref=e342] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/speed/smart-shield
+                          - generic [ref=e343]: Smart Shield
+                  - listitem [ref=e344]:
+                    - button "缓存" [ref=e345] [cursor=pointer]:
+                      - generic [ref=e346]:
+                        - img [ref=e347]
+                        - generic [ref=e352]: 缓存
+                        - img [ref=e353]
+                    - list [ref=e355]:
+                      - listitem [ref=e357]:
+                        - link "概述" [ref=e358] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/caching
+                          - generic [ref=e359]: 概述
+                      - listitem [ref=e360]:
+                        - link "配置" [ref=e361] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/caching/configuration
+                          - generic [ref=e362]: 配置
+                      - listitem [ref=e363]:
+                        - link "Cache Rules" [ref=e364] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/caching/cache-rules
+                          - generic [ref=e365]: Cache Rules
+                      - listitem [ref=e366]:
+                        - link "Tiered Cache" [ref=e367] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/caching/tiered-cache
+                          - generic [ref=e368]: Tiered Cache
+                      - listitem [ref=e369]:
+                        - link "缓存储备" [ref=e370] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/caching/cache-reserve
+                          - generic [ref=e371]: 缓存储备
+                  - listitem [ref=e372]:
+                    - link "Workers 路由" [ref=e373] [cursor=pointer]:
+                      - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/workers
+                      - generic [ref=e374]:
+                        - img [ref=e375]
+                        - generic [ref=e379]: Workers 路由
+                  - listitem [ref=e380]:
+                    - button "规则" [ref=e381] [cursor=pointer]:
+                      - generic [ref=e382]:
+                        - img [ref=e383]
+                        - generic [ref=e386]: 规则
+                        - img [ref=e387]
+                    - list [ref=e389]:
+                      - listitem [ref=e391]:
+                        - link "概述" [ref=e392] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/rules/overview
+                          - generic [ref=e393]: 概述
+                      - listitem [ref=e394]:
+                        - link "Snippets" [ref=e395] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/rules/snippets
+                          - generic [ref=e396]: Snippets
+                      - listitem [ref=e397]:
+                        - link "Cloud Connector Beta" [ref=e398] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/rules/cloud-connector
+                          - generic [ref=e399]: Cloud Connector
+                          - generic [ref=e401]: Beta
+                      - listitem [ref=e402]:
+                        - link "“跟踪” Beta" [ref=e403] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/rules/trace/search
+                          - generic [ref=e404]: “跟踪”
+                          - generic [ref=e406]: Beta
+                      - listitem [ref=e407]:
+                        - link "页面规则" [ref=e408] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/rules/page-rules
+                          - generic [ref=e409]: 页面规则
+                      - listitem [ref=e410]:
+                        - link "设置" [ref=e411] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/rules/settings
+                          - generic [ref=e412]: 设置
+                  - listitem [ref=e413]:
+                    - link "错误页面 新" [ref=e414] [cursor=pointer]:
+                      - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/error-pages
+                      - generic [ref=e415]:
+                        - img [ref=e416]
+                        - generic [ref=e419]: 错误页面
+                        - generic [ref=e421]: 新
+                  - listitem [ref=e422]:
+                    - link "网络" [ref=e423] [cursor=pointer]:
+                      - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/network
+                      - generic [ref=e424]:
+                        - img [ref=e425]
+                        - generic [ref=e428]: 网络
+                  - listitem [ref=e429]:
+                    - button "流量" [ref=e430] [cursor=pointer]:
+                      - generic [ref=e431]:
+                        - img [ref=e432]
+                        - generic [ref=e434]: 流量
+                        - img [ref=e435]
+                    - list [ref=e437]:
+                      - listitem [ref=e439]:
+                        - link "Argo Smart Routing" [ref=e440] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/traffic
+                          - generic [ref=e441]: Argo Smart Routing
+                      - listitem [ref=e442]:
+                        - link "负载平衡" [ref=e443] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/traffic/load-balancing
+                          - generic [ref=e444]: 负载平衡
+                      - listitem [ref=e445]:
+                        - link "负载平衡分析" [ref=e446] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/traffic/load-balancing-analytics
+                          - generic [ref=e447]: 负载平衡分析
+                      - listitem [ref=e448]:
+                        - link "运行状况检查" [ref=e449] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/traffic/health-checks
+                          - generic [ref=e450]: 运行状况检查
+                      - listitem [ref=e451]:
+                        - link "Waiting Room" [ref=e452] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/traffic/waiting-rooms
+                          - generic [ref=e453]: Waiting Room
+                  - listitem [ref=e454]:
+                    - link "Web3" [ref=e455] [cursor=pointer]:
+                      - /url: /a597e14bd2013a1000c59b5adc282b45/lay.dpdns.org/web3
+                      - generic [ref=e456]:
+                        - img [ref=e457]
+                        - generic [ref=e460]: Web3
+                  - listitem [ref=e461]
+                  - listitem [ref=e463]:
+                    - button "管理帐户" [ref=e464] [cursor=pointer]:
+                      - generic [ref=e465]:
+                        - img [ref=e466]
+                        - generic [ref=e469]: 管理帐户
+                        - img [ref=e470]
+                    - list [ref=e472]:
+                      - listitem [ref=e474]:
+                        - link "成员" [ref=e475] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/members
+                          - generic [ref=e476]: 成员
+                      - listitem [ref=e477]:
+                        - link "账单" [ref=e478] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/billing
+                          - generic [ref=e479]: 账单
+                      - listitem [ref=e480]:
+                        - link "帐户 API 令牌" [ref=e481] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/api-tokens
+                          - generic [ref=e482]: 帐户 API 令牌
+                      - listitem [ref=e483]:
+                        - link "审核日志" [ref=e484] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/audit-log
+                          - generic [ref=e485]: 审核日志
+                      - listitem [ref=e486]:
+                        - link "通知" [ref=e487] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/notifications
+                          - generic [ref=e488]: 通知
+                      - listitem [ref=e489]:
+                        - link "阻止的内容" [ref=e490] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/blocked-content
+                          - generic [ref=e491]: 阻止的内容
+                      - listitem [ref=e492]:
+                        - link "滥用报告 Beta" [ref=e493] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/abuse-reports
+                          - generic [ref=e494]: 滥用报告
+                          - generic [ref=e496]: Beta
+                      - listitem [ref=e497]:
+                        - link "碳排放影响报告" [ref=e498] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/carbon
+                          - generic [ref=e499]: 碳排放影响报告
+                      - listitem [ref=e500]:
+                        - link "配置" [ref=e501] [cursor=pointer]:
+                          - /url: /a597e14bd2013a1000c59b5adc282b45/configurations
+                          - generic [ref=e502]: 配置
+        - button "折叠边栏" [expanded] [ref=e505] [cursor=pointer]:
+          - img
+      - generic [ref=e506]:
+        - banner [ref=e507]:
+          - generic [ref=e508]:
+            - button "lay.dpdns.org" [ref=e510] [cursor=pointer]:
+              - generic [ref=e511]: lay.dpdns.org
+              - img [ref=e512]
+            - button "为域添加星标" [ref=e515] [cursor=pointer]:
+              - img "为域添加星标" [ref=e516]
+            - button "Free" [ref=e519] [cursor=pointer]
+          - generic [ref=e520]:
+            - button "Ask AI" [ref=e521] [cursor=pointer]:
+              - img [ref=e522]
+              - generic [ref=e524]: Ask AI
+            - button "支持" [ref=e525] [cursor=pointer]:
+              - img [ref=e526]
+              - generic [ref=e528]: 支持
+            - button "User menu" [ref=e529] [cursor=pointer]:
+              - img [ref=e530]
+        - main [ref=e533]:
+          - generic [ref=e535]:
+            - generic [ref=e537]:
+              - paragraph [ref=e538]: DNS
+              - heading "记录" [level=1] [ref=e540]
+              - paragraph [ref=e541]:
+                - text: 配置 DNS 记录并查看您的主机名的
+                - link "代理状态documentation" [ref=e542] [cursor=pointer]:
+                  - /url: https://developers.cloudflare.com/dns/manage-dns-records/reference/proxied-dns-records/
+                  - text: 代理状态
+                  - img "documentation" [ref=e544]
+                - text: 。
+              - button "open documentation" [ref=e547] [cursor=pointer]:
+                - button "open documentation" [ref=e548]:
+                  - img [ref=e549]
+                  - text: DNS 文档
+            - generic [ref=e552]:
+              - generic [ref=e553]:
+                - heading "建议的完成区域设置的步骤 隐藏" [level=3] [ref=e554]:
+                  - generic [ref=e555]: 建议的完成区域设置的步骤
+                  - button "隐藏" [expanded] [ref=e556] [cursor=pointer]
+                - generic [ref=e557]:
+                  - img [ref=e559]
+                  - paragraph [ref=e563]:
+                    - text: 为
+                    - strong [ref=e564]: www
+                    - text: 添加 A、AAAA 或 CNAME 记录，以便可以解析
+                    - strong [ref=e565]: www.lay.dpdns.org
+                    - text: 。
+                - generic [ref=e566]:
+                  - img [ref=e568]
+                  - generic [ref=e570]:
+                    - text: 为您的
+                    - strong [ref=e571]: 根域
+                    - text: 添加 MX 记录，让邮件可以到达 @
+                    - strong [ref=e572]: lay.dpdns.org
+                    - text: 地址，或
+                    - button "设置限制性 SPF、DKIM 和 DMARC 记录" [ref=e573] [cursor=pointer]
+                    - text: ，阻止电子邮件欺骗。
+                    - generic [ref=e575]: 新警报
+              - generic [ref=e576]:
+                - generic [ref=e577]:
+                  - generic [ref=e578]:
+                    - heading "管理 lay.dpdns.org 的 DNS" [level=3] [ref=e579]:
+                      - generic [ref=e580]:
+                        - text: 管理
+                        - generic [ref=e581]: lay.dpdns.org
+                        - text: 的 DNS
+                    - generic [ref=e582]: 查看、添加和编辑 DNS 记录。编辑将在保存后生效。
+                  - generic [ref=e583]:
+                    - generic [ref=e584]:
+                      - generic [ref=e585]:
+                        - generic [ref=e586]: "DNS 设置:"
+                        - generic [ref=e587]: 完全
+                      - button [ref=e589] [cursor=pointer]:
+                        - img [ref=e590]
+                    - button "导入和导出" [ref=e593] [cursor=pointer]:
+                      - generic [ref=e594]:
+                        - generic [ref=e595]: 导入和导出
+                        - img [ref=e596]
+                    - button "仪表板显示设置" [ref=e598] [cursor=pointer]:
+                      - generic [ref=e599]:
+                        - img [ref=e600]
+                        - generic [ref=e601]: 仪表板显示设置
+                - generic [ref=e602]:
+                  - generic [ref=e606]:
+                    - button "添加筛选器" [ref=e608] [cursor=pointer]:
+                      - img [ref=e609]
+                      - generic [ref=e611]: 添加筛选器
+                    - generic [ref=e612]:
+                      - generic [ref=e614]:
+                        - generic [ref=e615]:
+                          - generic [ref=e616]: 搜索 DNS 记录
+                          - generic [ref=e617]:
+                            - img [ref=e619]
+                            - textbox "搜索 DNS 记录" [ref=e621]
+                        - button "搜索" [ref=e622] [cursor=pointer]:
+                          - generic [ref=e623]: 搜索
+                      - button "添加记录" [ref=e624] [cursor=pointer]:
+                        - img [ref=e625]
+                        - generic [ref=e627]: 添加记录
+                  - status [ref=e628]: 您的搜索产生 1 个结果
+                  - table [ref=e630] [cursor=pointer]:
+                    - rowgroup [ref=e631]:
+                      - row "类型 caret-right 名称 内容 代理状态 TTL 操作" [ref=e632]:
+                        - columnheader [ref=e633]:
+                          - checkbox [ref=e634]
+                        - columnheader [ref=e635]
+                        - columnheader "类型 caret-right" [ref=e636]:
+                          - generic [ref=e637]:
+                            - generic [ref=e638]:
+                              - generic [ref=e639]: 类型
+                              - button [ref=e641]:
+                                - img [ref=e642]
+                            - img "caret-right" [ref=e646]
+                        - columnheader "名称" [ref=e648]:
+                          - generic [ref=e650]:
+                            - generic [ref=e651]: 名称
+                            - button [ref=e653]:
+                              - img [ref=e654]
+                        - columnheader "内容" [ref=e657]:
+                          - generic [ref=e659]:
+                            - generic [ref=e660]: 内容
+                            - button [ref=e662]:
+                              - img [ref=e663]
+                        - columnheader "代理状态" [ref=e666]:
+                          - generic [ref=e668]:
+                            - generic [ref=e669]: 代理状态
+                            - button [ref=e671]:
+                              - img [ref=e672]
+                        - columnheader "TTL" [ref=e675]:
+                          - generic [ref=e677]:
+                            - generic [ref=e678]: TTL
+                            - button [ref=e680]:
+                              - img [ref=e681]
+                        - columnheader "操作" [ref=e684]
+                    - rowgroup [ref=e685]:
+                      - row "A lay.dpdns.org 47.113.144.229 已代理 自动 编辑 切换到打开状态时，将在此行下方额外添加一个表行来支持编辑 DNS 记录。 caret-right" [ref=e686]:
+                        - cell [ref=e687]:
+                          - checkbox [ref=e688]
+                        - cell [ref=e689]
+                        - cell "A" [ref=e690]:
+                          - generic "A - 已修改 1 小时前" [ref=e692]: A
+                        - cell "lay.dpdns.org" [ref=e693]:
+                          - generic "lay.dpdns.org" [ref=e694]
+                        - cell "47.113.144.229" [ref=e695]:
+                          - generic "47.113.144.229" [ref=e697]
+                        - cell "已代理" [ref=e698]:
+                          - paragraph [ref=e705]: 已代理
+                        - cell "自动" [ref=e706]:
+                          - generic [ref=e708]: 自动
+                        - cell "编辑 切换到打开状态时，将在此行下方额外添加一个表行来支持编辑 DNS 记录。 caret-right" [ref=e709]:
+                          - button "编辑 切换到打开状态时，将在此行下方额外添加一个表行来支持编辑 DNS 记录。 caret-right" [ref=e710]:
+                            - text: 编辑
+                            - generic [ref=e711]: 切换到打开状态时，将在此行下方额外添加一个表行来支持编辑 DNS 记录。
+                            - img "caret-right" [ref=e713]
+            - generic [ref=e715]:
+              - generic [ref=e717]:
+                - heading "Cloudflare 名称服务器" [level=3] [ref=e718]
+                - text: Cloudflare 上的每个 DNS 区域都会被分配一组 Cloudflare 品牌名称服务器。
+              - table [ref=e721] [cursor=pointer]:
+                - rowgroup [ref=e722]:
+                  - row "类型 值" [ref=e723]:
+                    - columnheader "类型" [ref=e724]
+                    - columnheader "值" [ref=e725]
+                - rowgroup [ref=e726]:
+                  - row "NS fred.ns.cloudflare.com" [ref=e727]:
+                    - cell "NS" [ref=e728]
+                    - cell "fred.ns.cloudflare.com" [ref=e729]
+                  - row "NS magali.ns.cloudflare.com" [ref=e730]:
+                    - cell "NS" [ref=e731]
+                    - cell "magali.ns.cloudflare.com" [ref=e732]
+        - contentinfo [ref=e733]:
+          - list [ref=e735]:
+            - listitem [ref=e736]:
+              - link "支持" [ref=e737] [cursor=pointer]:
+                - /url: https://support.cloudflare.com
+            - listitem [ref=e738]:
+              - link "系统状态" [ref=e739] [cursor=pointer]:
+                - /url: https://www.cloudflarestatus.com
+            - listitem [ref=e740]:
+              - link "招贤纳士" [ref=e741] [cursor=pointer]:
+                - /url: https://www.cloudflare.com/careers/
+            - listitem [ref=e742]:
+              - link "使用条款" [ref=e743] [cursor=pointer]:
+                - /url: https://www.cloudflare.com/website-terms/
+            - listitem [ref=e744]:
+              - link "报告安全问题" [ref=e745] [cursor=pointer]:
+                - /url: https://www.cloudflare.com/disclosure/
+            - listitem [ref=e746]:
+              - link "隐私政策" [ref=e747] [cursor=pointer]:
+                - /url: https://www.cloudflare.com/privacypolicy/
+            - listitem [ref=e748]:
+              - button "一个蓝白相间的胶囊形图标，带有对勾和叉号，用于表示隐私选项 您的隐私选择" [ref=e749] [cursor=pointer]:
+                - img "一个蓝白相间的胶囊形图标，带有对勾和叉号，用于表示隐私选项" [ref=e750]
+                - text: 您的隐私选择
+            - listitem [ref=e751]:
+              - generic [ref=e752]: © 2026 Cloudflare, Inc.
+    - generic [ref=e754]:
+      - generic [ref=e756]:
+        - button "New conversation" [ref=e759] [cursor=pointer]:
+          - generic [ref=e760]: New conversation
+          - img [ref=e761]
+        - generic [ref=e763]:
+          - button "New chat" [ref=e764] [cursor=pointer]:
+            - img [ref=e765]
+          - button "Expand sidebar" [ref=e767] [cursor=pointer]:
+            - img [ref=e768]
+          - button "Close sidebar" [ref=e770] [cursor=pointer]:
+            - img [ref=e771]
+      - generic [ref=e773]:
+        - generic [ref=e774]:
+          - paragraph [ref=e775]: Need more help?
+          - link "Support" [ref=e776] [cursor=pointer]:
+            - /url: /a597e14bd2013a1000c59b5adc282b45/support
+            - button "Support" [ref=e777]
+        - generic [ref=e779]:
+          - generic [ref=e790]:
+            - heading "Good evening." [level=3] [ref=e791]
+            - paragraph [ref=e792]: What are we doing today?
+          - generic [ref=e793]:
+            - button "Encrypted Client Hello Enable ECH for my zone" [ref=e794] [cursor=pointer]:
+              - img [ref=e796]
+              - generic [ref=e798]:
+                - generic [ref=e799]: Encrypted Client Hello
+                - generic [ref=e800]: Enable ECH for my zone
+              - img [ref=e802]
+            - button "Deploy a Worker Help me get started" [ref=e804] [cursor=pointer]:
+              - img [ref=e806]
+              - generic [ref=e808]:
+                - generic [ref=e809]: Deploy a Worker
+                - generic [ref=e810]: Help me get started
+              - img [ref=e812]
+            - button "Transfer a domain Walk me through the process" [ref=e814] [cursor=pointer]:
+              - img [ref=e816]
+              - generic [ref=e818]:
+                - generic [ref=e819]: Transfer a domain
+                - generic [ref=e820]: Walk me through the process
+              - img [ref=e822]
+            - button "Durable Objects Explain how they work" [ref=e824] [cursor=pointer]:
+              - img [ref=e826]
+              - generic [ref=e828]:
+                - generic [ref=e829]: Durable Objects
+                - generic [ref=e830]: Explain how they work
+              - img [ref=e832]
+            - button "Find my account ID Locate account and zone IDs" [ref=e834] [cursor=pointer]:
+              - img [ref=e836]
+              - generic [ref=e838]:
+                - generic [ref=e839]: Find my account ID
+                - generic [ref=e840]: Locate account and zone IDs
+              - img [ref=e842]
+        - generic [ref=e844]:
+          - generic [ref=e846]:
+            - paragraph [ref=e847]:
+              - text: Chats are recorded to improve the service and are processed in accordance with our
+              - link "Privacy Policy" [ref=e848] [cursor=pointer]:
+                - /url: https://www.cloudflare.com/privacypolicy/
+              - text: .
+            - button "Close privacy notice" [ref=e849] [cursor=pointer]:
+              - img [ref=e850]
+          - generic [ref=e853]:
+            - textbox "What can we help you with?" [active] [ref=e854]
+            - generic [ref=e855]:
+              - button "Settings" [ref=e856] [cursor=pointer]:
+                - img [ref=e857]
+              - button "Submit" [disabled] [ref=e859]:
+                - img [ref=e860]
+  - generic:
+    - region "Notifications"

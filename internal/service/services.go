@@ -4,7 +4,6 @@ package service
 import (
 	"kama_chat_server/internal/config"
 	"kama_chat_server/internal/domain/repository"
-	"kama_chat_server/internal/infrastructure/sms"
 	admingroup "kama_chat_server/internal/service/admin/group"
 	adminuser "kama_chat_server/internal/service/admin/user"
 	"kama_chat_server/internal/service/apply"
@@ -35,7 +34,7 @@ type Services struct {
 // NewServices 创建并注入所有 Service 实例
 // uow: UnitOfWork 接口，提供事务支持和 Repository 访问
 // pushRecallNotify: 可选的撤回通知回调，由 ChatServer.Broker.PushRecallNotify 提供
-func NewServices(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, smsService sms.SmsService, pushRecallNotify func(messageUuid, receiveId string), cfg *config.Config) *Services {
+func NewServices(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, pushRecallNotify func(messageUuid, receiveId string), cfg *config.Config) *Services {
 	// 非事务型 Service：注入单独的 Repository 接口
 	sessionSvc := session.NewSessionService(
 		uow.SessionRepo(), uow.UserRepo(), uow.GroupRepo(),
@@ -48,7 +47,7 @@ func NewServices(uow repository.UnitOfWork, cacheService repository.AsyncCacheSe
 	)
 
 	// 事务型 Service：注入 UnitOfWork 接口
-	userSvc := user.NewUserService(uow, cacheService, smsService)
+	userSvc := user.NewUserService(uow, cacheService)
 	groupSvc := group.NewGroupService(uow, cacheService)
 	friendshipSvc := friendship.NewFriendshipService(uow, cacheService)
 	applySvc := apply.NewApplyService(uow, cacheService)

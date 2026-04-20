@@ -1,0 +1,17 @@
+- generic [ref=e19]:
+  - generic [ref=e20]:
+    - generic [ref=e21]:
+      - generic [ref=e24]: playwrightuser
+      - button "退出登录" [ref=e25] [cursor=pointer]:
+        - img [ref=e26]
+    - generic [ref=e29]:
+      - button "消息" [ref=e30] [cursor=pointer]
+      - button "好友" [ref=e31] [cursor=pointer]
+      - button "群组" [ref=e32] [cursor=pointer]
+    - generic [ref=e33]:
+      - textbox "搜索会话..." [ref=e35]
+      - generic [ref=e37]: 暂无会话
+  - generic [ref=e39]:
+    - generic [ref=e40]: 💬
+    - generic [ref=e41]: 欢迎使用 Chat Server
+    - generic [ref=e42]: 选择一个会话开始聊天

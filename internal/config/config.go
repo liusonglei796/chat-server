@@ -36,14 +36,6 @@ type RedisConfig struct {
 	Db       int    `toml:"db"`       // Redis 数据库编号，默认 0
 }
 
-// AuthCodeConfig 短信验证码服务配置（阿里云 SMS）
-type AuthCodeConfig struct {
-	AccessKeyID     string `toml:"accessKeyID"`     // 阿里云 AccessKey ID
-	AccessKeySecret string `toml:"accessKeySecret"` // 阿里云 AccessKey Secret
-	SignName        string `toml:"signName"`        // 短信签名名称
-	TemplateCode    string `toml:"templateCode"`    // 短信模板 Code
-}
-
 // LogConfig 日志配置，使用 lumberjack 进行日志轮转
 type LogConfig struct {
 	LogPath    string `toml:"logPath"`    // 日志文件存储目录
@@ -82,17 +74,24 @@ type SnowflakeConfig struct {
 	MachineID int64 `toml:"machineId"` // 雪花算法节点 ID，范围 0-1023，分布式部署时每台机器需唯一
 }
 
+// OtelConfig OpenTelemetry 追踪配置
+type OtelConfig struct {
+	Endpoint    string `toml:"endpoint"`    // OTLP gRPC 端点地址，默认 "localhost:4317"
+	ServiceName string `toml:"serviceName"` // 服务名称，用于 OTel 资源属性
+	Enabled     bool   `toml:"enabled"`     // 是否启用 OpenTelemetry 追踪
+}
+
 // Config 应用程序总配置，聚合所有子配置
 type Config struct {
 	MainConfig      `toml:"mainConfig"`      // 主配置
 	MysqlConfig     `toml:"mysqlConfig"`     // MySQL 配置
 	RedisConfig     `toml:"redisConfig"`     // Redis 配置
-	AuthCodeConfig  `toml:"authCodeConfig"`  // 短信验证码配置
 	LogConfig       `toml:"logConfig"`       // 日志配置
 	KafkaConfig     `toml:"kafkaConfig"`     // Kafka 配置
 	StaticSrcConfig `toml:"staticSrcConfig"` // 静态资源配置
 	JWTConfig       `toml:"jwtConfig"`       // JWT 配置
 	SnowflakeConfig `toml:"snowflakeConfig"` // 雪花算法配置
+	OtelConfig      `toml:"otelConfig"`      // OpenTelemetry 配置
 }
 
 // config 全局配置单例

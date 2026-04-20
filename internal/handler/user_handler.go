@@ -23,37 +23,11 @@ func NewUserHandler(userSvc *usersvc.UserService) *UserHandler {
 	return &UserHandler{userSvc: userSvc}
 }
 
-// Register 用户注册
-// POST /user/register
-// 请求体: auth.RegisterRequest
-// 响应: respond.RegisterRespond (用户信息)
-func (h *UserHandler) Register(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	// 1. 绑定并验证请求参数
-	var req auth.RegisterRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	// 改进建议：生产环境应删除调试输出，避免敏感信息泄露
-	// fmt.Println(req) // DEBUG: 调试输出，生产环境必须删除
-
-	// 2. 调用 Service 层处理业务逻辑
-	data, err := h.userSvc.Register(ctx, req)
-	if err != nil {
-		HandleError(c, err)
-		return
-	}
-
-	// 3. 返回成功响应
-	HandleSuccess(c, data)
-}
-
 // Login 用户登录（密码登录）
-// POST /user/login
+// POST /auth/login
 // 请求体: auth.LoginRequest
 // 响应: respond.LoginRespond (用户信息 + JWT Token)
+// SSO: 登录时会将 token 存入 Redis，实现单点登录
 func (h *UserHandler) Login(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -62,7 +36,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.userSvc.Login(ctx, req)
+	data, err := h.userSvc.Login(ctx, req, c.ClientIP())
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -70,24 +44,64 @@ func (h *UserHandler) Login(c *gin.Context) {
 	HandleSuccess(c, data)
 }
 
-// SmsLogin 短信验证码登录
-// POST /user/smsLogin
-// 请求体: auth.SmsLoginRequest
+// Register 用户注册
+// POST /auth/register
+// 请求体: auth.RegisterRequest
 // 响应: respond.LoginRespond (用户信息 + JWT Token)
-func (h *UserHandler) SmsLogin(c *gin.Context) {
+func (h *UserHandler) Register(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	var req auth.SmsLoginRequest
+	var req auth.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.userSvc.SmsLogin(ctx, req)
+	data, err := h.userSvc.Register(ctx, req, c.ClientIP())
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
 	HandleSuccess(c, data)
+}
+
+// Logout 用户登出
+// POST /auth/logout
+// 功能: 从 Redis 删除用户 token，实现 SSO 登出
+func (h *UserHandler) Logout(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	userId, exists := c.Get("user_id")
+	if !exists {
+		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
+		return
+	}
+
+	if err := h.userSvc.Logout(ctx, userId.(string)); err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, nil)
+}
+
+// KickUser 管理员踢人下线
+// POST /auth/kick
+// 功能: 管理员强制指定用户下线
+func (h *UserHandler) KickUser(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	var req struct {
+		UserId string `json:"user_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		HandleParamError(c, err)
+		return
+	}
+
+	if err := h.userSvc.KickUser(ctx, req.UserId); err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, nil)
 }
 
 // UpdateUserInfo 修改用户信息
@@ -155,23 +169,4 @@ func (h *UserHandler) GetPublicUserInfo(c *gin.Context) {
 		return
 	}
 	HandleSuccess(c, data)
-}
-
-// SendSmsCode 发送短信验证码
-// POST /user/sendSmsCode
-// 请求体: auth.SendSmsCodeRequest
-// 响应: nil
-func (h *UserHandler) SendSmsCode(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	var req auth.SendSmsCodeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		HandleParamError(c, err)
-		return
-	}
-	if err := h.userSvc.SendSmsCode(ctx, req.Telephone); err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, nil)
 }

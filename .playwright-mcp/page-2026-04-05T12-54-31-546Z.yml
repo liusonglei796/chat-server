@@ -1,0 +1,10 @@
+- generic [ref=e3]:
+  - heading "💬 Kama Chat" [level=1] [ref=e4]
+  - paragraph [ref=e5]: 登录你的账号开始聊天
+  - generic [ref=e6]:
+    - generic [ref=e7]: 手机号
+    - textbox "请输入手机号" [ref=e8]
+  - generic [ref=e9]:
+    - generic [ref=e10]: 密码
+    - textbox "请输入密码" [ref=e11]
+  - button "登录" [ref=e12] [cursor=pointer]

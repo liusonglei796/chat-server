@@ -89,8 +89,8 @@ func (s *FriendshipService) GetFriendList(ctx context.Context, userId string, pa
 		err := s.cacheHelper.GetOrLoad(
 			ctx,
 			cacheKey,
-			func() (interface{}, error) {
-				user, err := s.uow.UserRepo().FindByUuid(ctx, friendId)
+			func(loaderCtx context.Context) (interface{}, error) {
+				user, err := s.uow.UserRepo().FindByUuid(loaderCtx, friendId)
 				if err != nil {
 					return nil, err
 				}
@@ -135,8 +135,8 @@ func (s *FriendshipService) GetFriendInfo(ctx context.Context, userId, friendId 
 	err = s.cacheHelper.GetOrLoad(
 		ctx,
 		cacheKey,
-		func() (interface{}, error) {
-			user, err := s.uow.UserRepo().FindByUuid(ctx, friendId)
+		func(loaderCtx context.Context) (interface{}, error) {
+			user, err := s.uow.UserRepo().FindByUuid(loaderCtx, friendId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeUserNotExist, "该用户不存在")

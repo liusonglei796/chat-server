@@ -45,6 +45,11 @@ refreshTokenExpiry = 168
 [snowflakeConfig]
 machineId = 1
 
+[otelConfig]
+endpoint = "localhost:4317"
+serviceName = "chat-server"
+enabled = false
+
 [modelScopeConfig]
 apiKey = ""
 baseUrl = "https://api-inference.modelscope.cn/v1"

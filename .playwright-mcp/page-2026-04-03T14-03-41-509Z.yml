@@ -1,0 +1,227 @@
+- generic [ref=e4]:
+  - link "跳至主要内容" [ref=e5] [cursor=pointer]:
+    - /url: "#pageContent"
+    - generic [ref=e6]: 跳至主要内容
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - generic [ref=e9]:
+        - link "Grafana" [ref=e10] [cursor=pointer]:
+          - /url: /
+          - img "Grafana" [ref=e11]
+        - generic [ref=e12]: Grafana
+      - button "取消停靠菜单" [ref=e13] [cursor=pointer]:
+        - img [ref=e14]
+      - button "关闭菜单" [ref=e15] [cursor=pointer]:
+        - img [ref=e16]
+    - navigation [ref=e17]:
+      - list "导航" [ref=e21]:
+        - listitem [ref=e22]:
+          - link "首页" [ref=e26] [cursor=pointer]:
+            - /url: /
+            - generic [ref=e28]:
+              - img [ref=e29]
+              - paragraph [ref=e30]: 首页
+        - listitem [ref=e31]:
+          - generic [ref=e32]:
+            - link "书签" [ref=e35] [cursor=pointer]:
+              - /url: /bookmarks
+              - generic [ref=e37]:
+                - img [ref=e38]
+                - paragraph [ref=e39]: 书签
+            - button "展开部分：书签" [ref=e41] [cursor=pointer]:
+              - img [ref=e42]
+        - listitem [ref=e43]:
+          - generic [ref=e44]:
+            - link "已加星标" [ref=e47] [cursor=pointer]:
+              - /url: /dashboards?starred
+              - generic [ref=e49]:
+                - img [ref=e50]
+                - paragraph [ref=e51]: 已加星标
+            - button "展开部分：已加星标" [ref=e53] [cursor=pointer]:
+              - img [ref=e54]
+        - listitem [ref=e55]:
+          - generic [ref=e56]:
+            - link "仪表板" [ref=e59] [cursor=pointer]:
+              - /url: /dashboards
+              - generic [ref=e61]:
+                - img [ref=e62]
+                - paragraph [ref=e63]: 仪表板
+            - button "展开部分：仪表板" [ref=e65] [cursor=pointer]:
+              - img [ref=e66]
+        - listitem [ref=e67]:
+          - link "探索" [ref=e71] [cursor=pointer]:
+            - /url: /explore
+            - generic [ref=e73]:
+              - img [ref=e74]
+              - paragraph [ref=e75]: 探索
+        - listitem [ref=e76]:
+          - generic [ref=e77]:
+            - link "Drilldown" [ref=e80] [cursor=pointer]:
+              - /url: /drilldown
+              - generic [ref=e82]:
+                - img [ref=e83]
+                - paragraph [ref=e84]: Drilldown
+            - button "展开部分：Drilldown" [ref=e86] [cursor=pointer]:
+              - img [ref=e87]
+        - listitem [ref=e88]:
+          - generic [ref=e89]:
+            - link "警报" [ref=e92] [cursor=pointer]:
+              - /url: /alerting
+              - generic [ref=e94]:
+                - img [ref=e95]
+                - paragraph [ref=e96]: 警报
+            - button "展开部分：警报" [ref=e98] [cursor=pointer]:
+              - img [ref=e99]
+        - listitem [ref=e100]:
+          - generic [ref=e101]:
+            - link "连接" [ref=e104] [cursor=pointer]:
+              - /url: /connections
+              - generic [ref=e106]:
+                - img [ref=e107]
+                - paragraph [ref=e108]: 连接
+            - button "展开部分：连接" [ref=e110] [cursor=pointer]:
+              - img [ref=e111]
+        - listitem [ref=e112]:
+          - generic [ref=e113]:
+            - link "管理" [ref=e116] [cursor=pointer]:
+              - /url: /admin
+              - generic [ref=e118]:
+                - img [ref=e119]
+                - paragraph [ref=e120]: 管理
+            - button "收起部分：管理" [expanded] [ref=e122] [cursor=pointer]:
+              - img [ref=e123]
+          - list [ref=e124]:
+            - listitem [ref=e125]:
+              - generic [ref=e126]:
+                - link "概况" [ref=e129] [cursor=pointer]:
+                  - /url: /admin/general
+                  - paragraph [ref=e132]: 概况
+                - button "收起部分：概况" [expanded] [ref=e134] [cursor=pointer]:
+                  - img [ref=e135]
+              - list [ref=e136]:
+                - listitem [ref=e137]:
+                  - link "统计信息和许可证" [ref=e142] [cursor=pointer]:
+                    - /url: /admin/upgrading
+                    - paragraph [ref=e145]: 统计信息和许可证
+                - listitem [ref=e146]:
+                  - link "默认首选项" [ref=e151] [cursor=pointer]:
+                    - /url: /org
+                    - paragraph [ref=e154]: 默认首选项
+                - listitem [ref=e155]:
+                  - link "设置" [ref=e160] [cursor=pointer]:
+                    - /url: /admin/settings
+                    - paragraph [ref=e163]: 设置
+                - listitem [ref=e164]:
+                  - link "组织" [ref=e169] [cursor=pointer]:
+                    - /url: /admin/orgs
+                    - paragraph [ref=e172]: 组织
+                - listitem [ref=e173]:
+                  - link "迁移到Grafana Cloud" [ref=e178] [cursor=pointer]:
+                    - /url: /admin/migrate-to-cloud
+                    - paragraph [ref=e181]: 迁移到Grafana Cloud
+            - listitem [ref=e182]:
+              - generic [ref=e183]:
+                - link "插件和数据" [ref=e186] [cursor=pointer]:
+                  - /url: /admin/plugins
+                  - paragraph [ref=e189]: 插件和数据
+                - button "展开部分：插件和数据" [ref=e191] [cursor=pointer]:
+                  - img [ref=e192]
+            - listitem [ref=e193]:
+              - generic [ref=e194]:
+                - link "用户和访问权限" [ref=e197] [cursor=pointer]:
+                  - /url: /admin/access
+                  - paragraph [ref=e200]: 用户和访问权限
+                - button "展开部分：用户和访问权限" [ref=e202] [cursor=pointer]:
+                  - img [ref=e203]
+            - listitem [ref=e204]:
+              - link "身份验证" [ref=e208] [cursor=pointer]:
+                - /url: /admin/authentication
+                - paragraph [ref=e211]: 身份验证
+  - banner [ref=e212]:
+    - generic [ref=e213]:
+      - navigation "面包屑" [ref=e215]:
+        - list [ref=e216]:
+          - listitem [ref=e217]:
+            - link "管理" [ref=e218] [cursor=pointer]:
+              - /url: /admin
+            - img [ref=e220]
+          - listitem [ref=e221]:
+            - link "概况" [ref=e222] [cursor=pointer]:
+              - /url: /admin/general
+            - img [ref=e224]
+          - listitem [ref=e225]:
+            - generic "默认首选项" [ref=e226]
+      - generic [ref=e227]:
+        - generic [ref=e229]:
+          - img [ref=e231]
+          - button "搜索..." [ref=e232] [cursor=pointer]
+          - generic [ref=e234]: ctrl+k
+        - button "新建" [ref=e235] [cursor=pointer]:
+          - img [ref=e236]
+          - img [ref=e237]
+        - button "帮助" [ref=e239] [cursor=pointer]:
+          - img [ref=e240]
+        - button "个人资料" [ref=e242] [cursor=pointer]:
+          - img "User avatar" [ref=e243]
+  - main [ref=e246]:
+    - generic [ref=e249]:
+      - generic [ref=e250]:
+        - heading "默认首选项" [level=1] [ref=e254]
+        - generic [ref=e255]: 管理整个组织的首选项
+      - generic [ref=e257]:
+        - group "组织资料" [ref=e259]:
+          - generic [ref=e260]: 组织资料
+          - generic [ref=e261]:
+            - generic [ref=e264]: 组织名称
+            - textbox "组织名称" [ref=e269]: Main Org.
+          - button "更新组织名称" [ref=e270] [cursor=pointer]:
+            - generic [ref=e271]: 更新组织名称
+        - generic [ref=e272]:
+          - group "首选项" [ref=e273]:
+            - generic [ref=e274]: 首选项
+            - generic [ref=e275]:
+              - generic [ref=e277]:
+                - generic [ref=e278]: UI 主题
+                - generic [ref=e279]:
+                  - text: 喜欢实验性主题吗？请在
+                  - link "此处" [ref=e280] [cursor=pointer]:
+                    - /url: https://docs.google.com/forms/d/e/1FAIpQLSeRKAY8nUMEVIKSYJ99uOO-dimF6Y69_If1Q1jTLOZRWqK1cw/viewform?usp=dialog
+                    - text: 此处
+                    - img [ref=e281]
+                  - text: 告诉我们您想要看到的功能。
+              - generic [ref=e285]:
+                - combobox "UI 主题 喜欢实验性主题吗？请在 此处 告诉我们您想要看到的功能。" [disabled] [ref=e286]: 默认
+                - generic:
+                  - img
+            - generic [ref=e287]:
+              - generic [ref=e291]: 主页仪表板
+              - generic [ref=e294]:
+                - log [ref=e296]
+                - generic [ref=e297]:
+                  - generic [ref=e299]: 默认仪表板
+                  - img [ref=e302]
+            - generic [ref=e303]:
+              - generic [ref=e306]: 时区
+              - generic [ref=e309]:
+                - log [ref=e311]
+                - generic [ref=e312]:
+                  - generic [ref=e314]: Default
+                  - img [ref=e316]
+            - generic [ref=e317]:
+              - generic [ref=e320]: 每周开始日
+              - generic [ref=e324]:
+                - combobox "每周开始日" [disabled] [ref=e325]: 默认
+                - generic:
+                  - img
+            - generic [ref=e326]:
+              - generic [ref=e329]:
+                - generic [ref=e330]: 语言
+                - generic [ref=e331]:
+                  - img [ref=e332]
+                  - text: 预览
+              - generic [ref=e336]:
+                - combobox "语言 预览" [disabled] [ref=e337]: 默认
+                - generic:
+                  - img
+          - button "Save preferences" [ref=e338] [cursor=pointer]:
+            - generic [ref=e339]: Save preferences

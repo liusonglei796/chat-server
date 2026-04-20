@@ -17,6 +17,14 @@ func Set(client *redis.Client, ctx context.Context, key string, value string, tt
 	return nil
 }
 
+func SetNX(client *redis.Client, ctx context.Context, key string, value string, ttl time.Duration) (bool, error) {
+	ok, err := client.SetNX(ctx, key, value, ttl).Result()
+	if err != nil {
+		return false, errorx.Wrapf(err, errorx.CodeCacheError, "redis setnx key %s", key)
+	}
+	return ok, nil
+}
+
 func Get(client *redis.Client, ctx context.Context, key string) (string, error) {
 	value, err := client.Get(ctx, key).Result()
 	if err != nil {

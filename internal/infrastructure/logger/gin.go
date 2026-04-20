@@ -17,7 +17,9 @@ func GinLogger() gin.HandlerFunc {
 		c.Next()
 		cost := time.Since(start)
 
+		traceId := GetTraceId(c.Request.Context())
 		zap.L().Info("http request",
+			zap.String("traceId", traceId),
 			zap.Int("status", c.Writer.Status()),
 			zap.String("method", c.Request.Method),
 			zap.String("path", c.Request.URL.Path),

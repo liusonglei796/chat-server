@@ -33,25 +33,26 @@ func NewRouter(handlers *handler.Handlers, adminChecker middleware.AdminAuthChec
 // RegisterRoutes 注册所有路由
 // 在 https_server.Init() 中调用
 // 路由分为两组:
-//   - 公开路由: 无需认证，用于登录、注册、Token刷新、短信验证码
+//   - 公开路由: 无需认证，用于登录、Token刷新
 //   - 私有路由: 需要 JWT 认证
 func (rt *Router) RegisterRoutes(r *gin.Engine) {
 	// ==================== 公开路由 (无需认证) ====================
 	public := r.Group("")
 	{
-		rt.RegisterAuthRoutes(public) // 认证路由（登录、注册、短信、刷新Token）
+		rt.RegisterAuthRoutes(public) // 认证路由（登录、刷新Token）
 	}
 
 	// ==================== 私有路由 (需要认证) ====================
 	private := r.Group("")
-	private.Use(middleware.JWTAuth())
+	private.Use(middleware.JWTAuthWithCache(rt.cache))
 	{
-		rt.RegisterAdminRoutes(private)     // 管理员路由（额外校验管理员权限）
-		rt.RegisterUserRoutes(private)      // 用户路由
-		rt.RegisterFriendRoutes(private)    // 好友路由
-		rt.RegisterGroupRoutes(private)     // 群组路由
-		rt.RegisterSessionRoutes(private)   // 会话路由
-		rt.RegisterMessageRoutes(private)   // 消息路由 + 文件上传
-		rt.RegisterWebSocketRoutes(private) // WebSocket 路由
+		rt.RegisterAdminRoutes(private)       // 管理员路由（额外校验管理员权限）
+		rt.RegisterUserRoutes(private)        // 用户路由
+		rt.RegisterFriendRoutes(private)      // 好友路由
+		rt.RegisterGroupRoutes(private)       // 群组路由
+		rt.RegisterSessionRoutes(private)     // 会话路由
+		rt.RegisterMessageRoutes(private)     // 消息路由 + 文件上传
+		rt.RegisterWebSocketRoutes(private)   // WebSocket 路由
+		rt.RegisterAuthPrivateRoutes(private) // 认证私有路由（登出、踢人）
 	}
 }

@@ -1,0 +1,230 @@
+- generic [ref=e4]:
+  - link "Skip to main content" [ref=e13] [cursor=pointer]:
+    - /url: "#pageContent"
+    - generic [ref=e14]: Skip to main content
+  - generic [ref=e15]:
+    - generic [ref=e16]:
+      - generic [ref=e17]:
+        - link "Grafana" [ref=e18] [cursor=pointer]:
+          - /url: /
+          - img "Grafana" [ref=e19]
+        - generic [ref=e20]: Grafana
+      - button "Undock menu" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+      - button "Close menu" [ref=e24] [cursor=pointer]:
+        - img [ref=e25]
+    - navigation [ref=e27]:
+      - list "Navigation" [ref=e31]:
+        - listitem [ref=e32]:
+          - link "Home" [ref=e36] [cursor=pointer]:
+            - /url: /
+            - generic [ref=e38]:
+              - img [ref=e39]
+              - paragraph [ref=e41]: Home
+        - listitem [ref=e42]:
+          - generic [ref=e43]:
+            - link "Bookmarks" [ref=e46] [cursor=pointer]:
+              - /url: /bookmarks
+              - generic [ref=e48]:
+                - img [ref=e49]
+                - paragraph [ref=e51]: Bookmarks
+            - 'button "Expand section: Bookmarks" [ref=e53] [cursor=pointer]':
+              - img [ref=e54]
+        - listitem [ref=e56]:
+          - generic [ref=e57]:
+            - link "Starred" [ref=e60] [cursor=pointer]:
+              - /url: /dashboards?starred
+              - generic [ref=e62]:
+                - img [ref=e63]
+                - paragraph [ref=e65]: Starred
+            - 'button "Expand section: Starred" [ref=e67] [cursor=pointer]':
+              - img [ref=e68]
+        - listitem [ref=e70]:
+          - generic [ref=e71]:
+            - link "Dashboards" [ref=e74] [cursor=pointer]:
+              - /url: /dashboards
+              - generic [ref=e76]:
+                - img [ref=e77]
+                - paragraph [ref=e79]: Dashboards
+            - 'button "Expand section: Dashboards" [ref=e81] [cursor=pointer]':
+              - img [ref=e82]
+        - listitem [ref=e84]:
+          - link "Explore" [ref=e88] [cursor=pointer]:
+            - /url: /explore
+            - generic [ref=e90]:
+              - img [ref=e91]
+              - paragraph [ref=e93]: Explore
+        - listitem [ref=e94]:
+          - generic [ref=e95]:
+            - link "Drilldown" [ref=e98] [cursor=pointer]:
+              - /url: /drilldown
+              - generic [ref=e100]:
+                - img [ref=e101]
+                - paragraph [ref=e106]: Drilldown
+            - 'button "Expand section: Drilldown" [ref=e108] [cursor=pointer]':
+              - img [ref=e109]
+        - listitem [ref=e111]:
+          - generic [ref=e112]:
+            - link "Alerting" [ref=e115] [cursor=pointer]:
+              - /url: /alerting
+              - generic [ref=e117]:
+                - img [ref=e118]
+                - paragraph [ref=e120]: Alerting
+            - 'button "Expand section: Alerting" [ref=e122] [cursor=pointer]':
+              - img [ref=e123]
+        - listitem [ref=e125]:
+          - generic [ref=e126]:
+            - link "Connections" [ref=e129] [cursor=pointer]:
+              - /url: /connections
+              - generic [ref=e131]:
+                - img [ref=e132]
+                - paragraph [ref=e134]: Connections
+            - 'button "Expand section: Connections" [ref=e136] [cursor=pointer]':
+              - img [ref=e137]
+        - listitem [ref=e139]:
+          - generic [ref=e140]:
+            - link "Administration" [ref=e143] [cursor=pointer]:
+              - /url: /admin
+              - generic [ref=e145]:
+                - img [ref=e146]
+                - paragraph [ref=e148]: Administration
+            - 'button "Collapse section: Administration" [expanded] [ref=e150] [cursor=pointer]':
+              - img [ref=e151]
+          - list [ref=e153]:
+            - listitem [ref=e154]:
+              - generic [ref=e155]:
+                - link "General" [ref=e158] [cursor=pointer]:
+                  - /url: /admin/general
+                  - paragraph [ref=e161]: General
+                - 'button "Collapse section: General" [expanded] [ref=e163] [cursor=pointer]':
+                  - img [ref=e164]
+              - list [ref=e166]:
+                - listitem [ref=e167]:
+                  - link "Stats and license" [ref=e172] [cursor=pointer]:
+                    - /url: /admin/upgrading
+                    - paragraph [ref=e175]: Stats and license
+                - listitem [ref=e176]:
+                  - link "Default preferences" [ref=e181] [cursor=pointer]:
+                    - /url: /org
+                    - paragraph [ref=e184]: Default preferences
+                - listitem [ref=e185]:
+                  - link "Settings" [ref=e190] [cursor=pointer]:
+                    - /url: /admin/settings
+                    - paragraph [ref=e193]: Settings
+                - listitem [ref=e194]:
+                  - link "Organizations" [ref=e199] [cursor=pointer]:
+                    - /url: /admin/orgs
+                    - paragraph [ref=e202]: Organizations
+                - listitem [ref=e203]:
+                  - link "Migrate to Grafana Cloud" [ref=e208] [cursor=pointer]:
+                    - /url: /admin/migrate-to-cloud
+                    - paragraph [ref=e211]: Migrate to Grafana Cloud
+            - listitem [ref=e212]:
+              - generic [ref=e213]:
+                - link "Plugins and data" [ref=e216] [cursor=pointer]:
+                  - /url: /admin/plugins
+                  - paragraph [ref=e219]: Plugins and data
+                - 'button "Expand section: Plugins and data" [ref=e221] [cursor=pointer]':
+                  - img [ref=e222]
+            - listitem [ref=e224]:
+              - generic [ref=e225]:
+                - link "Users and access" [ref=e228] [cursor=pointer]:
+                  - /url: /admin/access
+                  - paragraph [ref=e231]: Users and access
+                - 'button "Expand section: Users and access" [ref=e233] [cursor=pointer]':
+                  - img [ref=e234]
+            - listitem [ref=e236]:
+              - link "Authentication" [ref=e240] [cursor=pointer]:
+                - /url: /admin/authentication
+                - paragraph [ref=e243]: Authentication
+  - banner [ref=e244]:
+    - generic [ref=e245]:
+      - navigation "Breadcrumbs" [ref=e247]:
+        - list [ref=e248]:
+          - listitem [ref=e249]:
+            - link "Administration" [ref=e250] [cursor=pointer]:
+              - /url: /admin
+            - img [ref=e252]
+          - listitem [ref=e254]:
+            - link "General" [ref=e255] [cursor=pointer]:
+              - /url: /admin/general
+            - img [ref=e257]
+          - listitem [ref=e259]:
+            - generic "Default preferences" [ref=e260]
+      - generic [ref=e261]:
+        - generic [ref=e263]:
+          - img [ref=e265]
+          - button "Search..." [ref=e267] [cursor=pointer]
+          - generic [ref=e269]: ctrl+k
+        - button "New" [ref=e270] [cursor=pointer]:
+          - img [ref=e271]
+          - img [ref=e273]
+        - button "Help" [ref=e276] [cursor=pointer]:
+          - img [ref=e277]
+        - button "Profile" [ref=e280] [cursor=pointer]:
+          - img "User avatar" [ref=e281]
+  - main [ref=e7]:
+    - generic [ref=e283]:
+      - generic [ref=e284]:
+        - heading "Default preferences" [level=1] [ref=e288]
+        - generic [ref=e289]: Manage preferences across an organization
+      - generic [ref=e291]:
+        - group "Organization profile" [ref=e293]:
+          - generic [ref=e294]: Organization profile
+          - generic [ref=e295]:
+            - generic [ref=e298]: Organization name
+            - textbox "Organization name" [ref=e303]: Main Org.
+          - button "Update organization name" [ref=e304] [cursor=pointer]:
+            - generic [ref=e305]: Update organization name
+        - generic [ref=e306]:
+          - group "Preferences" [ref=e307]:
+            - generic [ref=e308]: Preferences
+            - generic [ref=e309]:
+              - generic [ref=e311]:
+                - generic [ref=e312]: Interface theme
+                - generic [ref=e313]:
+                  - text: Enjoying the experimental themes? Tell us what you'd like to see
+                  - link "here." [ref=e314] [cursor=pointer]:
+                    - /url: https://docs.google.com/forms/d/e/1FAIpQLSeRKAY8nUMEVIKSYJ99uOO-dimF6Y69_If1Q1jTLOZRWqK1cw/viewform?usp=dialog
+                    - text: here.
+                    - img [ref=e315]
+              - generic [ref=e320]:
+                - combobox "Interface theme Enjoying the experimental themes? Tell us what you'd like to see here." [ref=e321] [cursor=pointer]: Default
+                - generic:
+                  - img
+            - generic [ref=e322]:
+              - generic [ref=e326]: Home Dashboard
+              - generic [ref=e329] [cursor=pointer]:
+                - log [ref=e331]
+                - generic [ref=e332]:
+                  - generic [ref=e333]:
+                    - generic [ref=e334]: Default dashboard
+                    - combobox "Home Dashboard" [ref=e336]
+                  - img [ref=e338]
+            - generic [ref=e340]:
+              - generic [ref=e343]: Timezone
+              - generic [ref=e346] [cursor=pointer]:
+                - log [ref=e348]
+                - generic [ref=e349]:
+                  - generic [ref=e350]:
+                    - generic [ref=e438]: Default
+                    - combobox "Time zone picker" [ref=e353]
+                  - img [ref=e355]
+            - generic [ref=e357]:
+              - generic [ref=e360]: Week start
+              - generic [ref=e364]:
+                - combobox "Week start" [ref=e365] [cursor=pointer]: Default
+                - generic:
+                  - img
+            - generic [ref=e366]:
+              - generic [ref=e369]:
+                - generic [ref=e370]: Language
+                - generic [ref=e371]:
+                  - img [ref=e372]
+                  - text: Preview
+              - generic [ref=e377]:
+                - combobox "Language Preview" [active] [ref=e378]: 中文（简体）
+                - generic:
+                  - img
+          - button "Save preferences" [ref=e379] [cursor=pointer]:
+            - generic [ref=e380]: Save preferences
