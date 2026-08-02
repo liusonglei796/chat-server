@@ -15,7 +15,6 @@ import (
 	"context"
 	"kama_chat_server/internal/infrastructure/metrics"
 	"kama_chat_server/pkg/constants"
-	"kama_chat_server/pkg/enum/message/message_status"
 	"net/http"
 	"sync"
 	"time"
@@ -162,12 +161,6 @@ func (c *UserConn) Write() {
 				return
 			}
 
-			// 直接通过 Kafka 消费者持有的 MessageRepo 更新消息状态
-			if c.broker.MessageRepo != nil {
-				if err := c.broker.MessageRepo.UpdateStatus(context.Background(), messageBack.Uuid, message_status.Sent); err != nil {
-					zap.L().Error("更新消息状态失败", zap.Error(err))
-				}
-			}
 
 		case <-ticker.C:
 			// 定期发送 Ping 帧，检测客户端是否还在线

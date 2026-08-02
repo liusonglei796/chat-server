@@ -1,10 +1,9 @@
 // Package handler 提供 HTTP 请求处理器
 // 本文件定义 Handler 聚合结构和构造函数
-// 遵循依赖倒置原则，通过构造函数注入 Service 依赖
+// 遵循依赖倒置原则，通过 gRPC 客户端去调用微服务
 package handler
 
 import (
-	"kama_chat_server/internal/service"
 	"kama_chat_server/internal/service/chat"
 )
 
@@ -23,16 +22,16 @@ type Handlers struct {
 }
 
 // NewHandlers 创建并注入所有 Handler 实例
-func NewHandlers(svc *service.Services, broker *chat.MsgConsumer) *Handlers {
+func NewHandlers(broker *chat.MsgConsumer) *Handlers {
 	return &Handlers{
-		User:       NewUserHandler(svc.User),
-		Auth:       NewAuthHandler(svc.Auth),
-		Friendship: NewFriendshipHandler(svc.Friendship, svc.Group),
-		Apply:      NewApplyHandler(svc.Apply),
-		Group:      NewGroupHandler(svc.Group),
-		Session:    NewSessionHandler(svc.Session),
-		Message:    NewMessageHandler(svc.Message),
+		User:       NewUserHandler(),
+		Auth:       NewAuthHandler(),
+		Friendship: NewFriendshipHandler(),
+		Apply:      NewApplyHandler(),
+		Group:      NewGroupHandler(),
+		Session:    NewSessionHandler(),
+		Message:    NewMessageHandler(),
 		Ws:         NewWsHandler(broker),
-		Admin:      NewAdminHandler(svc.UserAdmin, svc.GroupAdmin),
+		Admin:      NewAdminHandler(nil, nil),
 	}
 }

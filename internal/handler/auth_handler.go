@@ -3,40 +3,25 @@
 package handler
 
 import (
+	authpb "kama_chat_server/api/gen/auth"
 	"kama_chat_server/internal/dto/request/auth"
+	"kama_chat_server/internal/grpc_client"
 	"kama_chat_server/internal/infrastructure/jwt"
-	authsvc "kama_chat_server/internal/service/auth"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
 )
 
 // AuthHandler 认证请求处理器
-// 通过构造函数注入 AuthService，遵循依赖倒置原则
 type AuthHandler struct {
-	authSvc *authsvc.Service
 }
 
 // NewAuthHandler 创建认证处理器实例
-// authSvc: 认证服务
-func NewAuthHandler(authSvc *authsvc.Service) *AuthHandler {
-	return &AuthHandler{authSvc: authSvc}
+func NewAuthHandler() *AuthHandler {
+	return &AuthHandler{}
 }
 
 // RefreshToken 刷新 Access Token
-// POST /auth/refresh
-// 请求体: auth.RefreshTokenRequest
-// 响应: { access_token: string }
-//
-// 功能:
-//   - 验证 Refresh Token 是否有效
-//   - 验证 Token ID 是否与 Redis 中存储的一致（单点互踢）
-//   - 生成新的 Access Token
-//
-// 单点互踢机制:
-//   - 用户登录时会在 Redis 中存储 Token ID
-//   - 如果用户在其他设备登录，会覆盖旧的 Token ID
-//   - 使用旧 Token ID 刷新时会被拒绝
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -52,34 +37,34 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	// 2. 验证是否为 Refresh Token（防止使用 Access Token 刷新）
 	if claims.Subject != "refresh_token" {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请使用 Refresh Token"))
 		return
 	}
 
-	// 3. 通过 Service 层验证 Token ID，实现单点互踢（遵循依赖倒置原则）
-	valid, err := h.authSvc.ValidateTokenID(ctx, claims.UserID, claims.TokenID)
+	rsp, err := grpc_client.AuthClient.ValidateTokenID(ctx, &authpb.ValidateTokenIDRequest{
+		UserId:  claims.UserID,
+		TokenId: claims.TokenID,
+	})
 	if err != nil {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "登录状态已失效，请重新登录"))
 		return
 	}
 
-	// 4. 比对 Token ID（如果不一致，说明用户在其他设备登录过）
-	if !valid {
+	if !rsp.IsValid {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "您的账号已在其他设备登录，请重新登录"))
 		return
 	}
 
-	// 5. 获取用户最新的管理员状态（确保权限变更能及时生效）
-	isAdmin, err := h.authSvc.GetUserIsAdmin(ctx, claims.UserID)
+	adminRsp, err := grpc_client.AuthClient.GetUserIsAdmin(ctx, &authpb.GetUserIsAdminRequest{
+		UserId: claims.UserID,
+	})
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
 
-	// 6. 生成新的 Access Token（带最新的 isAdmin 状态）
-	newAccessToken, err := jwt.GenerateAccessToken(claims.UserID, isAdmin)
+	newAccessToken, err := jwt.GenerateAccessToken(claims.UserID, adminRsp.IsAdmin)
 	if err != nil {
 		HandleError(c, errorx.ErrServerBusy)
 		return

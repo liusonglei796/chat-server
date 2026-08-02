@@ -10,16 +10,17 @@ import (
 	"time"
 
 	"kama_chat_server/internal/config"
-	mysqlimpl "kama_chat_server/internal/dao/mysql"
+
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/domain/repository"
+	"kama_chat_server/internal/grpc_client"
 	"kama_chat_server/internal/handler"
 	"kama_chat_server/internal/https_server"
 	"kama_chat_server/internal/infrastructure/jwt"
 	"kama_chat_server/internal/infrastructure/logger"
-	"kama_chat_server/internal/service"
 	"kama_chat_server/internal/service/chat"
 	otelinit "kama_chat_server/pkg/otel"
+	authpb "kama_chat_server/api/gen/auth"
 
 	"go.uber.org/zap"
 )
@@ -49,9 +50,9 @@ func main() {
 		)
 	}
 
-	// 3. 初始化数据库
-	repos := mysqlimpl.Init()
-	zap.L().Info("数据库初始化成功")
+	// 3. 初始化数据库 (已移除，ChatServer不再直连MySQL)
+	// repos := mysqlimpl.Init()
+	// zap.L().Info("数据库初始化成功")
 
 	// 4. 初始化 Redis
 	cacheService := myredis.Init()
@@ -68,31 +69,28 @@ func main() {
 	}
 	zap.L().Info("Validator 国际化初始化成功")
 
-	// 7. 初始化 ChatServer（必须在 Services 之前，因为 UserService 需要 KickClient）
-	// 新增：传入 UserRepo 用于消息发送权限校验（检查用户是否被禁用）
-	chatServer := chat.NewChatServer(chat.ChatServerConfig{
-		MessageRepo:     repos.Message,
-		FriendshipRepo:  repos.Friendship,
-		GroupMemberRepo: repos.GroupMember,
-		SessionRepo:     repos.Session,
-		CacheService:    cachePort,
-		UserRepo:        repos.User, // 新增：用户仓库，用于检查用户状态
-	})
+	chatServer := chat.NewChatServer()
 	chatServer.InitKafka()
 	zap.L().Info("ChatServer 初始化成功")
 
-	// 8. 初始化 Service 层 (依赖注入，传入 pushRecallNotify 回调)
-	services := service.NewServices(repos, cachePort, chatServer.GetBroker().PushRecallNotify, conf)
-	zap.L().Info("Service 层初始化成功")
+	// 8. 初始化 gRPC Client (新增)
+	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
+	zap.L().Info("gRPC 客户端初始化成功")
 
 	// 9. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 broker)
-	handlers := handler.NewHandlers(services, chatServer.GetBroker())
+	handlers := handler.NewHandlers(chatServer.GetBroker())
 	zap.L().Info("Handler 层初始化成功")
 
 	// 10. 初始化 HTTPS 服务器 (传入 handlers 和管理员校验回调进行依赖注入)
-	// 创建适配器：将 context.Context 版本的 GetUserIsAdmin 适配为 AdminAuthChecker 接口
+	// 创建适配器：调用 gRPC 的 Auth 服务进行 Admin 校验
 	adminChecker := func(userId string) (bool, error) {
-		return services.Auth.GetUserIsAdmin(context.Background(), userId)
+		rsp, err := grpc_client.AuthClient.GetUserIsAdmin(context.Background(), &authpb.GetUserIsAdminRequest{
+			UserId: userId,
+		})
+		if err != nil {
+			return false, err
+		}
+		return rsp.IsAdmin, nil
 	}
 	engine := https_server.Init(handlers, adminChecker, cachePort)
 	zap.L().Info("HTTPS 服务器初始化成功")

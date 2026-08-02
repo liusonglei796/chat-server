@@ -3,31 +3,26 @@
 package handler
 
 import (
+	authpb "kama_chat_server/api/gen/auth"
+	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/dto/request/auth"
 	"kama_chat_server/internal/dto/request/user"
-	usersvc "kama_chat_server/internal/service/user"
+	"kama_chat_server/internal/grpc_client"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
 )
 
 // UserHandler 用户请求处理器
-// 通过构造函数注入 UserService，遵循依赖倒置原则
 type UserHandler struct {
-	userSvc *usersvc.UserService
 }
 
 // NewUserHandler 创建用户处理器实例
-// userSvc: 用户服务
-func NewUserHandler(userSvc *usersvc.UserService) *UserHandler {
-	return &UserHandler{userSvc: userSvc}
+func NewUserHandler() *UserHandler {
+	return &UserHandler{}
 }
 
-// Login 用户登录（密码登录）
-// POST /auth/login
-// 请求体: auth.LoginRequest
-// 响应: respond.LoginRespond (用户信息 + JWT Token)
-// SSO: 登录时会将 token 存入 Redis，实现单点登录
+// Login 用户登录
 func (h *UserHandler) Login(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -36,18 +31,19 @@ func (h *UserHandler) Login(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.userSvc.Login(ctx, req, c.ClientIP())
+	rsp, err := grpc_client.AuthClient.Login(ctx, &authpb.LoginRequest{
+		Username: req.Username,
+		Password: req.Password,
+		ClientIp: c.ClientIP(),
+	})
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, data)
+	HandleSuccess(c, rsp)
 }
 
 // Register 用户注册
-// POST /auth/register
-// 请求体: auth.RegisterRequest
-// 响应: respond.LoginRespond (用户信息 + JWT Token)
 func (h *UserHandler) Register(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -56,17 +52,19 @@ func (h *UserHandler) Register(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.userSvc.Register(ctx, req, c.ClientIP())
+	rsp, err := grpc_client.AuthClient.Register(ctx, &authpb.RegisterRequest{
+		Username: req.Username,
+		Password: req.Password,
+		ClientIp: c.ClientIP(),
+	})
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, data)
+	HandleSuccess(c, rsp)
 }
 
 // Logout 用户登出
-// POST /auth/logout
-// 功能: 从 Redis 删除用户 token，实现 SSO 登出
 func (h *UserHandler) Logout(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -76,7 +74,10 @@ func (h *UserHandler) Logout(c *gin.Context) {
 		return
 	}
 
-	if err := h.userSvc.Logout(ctx, userId.(string)); err != nil {
+	_, err := grpc_client.AuthClient.Logout(ctx, &authpb.LogoutRequest{
+		UserId: userId.(string),
+	})
+	if err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -84,8 +85,6 @@ func (h *UserHandler) Logout(c *gin.Context) {
 }
 
 // KickUser 管理员踢人下线
-// POST /auth/kick
-// 功能: 管理员强制指定用户下线
 func (h *UserHandler) KickUser(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -97,7 +96,10 @@ func (h *UserHandler) KickUser(c *gin.Context) {
 		return
 	}
 
-	if err := h.userSvc.KickUser(ctx, req.UserId); err != nil {
+	_, err := grpc_client.UserClient.KickUser(ctx, &userpb.KickUserRequest{
+		UserId: req.UserId,
+	})
+	if err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -105,10 +107,6 @@ func (h *UserHandler) KickUser(c *gin.Context) {
 }
 
 // UpdateUserInfo 修改用户信息
-// POST /user/updateUserInfo
-// 请求体: user.UpdateUserInfoRequest
-// 响应: nil (无返回数据)
-// 安全: 从JWT上下文获取当前用户ID，只能修改自己的信息
 func (h *UserHandler) UpdateUserInfo(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -123,17 +121,23 @@ func (h *UserHandler) UpdateUserInfo(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if err := h.userSvc.UpdateUserInfo(ctx, userId.(string), req); err != nil {
+
+	_, err := grpc_client.UserClient.UpdateUserInfo(ctx, &userpb.UpdateUserInfoRequest{
+		UserId:    userId.(string),
+		Email:     req.Email,
+		Nickname:  req.Nickname,
+		Birthday:  req.Birthday,
+		Signature: req.Signature,
+		Avatar:    req.Avatar,
+	})
+	if err != nil {
 		HandleError(c, err)
 		return
 	}
 	HandleSuccess(c, nil)
 }
 
-// GetUserInfo 获取当前用户完整信息（仅限查自己）
-// GET /user/getUserInfo
-// 安全: 从JWT上下文获取当前用户ID
-// 响应: respond.GetUserInfoRespond
+// GetUserInfo 获取当前用户完整信息
 func (h *UserHandler) GetUserInfo(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -143,7 +147,10 @@ func (h *UserHandler) GetUserInfo(c *gin.Context) {
 		return
 	}
 
-	data, err := h.userSvc.GetUserInfo(ctx, userId.(string), userId.(string))
+	data, err := grpc_client.UserClient.GetUserInfo(ctx, &userpb.GetUserInfoRequest{
+		RequesterId: userId.(string),
+		TargetId:    userId.(string),
+	})
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -152,9 +159,6 @@ func (h *UserHandler) GetUserInfo(c *gin.Context) {
 }
 
 // GetPublicUserInfo 获取他人公开信息
-// GET /user/getPublicUserInfo?uuid=xxx
-// 查询参数: user.GetUserInfoRequest
-// 响应: respond.PublicUserInfoRespond
 func (h *UserHandler) GetPublicUserInfo(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -163,7 +167,9 @@ func (h *UserHandler) GetPublicUserInfo(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.userSvc.GetPublicUserInfo(ctx, req.Uuid)
+	data, err := grpc_client.UserClient.GetPublicUserInfo(ctx, &userpb.GetPublicUserInfoRequest{
+		TargetId: req.Uuid,
+	})
 	if err != nil {
 		HandleError(c, err)
 		return

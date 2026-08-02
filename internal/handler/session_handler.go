@@ -3,32 +3,27 @@
 package handler
 
 import (
-	"kama_chat_server/internal/dto/request/friendship"
 	"kama_chat_server/internal/dto/request/session"
-	sessionsvc "kama_chat_server/internal/service/session"
+	"kama_chat_server/internal/grpc_client"
+	messagepb "kama_chat_server/api/gen/message"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
 )
 
 // SessionHandler 会话请求处理器
-// 通过构造函数注入 SessionService，遵循依赖倒置原则
 type SessionHandler struct {
-	sessionSvc *sessionsvc.SessionService
 }
 
 // NewSessionHandler 创建会话处理器实例
-// sessionSvc: 会话服务
-func NewSessionHandler(sessionSvc *sessionsvc.SessionService) *SessionHandler {
-	return &SessionHandler{sessionSvc: sessionSvc}
+func NewSessionHandler() *SessionHandler {
+	return &SessionHandler{}
 }
 
-// OpenSession 打开/创建会话
-// POST /session/openSession
-// 请求体: session.OpenSessionRequest (只需 receive_id)
-// 响应: string (会话ID)
-// 安全: 从JWT上下文获取当前用户ID作为sendId，防止IDOR攻击
+// OpenSession 打开会话
 func (h *SessionHandler) OpenSession(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -41,23 +36,37 @@ func (h *SessionHandler) OpenSession(c *gin.Context) {
 		return
 	}
 
-	ctx := c.Request.Context()
-	// 直接使用 JWT 中的 userId 作为 sendId，无需比较
-	sessionId, err := h.sessionSvc.OpenSession(ctx, userId.(string), req)
+	// 权限校验
+	allowedRsp, err := grpc_client.MessageClient.CheckOpenSessionAllowed(ctx, &messagepb.CheckOpenSessionAllowedRequest{
+		SendId:    userId.(string),
+		ReceiveId: req.ReceiveId,
+	})
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, sessionId)
+	if !allowedRsp.Allowed {
+		HandleError(c, errorx.New(errorx.CodeForbidden, "不允许发起会话"))
+		return
+	}
+
+	rsp, err := grpc_client.MessageClient.OpenSession(ctx, &messagepb.OpenSessionRequest{
+		SendId:    userId.(string),
+		ReceiveId: req.ReceiveId,
+	})
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	HandleSuccess(c, gin.H{
+		"session_id": rsp.SessionId,
+	})
 }
 
-// GetUserSessionList 获取单聊会话列表
-// GET /session/getUserSessionList?page=1&page_size=20
-// GET /session/getUserSessionList?cursor=1234567890&page_size=20 (推荐使用游标分页)
-// 从JWT上下文获取当前用户ID
-// 响应: map[string]interface{} (list, total, page, page_size) 或 (list, cursor, has_more, page_size)
+// GetUserSessionList 获取用户会话列表（游标分页）
 func (h *SessionHandler) GetUserSessionList(c *gin.Context) {
-	// 从JWT中间件获取当前用户ID
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -69,64 +78,31 @@ func (h *SessionHandler) GetUserSessionList(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-
-	// 设置默认分页参数
-	if req.PageSize <= 0 {
-		req.PageSize = 20
+	pageSize := req.PageSize
+	if pageSize < 1 {
+		pageSize = 20
 	}
 
-	// 优先使用游标分页（推荐）
-	if req.Cursor != "" {
-		h.getUserSessionListWithCursor(c, userId.(string), req)
-		return
-	}
-
-	// 兼容传统分页（已不推荐，但保持向后兼容）
-	if req.Page <= 0 {
-		req.Page = 1
-	}
-	h.getUserSessionListWithPage(c, userId.(string), req)
-}
-
-// getUserSessionListWithPage 使用传统分页（已不推荐，但保持向后兼容）
-func (h *SessionHandler) getUserSessionListWithPage(c *gin.Context, userId string, req session.GetSessionListRequest) {
-	ctx := c.Request.Context()
-	data, total, err := h.sessionSvc.GetUserSessionList(ctx, userId, req.Page, req.PageSize)
+	rsp, err := grpc_client.MessageClient.GetUserSessionListCursor(ctx, &messagepb.GetUserSessionListCursorRequest{
+		OwnerId:  userId.(string),
+		Cursor:   req.Cursor,
+		PageSize: int32(pageSize),
+	})
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, map[string]interface{}{
-		"list":      data,
-		"total":     total,
-		"page":      req.Page,
-		"page_size": req.PageSize,
+	HandleSuccess(c, gin.H{
+		"list":        rsp.List,
+		"next_cursor": rsp.NextCursor,
+		"has_more":    rsp.HasMore,
 	})
 }
 
-// getUserSessionListWithCursor 使用游标分页（推荐）
-func (h *SessionHandler) getUserSessionListWithCursor(c *gin.Context, userId string, req session.GetSessionListRequest) {
-	ctx := c.Request.Context()
-	data, nextCursor, hasMore, err := h.sessionSvc.GetUserSessionListCursor(ctx, userId, req.Cursor, req.PageSize)
-	if err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, map[string]interface{}{
-		"list":      data,
-		"cursor":    nextCursor,
-		"has_more":  hasMore,
-		"page_size": req.PageSize,
-	})
-}
-
-// GetGroupSessionList 获取群聊会话列表
-// GET /session/getGroupSessionList?page=1&page_size=20
-// GET /session/getGroupSessionList?cursor=1234567890&page_size=20 (推荐使用游标分页)
-// 从JWT上下文获取当前用户ID
-// 响应: map[string]interface{} (list, total, page, page_size) 或 (list, cursor, has_more, page_size)
+// GetGroupSessionList 获取群组会话列表（游标分页）
 func (h *SessionHandler) GetGroupSessionList(c *gin.Context) {
-	// 从JWT中间件获取当前用户ID
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -138,122 +114,82 @@ func (h *SessionHandler) GetGroupSessionList(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-
-	// 设置默认分页参数
-	if req.PageSize <= 0 {
-		req.PageSize = 20
+	pageSize := req.PageSize
+	if pageSize < 1 {
+		pageSize = 20
 	}
 
-	// 优先使用游标分页（推荐）
-	if req.Cursor != "" {
-		h.getGroupSessionListWithCursor(c, userId.(string), req)
-		return
-	}
-
-	// 兼容传统分页（已不推荐，但保持向后兼容）
-	if req.Page <= 0 {
-		req.Page = 1
-	}
-	h.getGroupSessionListWithPage(c, userId.(string), req)
-}
-
-// getGroupSessionListWithPage 使用传统分页（已不推荐，但保持向后兼容）
-func (h *SessionHandler) getGroupSessionListWithPage(c *gin.Context, userId string, req session.GetSessionListRequest) {
-	ctx := c.Request.Context()
-	data, total, err := h.sessionSvc.GetGroupSessionList(ctx, userId, req.Page, req.PageSize)
-	if err != nil {
-		HandleError(c, err)
-		return
-	}
-	HandleSuccess(c, map[string]interface{}{
-		"list":      data,
-		"total":     total,
-		"page":      req.Page,
-		"page_size": req.PageSize,
+	rsp, err := grpc_client.MessageClient.GetGroupSessionListCursor(ctx, &messagepb.GetGroupSessionListCursorRequest{
+		OwnerId:  userId.(string),
+		Cursor:   req.Cursor,
+		PageSize: int32(pageSize),
 	})
-}
-
-// getGroupSessionListWithCursor 使用游标分页（推荐）
-func (h *SessionHandler) getGroupSessionListWithCursor(c *gin.Context, userId string, req session.GetSessionListRequest) {
-	ctx := c.Request.Context()
-	data, nextCursor, hasMore, err := h.sessionSvc.GetGroupSessionListCursor(ctx, userId, req.Cursor, req.PageSize)
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, map[string]interface{}{
-		"list":      data,
-		"cursor":    nextCursor,
-		"has_more":  hasMore,
-		"page_size": req.PageSize,
+	HandleSuccess(c, gin.H{
+		"list":        rsp.List,
+		"next_cursor": rsp.NextCursor,
+		"has_more":    rsp.HasMore,
 	})
 }
 
 // DeleteSession 删除会话
-// POST /session/deleteSession
-// 请求体: request.DeleteSessionRequest
-// 响应: nil
-// 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
 func (h *SessionHandler) DeleteSession(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
 
-	var req friendship.BatchDeleteRequest
+	var req struct {
+		SessionId string `json:"session_id" binding:"required"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		HandleParamError(c, err)
 		return
 	}
-	// 从 UuidList 中取第一个（单个操作）
-	if len(req.UuidList) == 0 {
-		HandleError(c, errorx.New(errorx.CodeInvalidParam, "uuid_list 不能为空"))
-		return
-	}
-	ctx := c.Request.Context()
-	if err := h.sessionSvc.DeleteSession(ctx, userId.(string), req.UuidList[0]); err != nil {
+
+	if _, err := grpc_client.MessageClient.DeleteSession(ctx, &messagepb.DeleteSessionRequest{
+		OwnerId:   userId.(string),
+		SessionId: req.SessionId,
+	}); err != nil {
 		HandleError(c, err)
 		return
 	}
 	HandleSuccess(c, nil)
 }
 
-// CheckOpenSessionAllowed 检查是否允许打开会话
-// 用于检查两个用户之间的关系是否允许建立会话
-// GET /session/checkOpenSessionAllowed?receiveId=xxx
-// 查询参数: session.CheckSessionAllowedRequest (只需 receive_id)
-// 响应: bool
-// 安全: 从JWT上下文获取当前用户ID作为sendId，防止IDOR攻击
+// CheckOpenSessionAllowed 检查是否允许发起会话
 func (h *SessionHandler) CheckOpenSessionAllowed(c *gin.Context) {
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
 		return
 	}
-
-	var req session.CheckSessionAllowedRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		HandleParamError(c, err)
+	targetId := c.Query("target_id")
+	if targetId == "" {
+		HandleError(c, errorx.New(errorx.CodeInvalidParam, "target_id不能为空"))
 		return
 	}
-
-	ctx := c.Request.Context()
-	// 安全: 使用 JWT 中的用户 ID 作为 sendId
-	allowed, err := h.sessionSvc.CheckOpenSessionAllowed(ctx, userId.(string), req.ReceiveId)
+	rsp, err := grpc_client.MessageClient.CheckOpenSessionAllowed(c.Request.Context(), &messagepb.CheckOpenSessionAllowedRequest{
+		SendId:    userId.(string),
+		ReceiveId: targetId,
+	})
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, allowed)
+	HandleSuccess(c, gin.H{"allowed": rsp.Allowed})
 }
 
-// PinSession 置顶/取消置顶会话
-// PUT /sessions/pin
-// 请求体: session.PinSessionRequest
-// 响应: nil
-// 安全: 从JWT上下文获取当前用户ID，Service层校验会话归属
+// PinSession 置顶会话
 func (h *SessionHandler) PinSession(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	userId, exists := c.Get("user_id")
 	if !exists {
 		HandleError(c, errorx.New(errorx.CodeUnauthorized, "请先登录"))
@@ -266,8 +202,11 @@ func (h *SessionHandler) PinSession(c *gin.Context) {
 		return
 	}
 
-	ctx := c.Request.Context()
-	if err := h.sessionSvc.PinSession(ctx, userId.(string), req.SessionId, req.IsPinned); err != nil {
+	if _, err := grpc_client.MessageClient.PinSession(ctx, &messagepb.PinSessionRequest{
+		UserId:    userId.(string),
+		SessionId: req.SessionId,
+		IsPinned:  req.IsPinned,
+	}); err != nil {
 		HandleError(c, err)
 		return
 	}

@@ -55,6 +55,11 @@ func NewMessageService(
 	}
 }
 
+// SetPushRecallNotify 注入撤回通知回调
+func (m *MessageService) SetPushRecallNotify(notify func(messageUuid, receiveId string)) {
+	m.pushRecallNotify = notify
+}
+
 // GetMessageList 获取聊天记录（分页）
 func (m *MessageService) GetMessageList(ctx context.Context, requesterId, partnerId string, page, pageSize int) ([]messagersp.GetMessageListRespond, int64, error) {
 	// 参数校验

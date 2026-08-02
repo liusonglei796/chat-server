@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-server
+  namespace: chat-system
+  labels:
+    app: chat-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: chat-server
+  template:
+    metadata:
+      labels:
+        app: chat-server
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - chat-server
+                topologyKey: "kubernetes.io/hostname"
+      containers:
+        - name: chat-server
+          image: myregistry.com/chat-server:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: ETCD_ENDPOINTS
+              value: "etcd:2379"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/configs/config.toml
+              subPath: config.toml
+            - name: static-volume
+              mountPath: /app/static
+
+      volumes:
+        - name: config-volume
+          configMap:
+            name: chat-config
+        - name: static-volume
+          persistentVolumeClaim:
+            claimName: chat-static-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chat-server
+  namespace: chat-system
+spec:
+  selector:
+    app: chat-server
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000

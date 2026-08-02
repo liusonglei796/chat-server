@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package auth;
+
+option go_package = "kama_chat_server/api/gen/auth";
+
+service AuthService {
+    rpc Login (LoginRequest) returns (LoginResponse);
+    rpc Register (RegisterRequest) returns (RegisterResponse);
+    rpc Logout (LogoutRequest) returns (LogoutResponse);
+    rpc ValidateTokenID (ValidateTokenIDRequest) returns (ValidateTokenIDResponse);
+    rpc GetUserIsAdmin (GetUserIsAdminRequest) returns (GetUserIsAdminResponse);
+}
+
+message LoginRequest {
+    string username = 1;
+    string password = 2;
+    string client_ip = 3;
+}
+
+message LoginResponse {
+    string uuid = 1;
+    string telephone = 2;
+    string nickname = 3;
+    string email = 4;
+    string avatar = 5;
+    int32 gender = 6;
+    string birthday = 7;
+    string signature = 8;
+    int32 is_admin = 9;
+    int32 status = 10;
+    string access_token = 11;
+    string refresh_token = 12;
+    string created_at = 13;
+}
+
+message RegisterRequest {
+    string username = 1;
+    string password = 2;
+    string client_ip = 3;
+}
+
+message RegisterResponse {
+    string uuid = 1;
+    string telephone = 2;
+    string nickname = 3;
+    string email = 4;
+    string avatar = 5;
+    int32 gender = 6;
+    string birthday = 7;
+    string signature = 8;
+    int32 is_admin = 9;
+    int32 status = 10;
+    string access_token = 11;
+    string refresh_token = 12;
+    string created_at = 13;
+}
+
+message LogoutRequest {
+    string user_id = 1;
+}
+
+message LogoutResponse {
+}
+
+message ValidateTokenIDRequest {
+    string user_id = 1;
+    string token_id = 2;
+}
+
+message ValidateTokenIDResponse {
+    bool is_valid = 1;
+}
+
+message GetUserIsAdminRequest {
+    string user_id = 1;
+}
+
+message GetUserIsAdminResponse {
+    bool is_admin = 1;
+}

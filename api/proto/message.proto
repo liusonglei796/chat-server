@@ -1,0 +1,191 @@
+syntax = "proto3";
+
+package message;
+
+option go_package = "kama_chat_server/api/gen/message";
+
+service MessageService {
+    // Message
+    rpc GetMessageList (GetMessageListRequest) returns (GetMessageListResponse);
+    rpc GetGroupMessageList (GetGroupMessageListRequest) returns (GetGroupMessageListResponse);
+    rpc GetMessageListCursor (GetMessageListCursorRequest) returns (GetMessageListCursorResponse);
+    rpc GetGroupMessageListCursor (GetGroupMessageListCursorRequest) returns (GetGroupMessageListCursorResponse);
+    rpc RecallMessage (RecallMessageRequest) returns (RecallMessageResponse);
+    
+    // Session
+    rpc CreateSession (CreateSessionRequest) returns (CreateSessionResponse);
+    rpc CheckOpenSessionAllowed (CheckOpenSessionAllowedRequest) returns (CheckOpenSessionAllowedResponse);
+    rpc OpenSession (OpenSessionRequest) returns (OpenSessionResponse);
+    rpc GetUserSessionList (GetUserSessionListRequest) returns (GetUserSessionListResponse);
+    rpc GetGroupSessionList (GetGroupSessionListRequest) returns (GetGroupSessionListResponse);
+    rpc GetUserSessionListCursor (GetUserSessionListCursorRequest) returns (GetUserSessionListCursorResponse);
+    rpc GetGroupSessionListCursor (GetGroupSessionListCursorRequest) returns (GetGroupSessionListCursorResponse);
+    rpc DeleteSession (DeleteSessionRequest) returns (DeleteSessionResponse);
+    rpc PinSession (PinSessionRequest) returns (PinSessionResponse);
+}
+
+// Message Requests/Responses
+message GetMessageListRequest {
+    string requester_id = 1;
+    string partner_id = 2;
+    int32 page = 3;
+    int32 page_size = 4;
+}
+message GetMessageListRespond {
+    string send_id = 1;
+    string send_name = 2;
+    string send_avatar = 3;
+    string receive_id = 4;
+    string content = 5;
+    string url = 6;
+    int32 type = 7;
+    string file_type = 8;
+    string file_name = 9;
+    int64 file_size = 10;
+    string created_at = 11;
+}
+message GetMessageListResponse {
+    int64 total = 1;
+    repeated GetMessageListRespond list = 2;
+}
+
+message GetGroupMessageListRequest {
+    string user_id = 1;
+    string group_id = 2;
+    int32 page = 3;
+    int32 page_size = 4;
+}
+message GetGroupMessageListResponse {
+    int64 total = 1;
+    repeated GetMessageListRespond list = 2;
+}
+
+message GetMessageListCursorRequest {
+    string requester_id = 1;
+    string partner_id = 2;
+    string cursor = 3;
+    int32 page_size = 4;
+}
+message GetMessageListCursorResponse {
+    repeated GetMessageListRespond list = 1;
+    string next_cursor = 2;
+    bool has_more = 3;
+}
+
+message GetGroupMessageListCursorRequest {
+    string user_id = 1;
+    string group_id = 2;
+    string cursor = 3;
+    int32 page_size = 4;
+}
+message GetGroupMessageListCursorResponse {
+    repeated GetMessageListRespond list = 1;
+    string next_cursor = 2;
+    bool has_more = 3;
+}
+
+message RecallMessageRequest {
+    string user_id = 1;
+    string message_uuid = 2;
+}
+message RecallMessageResponse {}
+
+// Session Requests/Responses
+message CreateSessionRequest {
+    string send_id = 1;
+    string receive_id = 2;
+}
+message CreateSessionResponse {
+    string session_id = 1;
+}
+
+message CheckOpenSessionAllowedRequest {
+    string send_id = 1;
+    string receive_id = 2;
+}
+message CheckOpenSessionAllowedResponse {
+    bool allowed = 1;
+}
+
+message OpenSessionRequest {
+    string send_id = 1;
+    string receive_id = 2;
+}
+message OpenSessionResponse {
+    string session_id = 1;
+}
+
+message GetUserSessionListRequest {
+    string owner_id = 1;
+    int32 page = 2;
+    int32 page_size = 3;
+}
+message UserSessionListRespond {
+    string session_id = 1;
+    string avatar = 2;
+    string user_id = 3;
+    string username = 4;
+    string last_message = 5;
+    string last_message_time = 6;
+    int32 last_message_type = 7;
+    int32 is_pinned = 8;
+}
+message GetUserSessionListResponse {
+    int64 total = 1;
+    repeated UserSessionListRespond list = 2;
+}
+
+message GetGroupSessionListRequest {
+    string owner_id = 1;
+    int32 page = 2;
+    int32 page_size = 3;
+}
+message GroupSessionListRespond {
+    string session_id = 1;
+    string avatar = 2;
+    string group_id = 3;
+    string group_name = 4;
+    string last_message = 5;
+    string last_message_time = 6;
+    int32 last_message_type = 7;
+    int32 is_pinned = 8;
+}
+message GetGroupSessionListResponse {
+    int64 total = 1;
+    repeated GroupSessionListRespond list = 2;
+}
+
+message GetUserSessionListCursorRequest {
+    string owner_id = 1;
+    string cursor = 2;
+    int32 page_size = 3;
+}
+message GetUserSessionListCursorResponse {
+    repeated UserSessionListRespond list = 1;
+    string next_cursor = 2;
+    bool has_more = 3;
+}
+
+message GetGroupSessionListCursorRequest {
+    string owner_id = 1;
+    string cursor = 2;
+    int32 page_size = 3;
+}
+message GetGroupSessionListCursorResponse {
+    repeated GroupSessionListRespond list = 1;
+    string next_cursor = 2;
+    bool has_more = 3;
+}
+
+message DeleteSessionRequest {
+    string owner_id = 1;
+    string session_id = 2;
+}
+message DeleteSessionResponse {}
+
+message PinSessionRequest {
+    string user_id = 1;
+    string session_id = 2;
+    bool is_pinned = 3;
+}
+message PinSessionResponse {}

@@ -4,8 +4,8 @@ package handler
 
 import (
 	"kama_chat_server/internal/dto/request/friendship"
-	friendshipsvc "kama_chat_server/internal/service/friendship"
-	groupsvc "kama_chat_server/internal/service/group"
+	"kama_chat_server/internal/grpc_client"
+	relationpb "kama_chat_server/api/gen/relation"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
@@ -13,22 +13,14 @@ import (
 
 // FriendshipHandler 好友关系请求处理器
 type FriendshipHandler struct {
-	friendshipSvc *friendshipsvc.FriendshipService
-	groupSvc      *groupsvc.GroupService
 }
 
 // NewFriendshipHandler 创建好友关系处理器实例
-func NewFriendshipHandler(friendshipSvc *friendshipsvc.FriendshipService, groupSvc *groupsvc.GroupService) *FriendshipHandler {
-	return &FriendshipHandler{
-		friendshipSvc: friendshipSvc,
-		groupSvc:      groupSvc,
-	}
+func NewFriendshipHandler() *FriendshipHandler {
+	return &FriendshipHandler{}
 }
 
 // GetFriendList 获取好友列表（分页）
-// GET /friends?page=1&page_size=20
-// 从JWT上下文获取当前用户ID
-// 响应: map[string]interface{} (list, total, page, page_size)
 func (h *FriendshipHandler) GetFriendList(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -44,7 +36,6 @@ func (h *FriendshipHandler) GetFriendList(c *gin.Context) {
 		return
 	}
 
-	// 设置默认值
 	page := req.Page
 	pageSize := req.PageSize
 	if page < 1 {
@@ -54,23 +45,24 @@ func (h *FriendshipHandler) GetFriendList(c *gin.Context) {
 		pageSize = 20
 	}
 
-	data, total, err := h.friendshipSvc.GetFriendList(ctx, userId.(string), page, pageSize)
+	rsp, err := grpc_client.RelationClient.GetFriendList(ctx, &relationpb.GetFriendListRequest{
+		UserId:   userId.(string),
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	})
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
 	HandleSuccess(c, gin.H{
-		"list":      data,
-		"total":     total,
+		"list":      rsp.List,
+		"total":     rsp.Total,
 		"page":      page,
 		"page_size": pageSize,
 	})
 }
 
 // LoadMyJoinedGroup 获取已加入的群组（分页）
-// GET /groups/joined?page=1&page_size=20
-// 从JWT上下文获取当前用户ID
-// 响应: map[string]interface{} (list, total, page, page_size)
 func (h *FriendshipHandler) LoadMyJoinedGroup(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -86,7 +78,6 @@ func (h *FriendshipHandler) LoadMyJoinedGroup(c *gin.Context) {
 		return
 	}
 
-	// 设置默认值
 	page := req.Page
 	pageSize := req.PageSize
 	if page < 1 {
@@ -96,25 +87,24 @@ func (h *FriendshipHandler) LoadMyJoinedGroup(c *gin.Context) {
 		pageSize = 20
 	}
 
-	// 通过 GroupService 查询（基于 GroupMember 表）
-	data, total, err := h.groupSvc.GetGroupListByMember(ctx, userId.(string), page, pageSize)
+	rsp, err := grpc_client.RelationClient.GetGroupListByMember(ctx, &relationpb.GetGroupListByMemberRequest{
+		UserId:   userId.(string),
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	})
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
 	HandleSuccess(c, gin.H{
-		"list":      data,
-		"total":     total,
+		"list":      rsp.List,
+		"total":     rsp.Total,
 		"page":      page,
 		"page_size": pageSize,
 	})
 }
 
 // GetFriendInfo 获取好友详细信息
-// GET /friends/info?friend_id=xxx
-// 查询参数: friendship.GetFriendInfoRequest
-// 响应: friendshiprsp.FriendInfoRespond
-// 安全: 从JWT上下文获取当前用户ID，校验好友关系
 func (h *FriendshipHandler) GetFriendInfo(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -129,19 +119,18 @@ func (h *FriendshipHandler) GetFriendInfo(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	data, err := h.friendshipSvc.GetFriendInfo(ctx, userId.(string), req.FriendId)
+	rsp, err := grpc_client.RelationClient.GetFriendInfo(ctx, &relationpb.GetFriendInfoRequest{
+		UserId:   userId.(string),
+		FriendId: req.FriendId,
+	})
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	HandleSuccess(c, data)
+	HandleSuccess(c, rsp)
 }
 
 // DeleteFriend 删除好友
-// DELETE /friends
-// 请求体: friendship.BatchDeleteRequest
-// 响应: nil
-// 安全: 从JWT上下文获取当前用户ID，防止IDOR攻击
 func (h *FriendshipHandler) DeleteFriend(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -162,9 +151,11 @@ func (h *FriendshipHandler) DeleteFriend(c *gin.Context) {
 		return
 	}
 
-	// 批量删除：遍历所有好友
 	for _, uuid := range req.UuidList {
-		if err := h.friendshipSvc.DeleteFriend(ctx, userId.(string), uuid); err != nil {
+		if _, err := grpc_client.RelationClient.DeleteFriend(ctx, &relationpb.DeleteFriendRequest{
+			UserId:   userId.(string),
+			FriendId: uuid,
+		}); err != nil {
 			HandleError(c, err)
 			return
 		}
@@ -174,9 +165,6 @@ func (h *FriendshipHandler) DeleteFriend(c *gin.Context) {
 }
 
 // BlockFriend 拉黑好友
-// POST /friends/block
-// 请求体: friendship.BlockFriendRequest
-// 响应: nil
 func (h *FriendshipHandler) BlockFriend(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -192,7 +180,10 @@ func (h *FriendshipHandler) BlockFriend(c *gin.Context) {
 		return
 	}
 
-	if err := h.friendshipSvc.BlackFriend(ctx, userId.(string), req.FriendId); err != nil {
+	if _, err := grpc_client.RelationClient.BlackFriend(ctx, &relationpb.BlackFriendRequest{
+		UserId:   userId.(string),
+		FriendId: req.FriendId,
+	}); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -201,9 +192,6 @@ func (h *FriendshipHandler) BlockFriend(c *gin.Context) {
 }
 
 // UnblockFriend 取消拉黑好友
-// DELETE /friends/block
-// 请求体: friendship.BlockFriendRequest
-// 响应: nil
 func (h *FriendshipHandler) UnblockFriend(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -219,7 +207,10 @@ func (h *FriendshipHandler) UnblockFriend(c *gin.Context) {
 		return
 	}
 
-	if err := h.friendshipSvc.UnblackFriend(ctx, userId.(string), req.FriendId); err != nil {
+	if _, err := grpc_client.RelationClient.UnblackFriend(ctx, &relationpb.UnblackFriendRequest{
+		UserId:   userId.(string),
+		FriendId: req.FriendId,
+	}); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -228,10 +219,6 @@ func (h *FriendshipHandler) UnblockFriend(c *gin.Context) {
 }
 
 // UpdateRemark 更新好友备注
-// PUT /friends/remark
-// 请求体: friendship.UpdateRemarkRequest
-// 响应: nil
-// 安全: 从JWT上下文获取当前用户ID，Service层校验好友关系
 func (h *FriendshipHandler) UpdateRemark(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -247,7 +234,11 @@ func (h *FriendshipHandler) UpdateRemark(c *gin.Context) {
 		return
 	}
 
-	if err := h.friendshipSvc.UpdateRemark(ctx, userId.(string), req.FriendId, req.Remark); err != nil {
+	if _, err := grpc_client.RelationClient.UpdateRemark(ctx, &relationpb.UpdateRemarkRequest{
+		UserId:   userId.(string),
+		FriendId: req.FriendId,
+		Remark:   req.Remark,
+	}); err != nil {
 		HandleError(c, err)
 		return
 	}

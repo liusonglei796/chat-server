@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chat-config
+  namespace: chat-system
+data:
+  config.toml: |
+    [mainConfig]
+    appName = "chat-server"
+    host = "0.0.0.0"
+    port = 8000
+
+    [mysqlConfig]
+    host = "mysql"
+    port = 3306
+    user = "root"
+    password = "${MYSQL_PASSWORD}"
+    databaseName = "chat"
+
+    [redisConfig]
+    host = "redis"
+    port = 6379
+    password = "${REDIS_PASSWORD}"
+    db = 0
+
+    [logConfig]
+    logPath = "/app/logs"
+
+    [kafkaConfig]
+    hostPort = "kafka:9092"
+    loginTopic = "login"
+    chatTopic = "chat_message"
+    logoutTopic = "logout"
+    partition = 0
+    timeout = 1
+
+    [staticSrcConfig]
+    staticAvatarPath = "/app/static/avatars"
+    staticFilePath = "/app/static/files"
+
+    [jwtConfig]
+    secret = "${JWT_SECRET}"
+    accessTokenExpiry = 15
+    refreshTokenExpiry = 168
+
+    [snowflakeConfig]
+    machineId = 1
+
+    [otelConfig]
+    endpoint = "otel-collector.default.svc.cluster.local:4317"
+    serviceName = "chat-server"
+    enabled = false

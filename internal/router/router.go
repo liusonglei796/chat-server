@@ -46,7 +46,7 @@ func (rt *Router) RegisterRoutes(r *gin.Engine) {
 	private := r.Group("")
 	private.Use(middleware.JWTAuthWithCache(rt.cache))
 	{
-		rt.RegisterAdminRoutes(private)       // 管理员路由（额外校验管理员权限）
+		// rt.RegisterAdminRoutes(private)       // 管理员路由（额外校验管理员权限）- 暂不迁移微服务
 		rt.RegisterUserRoutes(private)        // 用户路由
 		rt.RegisterFriendRoutes(private)      // 好友路由
 		rt.RegisterGroupRoutes(private)       // 群组路由

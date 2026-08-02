@@ -11,7 +11,8 @@ RUN go mod download
 
 # 编译应用
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app ./cmd/chat_server
+ARG SERVICE_PATH=./cmd/chat_server
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app ${SERVICE_PATH}
 
 # 运行阶段 - 使用精简镜像
 FROM alpine:3.18

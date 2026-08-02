@@ -57,10 +57,23 @@ services:
       retries: 15
     restart: unless-stopped
 
+  etcd:
+    image: bitnami/etcd:3.5
+    container_name: chat-etcd
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    environment:
+      - ALLOW_NONE_AUTHENTICATION=yes
+      - ETCD_ADVERTISE_CLIENT_URLS=http://0.0.0.0:2379
+    restart: unless-stopped
+
   chat-server:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        SERVICE_PATH: ./cmd/chat_server
     container_name: chat-server
     ports:
       - "8081:8000"
@@ -68,12 +81,86 @@ services:
       - ./configs/config.toml:/app/configs/config.toml:ro
       - static_data:/app/static
     depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      etcd:
+        condition: service_started
+    restart: unless-stopped
+
+  user-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_PATH: ./cmd/user_service
+    container_name: user-service
+    volumes:
+      - ./configs/config.toml:/app/configs/config.toml:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      etcd:
+        condition: service_started
+    restart: unless-stopped
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_PATH: ./cmd/auth_service
+    container_name: auth-service
+    volumes:
+      - ./configs/config.toml:/app/configs/config.toml:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      etcd:
+        condition: service_started
+    restart: unless-stopped
+
+  relation-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_PATH: ./cmd/relation_service
+    container_name: relation-service
+    volumes:
+      - ./configs/config.toml:/app/configs/config.toml:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      etcd:
+        condition: service_started
+    restart: unless-stopped
+
+  message-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_PATH: ./cmd/message_service
+    container_name: message-service
+    volumes:
+      - ./configs/config.toml:/app/configs/config.toml:ro
+    depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      etcd:
+        condition: service_started
     restart: unless-stopped
 
 volumes:

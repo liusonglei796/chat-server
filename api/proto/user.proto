@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package user;
+
+option go_package = "kama_chat_server/api/gen/user";
+
+service UserService {
+    rpc UpdateUserInfo (UpdateUserInfoRequest) returns (UpdateUserInfoResponse);
+    rpc GetUserInfo (GetUserInfoRequest) returns (GetUserInfoResponse);
+    rpc GetPublicUserInfo (GetPublicUserInfoRequest) returns (GetPublicUserInfoResponse);
+    rpc KickUser (KickUserRequest) returns (KickUserResponse);
+}
+
+message UpdateUserInfoRequest {
+    string user_id = 1;
+    optional string email = 2;
+    optional string nickname = 3;
+    optional string birthday = 4;
+    optional string signature = 5;
+    optional string avatar = 6;
+}
+
+message UpdateUserInfoResponse {
+}
+
+message GetUserInfoRequest {
+    string requester_id = 1;
+    string target_id = 2;
+}
+
+message GetUserInfoResponse {
+    string uuid = 1;
+    string telephone = 2;
+    string nickname = 3;
+    string avatar = 4;
+    string birthday = 5;
+    string email = 6;
+    int32 gender = 7;
+    string signature = 8;
+    string created_at = 9;
+    int32 is_admin = 10;
+    int32 status = 11;
+}
+
+message GetPublicUserInfoRequest {
+    string target_id = 1;
+}
+
+message GetPublicUserInfoResponse {
+    string uuid = 1;
+    string nickname = 2;
+    string avatar = 3;
+    int32 gender = 4;
+    string birthday = 5;
+    string signature = 6;
+}
+
+message KickUserRequest {
+    string user_id = 1;
+}
+
+message KickUserResponse {
+}
