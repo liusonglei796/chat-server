@@ -80,7 +80,7 @@ func main() {
 	// 7. 注册到 Etcd
 	register, err := discovery.NewRegister([]string{"etcd:2379", "127.0.0.1:2379"}, discovery.ServerInfo{
 		Name:   "message_service",
-		Addr:   fmt.Sprintf("message_service:%d", port),
+		Addr:   fmt.Sprintf("message-service:%d", port),
 		Weight: 1,
 	}, 10)
 	if err != nil {

@@ -133,7 +133,7 @@ func (r *Resolver) remove(addr string) ([]resolver.Address, bool) {
 	return r.srvAddrList, false
 }
 
-// BuildDialTarget returns a string in the format "etcd:///{serviceName}"
+// BuildDialTarget returns a string in the format "etcd://{serviceName}"
 func BuildDialTarget(serviceName string) string {
-	return fmt.Sprintf("%s:///%s", schema, serviceName)
+	return fmt.Sprintf("etcd://%s", serviceName)
 }

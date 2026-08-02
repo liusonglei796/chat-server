@@ -1,5 +1,5 @@
 # 多阶段构建：编译 → 运行
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -17,6 +17,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app ${SERVICE_PAT
 # 运行阶段 - 使用精简镜像
 FROM alpine:3.18
 
+ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
 WORKDIR /app
 
 # 创建日志和静态目录
