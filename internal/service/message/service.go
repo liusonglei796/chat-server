@@ -18,6 +18,7 @@ import (
 	"kama_chat_server/internal/domain/repository"
 	messagereq "kama_chat_server/internal/dto/request/message"
 	messagersp "kama_chat_server/internal/dto/respond/message"
+	"kama_chat_server/internal/grpc_client"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
@@ -71,12 +72,12 @@ func (m *MessageService) GetMessageList(ctx context.Context, requesterId, partne
 	}
 
 	// 权限校验: 必须是好友关系才能查看聊天记录
-	isFriend, err := m.friendshipRepo.IsFriend(ctx, requesterId, partnerId)
+	fsStatus, err := grpc_client.CheckFriendshipStatus(ctx, requesterId, partnerId)
 	if err != nil {
-		zap.L().Error("check friend relationship error", zap.Error(err))
+		zap.L().Error("check friendship via grpc error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
 	}
-	if !isFriend {
+	if fsStatus != 1 {
 		return nil, 0, errorx.New(errorx.CodeForbidden, "你们不是好友，无法查看聊天记录")
 	}
 
@@ -171,12 +172,12 @@ func (m *MessageService) GetMessageListCursor(ctx context.Context, requesterId, 
 	}
 
 	// 权限校验: 必须是好友关系才能查看聊天记录
-	isFriend, err := m.friendshipRepo.IsFriend(ctx, requesterId, partnerId)
+	fsStatus, err := grpc_client.CheckFriendshipStatus(ctx, requesterId, partnerId)
 	if err != nil {
-		zap.L().Error("check friend relationship error", zap.Error(err))
+		zap.L().Error("check friendship via grpc error", zap.Error(err))
 		return nil, "", false, errorx.ErrServerBusy
 	}
-	if !isFriend {
+	if fsStatus != 1 {
 		return nil, "", false, errorx.New(errorx.CodeForbidden, "你们不是好友，无法查看聊天记录")
 	}
 
