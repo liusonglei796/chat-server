@@ -39,28 +39,30 @@ func Init(etcdEndpoints []string) {
 		}
 
 		// User Service
-		userConn, err := grpc.Dial(discovery.BuildDialTarget("user_service"), opts...)
+		// 使用 NewClient（懒加载）而非 Dial：Dial 会同步 exitIdleMode 触发 resolver
+		// 建连，冷启动时对端服务尚未注册到 etcd，导致 "bad resolver state" 直接 Fatal。
+		userConn, err := grpc.NewClient(discovery.BuildDialTarget("user_service"), opts...)
 		if err != nil {
 			log.Fatalf("failed to connect user_service: %v", err)
 		}
 		UserClient = userpb.NewUserServiceClient(userConn)
 
 		// Auth Service (hosted by user_service)
-		authConn, err := grpc.Dial(discovery.BuildDialTarget("user_service"), opts...)
+		authConn, err := grpc.NewClient(discovery.BuildDialTarget("user_service"), opts...)
 		if err != nil {
 			log.Fatalf("failed to connect auth_service: %v", err)
 		}
 		AuthClient = authpb.NewAuthServiceClient(authConn)
 
 		// Relation Service
-		relationConn, err := grpc.Dial(discovery.BuildDialTarget("relation_service"), opts...)
+		relationConn, err := grpc.NewClient(discovery.BuildDialTarget("relation_service"), opts...)
 		if err != nil {
 			log.Fatalf("failed to connect relation_service: %v", err)
 		}
 		RelationClient = relationpb.NewRelationServiceClient(relationConn)
 
 		// Message Service
-		messageConn, err := grpc.Dial(discovery.BuildDialTarget("message_service"), opts...)
+		messageConn, err := grpc.NewClient(discovery.BuildDialTarget("message_service"), opts...)
 		if err != nil {
 			log.Fatalf("failed to connect message_service: %v", err)
 		}
