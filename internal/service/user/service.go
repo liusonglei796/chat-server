@@ -233,7 +233,7 @@ func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateR
 	// 警告问题修复：使用事务管理确保数据一致性
 	// 事务内的操作：1.更新用户信息 2.更新会话冗余字段
 	// 任一操作失败都会回滚，保证数据一致性
-	if err := u.uow.Transaction(func(tx repository.UnitOfWork) error {
+	if err := u.uow.WithTx(func(tx repository.UnitOfWork) error {
 		// 1. 在事务内更新用户信息
 		if err := tx.UserRepo().UpdateUserInfo(ctx, user); err != nil {
 			return err
@@ -354,4 +354,29 @@ func (u *UserService) GetPublicUserInfo(ctx context.Context, targetId string) (*
 		return nil, err
 	}
 	return &rsp, nil
+}
+
+// BatchGetPublicUserInfo 批量获取公开用户信息（昵称/头像/性别等）
+// 供跨服务列表页一次拉取，避免 N+1 调用
+func (u *UserService) BatchGetPublicUserInfo(ctx context.Context, userIds []string) ([]userrsp.PublicUserInfoRespond, error) {
+	if len(userIds) == 0 {
+		return []userrsp.PublicUserInfoRespond{}, nil
+	}
+	userList, err := u.uow.UserRepo().FindByUuids(ctx, userIds)
+	if err != nil {
+		zap.L().Error("batch find users error", zap.Error(err))
+		return nil, errorx.ErrServerBusy
+	}
+	rsp := make([]userrsp.PublicUserInfoRespond, 0, len(userList))
+	for _, usr := range userList {
+		rsp = append(rsp, userrsp.PublicUserInfoRespond{
+			Uuid:      usr.Uuid,
+			Nickname:  usr.Nickname,
+			Avatar:    usr.Avatar,
+			Gender:    usr.Gender,
+			Birthday:  usr.Birthday,
+			Signature: usr.Signature,
+		})
+	}
+	return rsp, nil
 }

@@ -67,6 +67,25 @@ func (s *GrpcServer) GetPublicUserInfo(ctx context.Context, req *userpb.GetPubli
 	}, nil
 }
 
+func (s *GrpcServer) BatchGetPublicUserInfo(ctx context.Context, req *userpb.BatchGetPublicUserInfoRequest) (*userpb.BatchGetPublicUserInfoResponse, error) {
+	infoList, err := s.svc.BatchGetPublicUserInfo(ctx, req.UserIds)
+	if err != nil {
+		return nil, err
+	}
+	users := make([]*userpb.PublicUserInfo, 0, len(infoList))
+	for _, info := range infoList {
+		users = append(users, &userpb.PublicUserInfo{
+			Uuid:      info.Uuid,
+			Nickname:  info.Nickname,
+			Avatar:    info.Avatar,
+			Gender:    int32(info.Gender),
+			Birthday:  info.Birthday,
+			Signature: info.Signature,
+		})
+	}
+	return &userpb.BatchGetPublicUserInfoResponse{Users: users}, nil
+}
+
 func (s *GrpcServer) KickUser(ctx context.Context, req *userpb.KickUserRequest) (*userpb.KickUserResponse, error) {
 	err := s.svc.KickUser(ctx, req.UserId)
 	if err != nil {
