@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"time"
@@ -9,11 +10,13 @@ import (
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/domain/repository"
+	"kama_chat_server/internal/dto/event"
 	"kama_chat_server/internal/dto/request/auth"
 	userreq "kama_chat_server/internal/dto/request/user"
 	userrsp "kama_chat_server/internal/dto/respond/user"
 	cacheutil "kama_chat_server/internal/infrastructure/cache"
 	"kama_chat_server/internal/infrastructure/jwt"
+	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/user/user_status"
@@ -26,14 +29,16 @@ type UserService struct {
 	uow         repository.UnitOfWork
 	cache       repository.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
+	outboxRepo  repository.OutboxRepository
 }
 
 // NewUserService 构造函数，注入所有依赖
-func NewUserService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService) *UserService {
+func NewUserService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, outboxRepo repository.OutboxRepository) *UserService {
 	return &UserService{
 		uow:         uow,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
+		outboxRepo:  outboxRepo,
 	}
 }
 
@@ -239,16 +244,19 @@ func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateR
 			return err
 		}
 
-		// 2. 在事务内同步更新 Session 表冗余字段（昵称/头像变更时保持一致性）
-		sessionUpdates := make(map[string]interface{})
-		if updateReq.Nickname != nil {
-			sessionUpdates["receive_name"] = *updateReq.Nickname
-		}
-		if updateReq.Avatar != nil {
-			sessionUpdates["avatar"] = *updateReq.Avatar
-		}
-		if len(sessionUpdates) > 0 {
-			if err := tx.SessionRepo().UpdateByReceiveId(ctx, userId, sessionUpdates); err != nil {
+		// 2. 事务内写 outbox 事件，message_service 消费后更新 session 冗余字段
+		nick := updateReq.Nickname
+		av := updateReq.Avatar
+		if nick != nil || av != nil {
+			payload, _ := json.Marshal(event.UserUpdatedEvent{UserId: userId, Nickname: nick, Avatar: av})
+			o := model.Outbox{
+				Uuid:      fmt.Sprintf("O%s", snowflake.GenerateIDString()),
+				EventType: event.EventUserUpdated,
+				Payload:   string(payload),
+				Status:    0,
+				CreatedAt: time.Now(),
+			}
+			if err := tx.OutboxRepo().Create(ctx, &o); err != nil {
 				return err
 			}
 		}

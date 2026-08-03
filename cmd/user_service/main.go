@@ -43,7 +43,7 @@ func main() {
 	var cachePort repository.AsyncCacheService = cacheService
 
 	// 5. 初始化 Service
-	userSvc := user.NewUserService(repos, cachePort)
+	userSvc := user.NewUserService(repos, cachePort, repos.Outbox)
 	grpcServer := user.NewGrpcServer(userSvc)
 	authSvc := auth.NewAuthService(cachePort, repos.User)
 	authGrpcServer := auth.NewGrpcServer(authSvc, userSvc)

@@ -47,7 +47,7 @@ func NewServices(uow repository.UnitOfWork, cacheService repository.AsyncCacheSe
 	)
 
 	// 事务型 Service：注入 UnitOfWork 接口
-	userSvc := user.NewUserService(uow, cacheService)
+	userSvc := user.NewUserService(uow, cacheService, uow.OutboxRepo())
 	groupSvc := group.NewGroupService(uow, cacheService)
 	friendshipSvc := friendship.NewFriendshipService(uow, cacheService)
 	applySvc := apply.NewApplyService(uow, cacheService)
