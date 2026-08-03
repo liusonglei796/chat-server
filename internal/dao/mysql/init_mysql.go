@@ -15,6 +15,47 @@ import (
 	"gorm.io/gorm"                     // GORM ORM 框架
 )
 
+// ServiceModels 每个服务只迁移自己库中的表
+var ServiceModels = map[string][]interface{}{
+	"user": {
+		&model.UserInfo{}, &model.Outbox{},
+	},
+	"relation": {
+		&model.GroupInfo{}, &model.GroupMember{},
+		&model.Friendship{}, &model.Apply{}, &model.Outbox{},
+	},
+	"message": {
+		&model.Session{}, &model.Message{}, &model.Outbox{},
+	},
+}
+
+// InitFor 初始化指定服务对应的库表迁移
+func InitFor(service string) *Repositories {
+	conf := config.GetConfig()
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		conf.MysqlConfig.User, conf.MysqlConfig.Password,
+		conf.MysqlConfig.Host, conf.MysqlConfig.Port, conf.MysqlConfig.DatabaseName)
+	db, err := gorm.Open(mysqldriver.Open(dsn), &gorm.Config{})
+	if err != nil {
+		zap.L().Fatal(err.Error())
+	}
+	models, ok := ServiceModels[service]
+	if !ok {
+		zap.L().Fatal("unknown service", zap.String("service", service))
+	}
+	err = db.AutoMigrate(models...)
+	if err != nil {
+		var mysqlErr *mysql.MySQLError
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1050 {
+			err = db.AutoMigrate(models...)
+		}
+		if err != nil {
+			zap.L().Fatal(err.Error())
+		}
+	}
+	return NewRepositories(db)
+}
+
 // Init 初始化数据库连接并返回 Repository 层实例
 // 执行步骤：
 //  1. 从配置读取 MySQL 连接信息

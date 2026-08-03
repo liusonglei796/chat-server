@@ -38,7 +38,7 @@ func main() {
 	}
 
 	// 3. 初始化数据库
-	repos := mysqlimpl.Init()
+	repos := mysqlimpl.InitFor("relation")
 
 	// 4. 初始化 Redis
 	cacheService := myredis.Init()

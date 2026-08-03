@@ -37,7 +37,7 @@ func main() {
 	}
 
 	// 3. 初始化数据库
-	repos := mysqlimpl.Init()
+	repos := mysqlimpl.InitFor("user")
 
 	// 4. 初始化 JWT（auth 合并入本服务后，注册/登录在此处理）
 	jwt.Init(conf.JWTConfig.Secret, conf.JWTConfig.AccessTokenExpiry, conf.JWTConfig.RefreshTokenExpiry)
@@ -94,5 +94,10 @@ func main() {
 
 	zap.L().Info("Shutting down User Service...")
 	s.GracefulStop()
+
+	// 关闭 Redis 异步任务池，等待已提交任务完成
+	if rc, ok := cacheService.(*myredis.RedisCache); ok {
+		rc.Release()
+	}
 	zap.L().Info("User Service stopped")
 }
