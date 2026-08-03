@@ -145,6 +145,12 @@ func overlayEnvVars(c *Config) {
 	if v := os.Getenv("MYSQL_HOST"); v != "" {
 		c.MysqlConfig.Host = v
 	}
+	if v := os.Getenv("MYSQL_USER"); v != "" {
+		c.MysqlConfig.User = v
+	}
+	if v := os.Getenv("DB_NAME"); v != "" {
+		c.MysqlConfig.DatabaseName = v
+	}
 	if v := os.Getenv("MYSQL_PASSWORD"); v != "" {
 		c.MysqlConfig.Password = v
 	}

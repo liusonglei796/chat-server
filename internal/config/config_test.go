@@ -22,6 +22,24 @@ func TestLoadConfig_EnvOverlay(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_EnvDBOverlay(t *testing.T) {
+	os.Setenv("MYSQL_USER", "svc_message")
+	os.Setenv("DB_NAME", "chat_message")
+	defer os.Unsetenv("MYSQL_USER")
+	defer os.Unsetenv("DB_NAME")
+
+	conf, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if conf.MysqlConfig.User != "svc_message" {
+		t.Errorf("expected MYSQL_USER overlay, got %q", conf.MysqlConfig.User)
+	}
+	if conf.MysqlConfig.DatabaseName != "chat_message" {
+		t.Errorf("expected DB_NAME overlay, got %q", conf.MysqlConfig.DatabaseName)
+	}
+}
+
 func TestGetConfig_Singleton(t *testing.T) {
 	// 获取两次实例，校验是否为同一个指针
 	c1 := GetConfig()
