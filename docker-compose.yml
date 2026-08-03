@@ -97,6 +97,10 @@ services:
       args:
         SERVICE_PATH: ./cmd/user_service
     container_name: user-service
+    environment:
+      MYSQL_USER: svc_user
+      MYSQL_PASSWORD: svc_user_pwd
+      DB_NAME: chat_user
     volumes:
       - ./configs/config.toml:/app/configs/config.toml:ro
     depends_on:
@@ -115,6 +119,10 @@ services:
       args:
         SERVICE_PATH: ./cmd/relation_service
     container_name: relation-service
+    environment:
+      MYSQL_USER: svc_relation
+      MYSQL_PASSWORD: svc_relation_pwd
+      DB_NAME: chat_relation
     volumes:
       - ./configs/config.toml:/app/configs/config.toml:ro
     depends_on:
@@ -133,6 +141,10 @@ services:
       args:
         SERVICE_PATH: ./cmd/message_service
     container_name: message-service
+    environment:
+      MYSQL_USER: svc_message
+      MYSQL_PASSWORD: svc_message_pwd
+      DB_NAME: chat_message
     volumes:
       - ./configs/config.toml:/app/configs/config.toml:ro
     depends_on:
