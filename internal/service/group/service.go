@@ -315,6 +315,20 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 			zap.L().Error("Soft delete applies error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
+
+		// 6. 事务内写 outbox 事件，message_service 消费后软删群会话
+		payload, _ := json.Marshal(event.GroupDismissedEvent{GroupId: groupId})
+		o := model.Outbox{
+			Uuid:      fmt.Sprintf("O%s", snowflake.GenerateIDString()),
+			EventType: event.EventGroupDismissed,
+			Payload:   string(payload),
+			Status:    0,
+			CreatedAt: time.Now(),
+		}
+		if err := tx.OutboxRepo().Create(ctx, &o); err != nil {
+			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
+		}
 		return nil
 	})
 
@@ -372,23 +386,35 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 		group.Avatar = *req.Avatar
 	}
 
-	if err := g.uow.GroupRepo().Update(ctx, group); err != nil {
+	if err := g.uow.WithTx(func(tx repository.UnitOfWork) error {
+		if err := tx.GroupRepo().Update(ctx, group); err != nil {
+			zap.L().Error("service error", zap.Error(err))
+			return errorx.ErrServerBusy
+		}
+
+		// 仅当名称/头像变更时发 outbox 事件，message_service 消费后同步会话冗余字段
+		if req.Name != nil || req.Avatar != nil {
+			payload, _ := json.Marshal(event.GroupUpdatedEvent{
+				GroupId: req.Uuid,
+				Name:    req.Name,
+				Avatar:  req.Avatar,
+			})
+			o := model.Outbox{
+				Uuid:      fmt.Sprintf("O%s", snowflake.GenerateIDString()),
+				EventType: event.EventGroupUpdated,
+				Payload:   string(payload),
+				Status:    0,
+				CreatedAt: time.Now(),
+			}
+			if err := tx.OutboxRepo().Create(ctx, &o); err != nil {
+				zap.L().Error("service error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+		}
+		return nil
+	}); err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
-	}
-
-	// 同步更新 Session 表冗余字段（仅在名称/头像变更时）
-	sessionUpdates := make(map[string]interface{})
-	if req.Name != nil {
-		sessionUpdates["receive_name"] = *req.Name
-	}
-	if req.Avatar != nil {
-		sessionUpdates["avatar"] = *req.Avatar
-	}
-	if len(sessionUpdates) > 0 {
-		if err := g.uow.SessionRepo().UpdateByReceiveId(ctx, req.Uuid, sessionUpdates); err != nil {
-			zap.L().Error("同步 Session 冗余字段失败", zap.String("groupId", req.Uuid), zap.Error(err))
-		}
 	}
 
 	// 获取群成员列表用于缓存清理
