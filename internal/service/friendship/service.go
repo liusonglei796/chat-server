@@ -2,7 +2,6 @@ package friendship
 
 import (
 	"context"
-	"time"
 
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -13,8 +12,6 @@ import (
 	friendshiprsp "kama_chat_server/internal/dto/respond/friendship"
 	userrsp "kama_chat_server/internal/dto/respond/user"
 	"kama_chat_server/internal/grpc_client"
-	cacheutil "kama_chat_server/internal/infrastructure/cache"
-	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
 	"kama_chat_server/pkg/enum/user/user_status"
@@ -23,34 +20,15 @@ import (
 
 // FriendshipService 好友关系业务逻辑实现
 type FriendshipService struct {
-	uow         repository.UnitOfWork
-	cache       repository.AsyncCacheService
-	cacheHelper *cacheutil.Helper
+	uow   repository.UnitOfWork
+	cache repository.AsyncCacheService
 }
 
 // NewFriendshipService 构造函数，注入所有依赖
 func NewFriendshipService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService) *FriendshipService {
 	return &FriendshipService{
-		uow:         uow,
-		cache:       cacheService,
-		cacheHelper: cacheutil.NewHelper(cacheService),
-	}
-}
-
-// buildUserInfoRespond 将用户模型转换为缓存用的响应结构（DRY: 消除 GetFriendList/GetFriendInfo 的重复转换）
-func buildUserInfoRespond(user *model.UserInfo) userrsp.GetUserInfoRespond {
-	return userrsp.GetUserInfoRespond{
-		Uuid:      user.Uuid,
-		Telephone: user.Telephone,
-		Nickname:  user.Nickname,
-		Avatar:    user.Avatar,
-		Birthday:  user.Birthday,
-		Email:     user.Email,
-		Gender:    user.Gender,
-		Signature: user.Signature,
-		CreatedAt: user.CreatedAt.Format("2006-01-02 15:04:05"),
-		IsAdmin:   user.IsAdmin,
-		Status:    user.Status,
+		uow:   uow,
+		cache: cacheService,
 	}
 }
 
@@ -83,34 +61,28 @@ func (s *FriendshipService) GetFriendList(ctx context.Context, userId string, pa
 		return []userrsp.MyUserListRespond{}, total, nil
 	}
 
-	// 批量获取好友信息（使用 cacheHelper，带 singleflight 防击穿）
+	// 批量获取好友公开信息（昵称/头像），避免逐条直读 user 表
+	friendIds := make([]string, 0, len(friendships))
+	for _, fs := range friendships {
+		friendIds = append(friendIds, fs.FriendId)
+	}
+	userList, err := grpc_client.BatchGetPublicUserInfo(ctx, friendIds)
+	if err != nil {
+		zap.L().Error("batch get friends info via grpc error", zap.Error(err))
+		return []userrsp.MyUserListRespond{}, total, errorx.ErrServerBusy
+	}
+	userMap := make(map[string]*userpb.PublicUserInfo, len(userList))
+	for _, u := range userList {
+		userMap[u.Uuid] = u
+	}
+
 	userListRsp := make([]userrsp.MyUserListRespond, 0, len(friendships))
 	for _, fs := range friendships {
-		cacheKey := constants.CacheKeyUserInfo + fs.FriendId
-		friendId := fs.FriendId // 闭包捕获
-
-		var userInfo userrsp.GetUserInfoRespond
-		err := s.cacheHelper.GetOrLoad(
-			ctx,
-			cacheKey,
-			func(loaderCtx context.Context) (interface{}, error) {
-				user, err := s.uow.UserRepo().FindByUuid(loaderCtx, friendId)
-				if err != nil {
-					return nil, err
-				}
-				return buildUserInfoRespond(user), nil
-			},
-			cacheutil.RandomizedTTL(5*time.Minute),
-			time.Minute,
-			&userInfo,
-		)
-		if err != nil {
-			zap.L().Error("Get user info error", zap.String("friendId", friendId), zap.Error(err))
-		} else {
+		if u, ok := userMap[fs.FriendId]; ok {
 			userListRsp = append(userListRsp, userrsp.MyUserListRespond{
-				UserId:   userInfo.Uuid,
-				UserName: userInfo.Nickname,
-				Avatar:   userInfo.Avatar,
+				UserId:   fs.FriendId,
+				UserName: u.Nickname,
+				Avatar:   u.Avatar,
 			})
 		}
 	}
@@ -146,28 +118,14 @@ func (s *FriendshipService) GetFriendInfo(ctx context.Context, userId, friendId 
 		return friendshiprsp.FriendInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "该用户处于禁用状态")
 	}
 
-	cacheKey := constants.CacheKeyUserInfo + friendId
-	var userRsp userrsp.GetUserInfoRespond
-
-	err = s.cacheHelper.GetOrLoad(
-		ctx,
-		cacheKey,
-		func(loaderCtx context.Context) (interface{}, error) {
-			user, err := s.uow.UserRepo().FindByUuid(loaderCtx, friendId)
-			if err != nil {
-				if errorx.IsNotFound(err) {
-					return nil, errorx.New(errorx.CodeUserNotExist, "该用户不存在")
-				}
-				return nil, err
-			}
-			return buildUserInfoRespond(user), nil
-		},
-		cacheutil.RandomizedTTL(time.Hour),
-		5*time.Minute,
-		&userRsp,
-	)
+	// 获取好友公开信息（昵称/头像/性别/生日/签名），避免直读 user 表
+	userInfo, err := grpc_client.GetPublicUserInfo(ctx, friendId)
 	if err != nil {
-		return friendshiprsp.FriendInfoRespond{}, err
+		if status.Code(err) == codes.NotFound {
+			return friendshiprsp.FriendInfoRespond{}, errorx.New(errorx.CodeUserNotExist, "该用户不存在")
+		}
+		zap.L().Error("get friend info via grpc error", zap.String("friendId", friendId), zap.Error(err))
+		return friendshiprsp.FriendInfoRespond{}, errorx.ErrServerBusy
 	}
 
 	// 获取好友备注（从 Friendship 记录中获取）
@@ -178,14 +136,12 @@ func (s *FriendshipService) GetFriendInfo(ctx context.Context, userId, friendId 
 	}
 
 	return friendshiprsp.FriendInfoRespond{
-		FriendId:        userRsp.Uuid,
-		FriendName:      userRsp.Nickname,
-		FriendAvatar:    userRsp.Avatar,
-		FriendBirthday:  userRsp.Birthday,
-		FriendEmail:     userRsp.Email,
-		FriendPhone:     userRsp.Telephone,
-		FriendGender:    userRsp.Gender,
-		FriendSignature: userRsp.Signature,
+		FriendId:        userInfo.Uuid,
+		FriendName:      userInfo.Nickname,
+		FriendAvatar:    userInfo.Avatar,
+		FriendBirthday:  userInfo.Birthday,
+		FriendGender:    int8(userInfo.Gender),
+		FriendSignature: userInfo.Signature,
 		Remark:          remark,
 	}, nil
 }

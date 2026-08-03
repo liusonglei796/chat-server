@@ -346,18 +346,17 @@ func (u *ApplyService) GetFriendApplyList(ctx context.Context, userId string, pa
 		userUuids = append(userUuids, apply.ApplicantId)
 	}
 
-	// 4. 批量查询申请人信息
-	// 根据收集到的UUID列表，一次性查询所有用户信息，避免N+1查询问题
-	userList, err := u.uow.UserRepo().FindByUuids(ctx, userUuids)
+	// 4. 批量查询申请人公开信息（昵称/头像），避免直读 user 表
+	userList, err := grpc_client.BatchGetPublicUserInfo(ctx, userUuids)
 	if err != nil {
-		zap.L().Error("Batch find users error", zap.Error(err))
+		zap.L().Error("batch get applicants via grpc error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
 	// 5. 构建用户信息Map
 	// 将用户列表转换为Map，Key为UUID，Value为用户信息
 	// 这样做是为了后续遍历申请列表时能够以O(1)复杂度获取对应用户信息
-	userMap := make(map[string]model.UserInfo)
+	userMap := make(map[string]*userpb.PublicUserInfo, len(userList))
 	for _, user := range userList {
 		userMap[user.Uuid] = user
 	}
@@ -445,15 +444,15 @@ func (u *ApplyService) GetGroupApplyList(ctx context.Context, userId, groupId st
 		userUuids = append(userUuids, apply.ApplicantId)
 	}
 
-	// 5. 批量查询申请人信息
-	userList, err := u.uow.UserRepo().FindByUuids(ctx, userUuids)
+	// 5. 批量查询申请人公开信息（昵称/头像），避免直读 user 表
+	userList, err := grpc_client.BatchGetPublicUserInfo(ctx, userUuids)
 	if err != nil {
-		zap.L().Error("Batch find users info error", zap.Error(err))
+		zap.L().Error("batch get applicants via grpc error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
 
 	// 6. 构建用户信息Map
-	userMap := make(map[string]model.UserInfo)
+	userMap := make(map[string]*userpb.PublicUserInfo, len(userList))
 	for _, user := range userList {
 		userMap[user.Uuid] = user
 	}

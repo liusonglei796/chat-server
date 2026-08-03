@@ -7,9 +7,11 @@ import (
 
 	"go.uber.org/zap"
 
+	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/domain/repository"
 	"kama_chat_server/internal/dto/request/group"
 	grouprsp "kama_chat_server/internal/dto/respond/group"
+	"kama_chat_server/internal/grpc_client"
 	cacheutil "kama_chat_server/internal/infrastructure/cache"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
@@ -418,20 +420,50 @@ func (g *GroupService) GetGroupMemberList(ctx context.Context, userId, groupId s
 		return nil, 0, errorx.ErrServerBusy
 	}
 
-	// 分页查询数据库
-	members, total, err := g.uow.GroupMemberRepo().FindMembersWithUserInfoPaged(ctx, groupId, page, pageSize)
+	// 查询全部群成员（仅 group_member 表，不 JOIN user 表）
+	members, err := g.uow.GroupMemberRepo().FindByGroupUuid(ctx, groupId)
 	if err != nil {
-		zap.L().Error("service error", zap.Error(err))
+		zap.L().Error("Find group members error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
 	}
 
-	// 构建响应
-	rspList := make([]grouprsp.GetGroupMemberListRespond, 0, len(members))
+	total := int64(len(members))
+
+	// 批量获取成员公开信息（昵称/头像），避免直读 user 表
+	userIds := make([]string, 0, len(members))
 	for _, m := range members {
+		userIds = append(userIds, m.UserUuid)
+	}
+	userList, err := grpc_client.BatchGetPublicUserInfo(ctx, userIds)
+	if err != nil {
+		zap.L().Error("batch get group members info via grpc error", zap.Error(err))
+		return nil, 0, errorx.ErrServerBusy
+	}
+	userMap := make(map[string]*userpb.PublicUserInfo, len(userList))
+	for _, u := range userList {
+		userMap[u.Uuid] = u
+	}
+
+	// 按分页参数切片返回
+	start := (page - 1) * pageSize
+	if start >= len(members) {
+		return []grouprsp.GetGroupMemberListRespond{}, total, nil
+	}
+	end := start + pageSize
+	if end > len(members) {
+		end = len(members)
+	}
+
+	rspList := make([]grouprsp.GetGroupMemberListRespond, 0, end-start)
+	for _, m := range members[start:end] {
+		u, ok := userMap[m.UserUuid]
+		if !ok {
+			continue
+		}
 		rspList = append(rspList, grouprsp.GetGroupMemberListRespond{
-			UserId:   m.UserId,
-			Nickname: m.Nickname,
-			Avatar:   m.Avatar,
+			UserId:   u.Uuid,
+			Nickname: u.Nickname,
+			Avatar:   u.Avatar,
 		})
 	}
 

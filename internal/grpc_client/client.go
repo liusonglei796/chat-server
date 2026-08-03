@@ -139,3 +139,37 @@ func ListGroupMemberIds(ctx context.Context, groupId string) ([]string, error) {
 	}
 	return rsp.UserIds, nil
 }
+
+// BatchGetPublicUserInfo 跨服务批量获取用户公开信息（昵称/头像/性别/生日/签名）
+func BatchGetPublicUserInfo(ctx context.Context, userIds []string) ([]*userpb.PublicUserInfo, error) {
+	if UserClient == nil {
+		return nil, errorx.New(errorx.CodeServerBusy, "user grpc client not initialized")
+	}
+	if len(userIds) == 0 {
+		return []*userpb.PublicUserInfo{}, nil
+	}
+	rsp, err := UserClient.BatchGetPublicUserInfo(ctx, &userpb.BatchGetPublicUserInfoRequest{UserIds: userIds})
+	if err != nil {
+		return nil, err
+	}
+	return rsp.Users, nil
+}
+
+// GetPublicUserInfo 跨服务获取单个用户公开信息（昵称/头像/性别/生日/签名）
+func GetPublicUserInfo(ctx context.Context, userId string) (*userpb.PublicUserInfo, error) {
+	if UserClient == nil {
+		return nil, errorx.New(errorx.CodeServerBusy, "user grpc client not initialized")
+	}
+	rsp, err := UserClient.GetPublicUserInfo(ctx, &userpb.GetPublicUserInfoRequest{TargetId: userId})
+	if err != nil {
+		return nil, err
+	}
+	return &userpb.PublicUserInfo{
+		Uuid:      rsp.Uuid,
+		Nickname:  rsp.Nickname,
+		Avatar:    rsp.Avatar,
+		Gender:    rsp.Gender,
+		Birthday:  rsp.Birthday,
+		Signature: rsp.Signature,
+	}, nil
+}
