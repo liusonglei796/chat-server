@@ -23,6 +23,7 @@ const (
 	UserService_GetUserInfo_FullMethodName            = "/user.UserService/GetUserInfo"
 	UserService_GetPublicUserInfo_FullMethodName      = "/user.UserService/GetPublicUserInfo"
 	UserService_BatchGetPublicUserInfo_FullMethodName = "/user.UserService/BatchGetPublicUserInfo"
+	UserService_GetUserStatus_FullMethodName          = "/user.UserService/GetUserStatus"
 	UserService_KickUser_FullMethodName               = "/user.UserService/KickUser"
 )
 
@@ -34,6 +35,7 @@ type UserServiceClient interface {
 	GetUserInfo(ctx context.Context, in *GetUserInfoRequest, opts ...grpc.CallOption) (*GetUserInfoResponse, error)
 	GetPublicUserInfo(ctx context.Context, in *GetPublicUserInfoRequest, opts ...grpc.CallOption) (*GetPublicUserInfoResponse, error)
 	BatchGetPublicUserInfo(ctx context.Context, in *BatchGetPublicUserInfoRequest, opts ...grpc.CallOption) (*BatchGetPublicUserInfoResponse, error)
+	GetUserStatus(ctx context.Context, in *GetUserStatusRequest, opts ...grpc.CallOption) (*GetUserStatusResponse, error)
 	KickUser(ctx context.Context, in *KickUserRequest, opts ...grpc.CallOption) (*KickUserResponse, error)
 }
 
@@ -85,6 +87,16 @@ func (c *userServiceClient) BatchGetPublicUserInfo(ctx context.Context, in *Batc
 	return out, nil
 }
 
+func (c *userServiceClient) GetUserStatus(ctx context.Context, in *GetUserStatusRequest, opts ...grpc.CallOption) (*GetUserStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetUserStatusResponse)
+	err := c.cc.Invoke(ctx, UserService_GetUserStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *userServiceClient) KickUser(ctx context.Context, in *KickUserRequest, opts ...grpc.CallOption) (*KickUserResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(KickUserResponse)
@@ -103,6 +115,7 @@ type UserServiceServer interface {
 	GetUserInfo(context.Context, *GetUserInfoRequest) (*GetUserInfoResponse, error)
 	GetPublicUserInfo(context.Context, *GetPublicUserInfoRequest) (*GetPublicUserInfoResponse, error)
 	BatchGetPublicUserInfo(context.Context, *BatchGetPublicUserInfoRequest) (*BatchGetPublicUserInfoResponse, error)
+	GetUserStatus(context.Context, *GetUserStatusRequest) (*GetUserStatusResponse, error)
 	KickUser(context.Context, *KickUserRequest) (*KickUserResponse, error)
 	mustEmbedUnimplementedUserServiceServer()
 }
@@ -125,6 +138,9 @@ func (UnimplementedUserServiceServer) GetPublicUserInfo(context.Context, *GetPub
 }
 func (UnimplementedUserServiceServer) BatchGetPublicUserInfo(context.Context, *BatchGetPublicUserInfoRequest) (*BatchGetPublicUserInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method BatchGetPublicUserInfo not implemented")
+}
+func (UnimplementedUserServiceServer) GetUserStatus(context.Context, *GetUserStatusRequest) (*GetUserStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUserStatus not implemented")
 }
 func (UnimplementedUserServiceServer) KickUser(context.Context, *KickUserRequest) (*KickUserResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method KickUser not implemented")
@@ -222,6 +238,24 @@ func _UserService_BatchGetPublicUserInfo_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserService_GetUserStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).GetUserStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_GetUserStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).GetUserStatus(ctx, req.(*GetUserStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _UserService_KickUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(KickUserRequest)
 	if err := dec(in); err != nil {
@@ -262,6 +296,10 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BatchGetPublicUserInfo",
 			Handler:    _UserService_BatchGetPublicUserInfo_Handler,
+		},
+		{
+			MethodName: "GetUserStatus",
+			Handler:    _UserService_GetUserStatus_Handler,
 		},
 		{
 			MethodName: "KickUser",

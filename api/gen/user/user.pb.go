@@ -617,6 +617,94 @@ func (x *PublicUserInfo) GetSignature() string {
 	return ""
 }
 
+type GetUserStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetUserStatusRequest) Reset() {
+	*x = GetUserStatusRequest{}
+	mi := &file_user_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetUserStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetUserStatusRequest) ProtoMessage() {}
+
+func (x *GetUserStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetUserStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetUserStatusRequest) Descriptor() ([]byte, []int) {
+	return file_user_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GetUserStatusRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+type GetUserStatusResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        int32                  `protobuf:"varint,1,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetUserStatusResponse) Reset() {
+	*x = GetUserStatusResponse{}
+	mi := &file_user_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetUserStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetUserStatusResponse) ProtoMessage() {}
+
+func (x *GetUserStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_user_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetUserStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetUserStatusResponse) Descriptor() ([]byte, []int) {
+	return file_user_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *GetUserStatusResponse) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
 type KickUserRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -626,7 +714,7 @@ type KickUserRequest struct {
 
 func (x *KickUserRequest) Reset() {
 	*x = KickUserRequest{}
-	mi := &file_user_proto_msgTypes[9]
+	mi := &file_user_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -638,7 +726,7 @@ func (x *KickUserRequest) String() string {
 func (*KickUserRequest) ProtoMessage() {}
 
 func (x *KickUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_user_proto_msgTypes[9]
+	mi := &file_user_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -651,7 +739,7 @@ func (x *KickUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KickUserRequest.ProtoReflect.Descriptor instead.
 func (*KickUserRequest) Descriptor() ([]byte, []int) {
-	return file_user_proto_rawDescGZIP(), []int{9}
+	return file_user_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *KickUserRequest) GetUserId() string {
@@ -669,7 +757,7 @@ type KickUserResponse struct {
 
 func (x *KickUserResponse) Reset() {
 	*x = KickUserResponse{}
-	mi := &file_user_proto_msgTypes[10]
+	mi := &file_user_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -681,7 +769,7 @@ func (x *KickUserResponse) String() string {
 func (*KickUserResponse) ProtoMessage() {}
 
 func (x *KickUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_user_proto_msgTypes[10]
+	mi := &file_user_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -694,7 +782,7 @@ func (x *KickUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KickUserResponse.ProtoReflect.Descriptor instead.
 func (*KickUserResponse) Descriptor() ([]byte, []int) {
-	return file_user_proto_rawDescGZIP(), []int{10}
+	return file_user_proto_rawDescGZIP(), []int{12}
 }
 
 var File_user_proto protoreflect.FileDescriptor
@@ -753,15 +841,20 @@ const file_user_proto_rawDesc = "" +
 	"\x06avatar\x18\x03 \x01(\tR\x06avatar\x12\x16\n" +
 	"\x06gender\x18\x04 \x01(\x05R\x06gender\x12\x1a\n" +
 	"\bbirthday\x18\x05 \x01(\tR\bbirthday\x12\x1c\n" +
-	"\tsignature\x18\x06 \x01(\tR\tsignature\"*\n" +
+	"\tsignature\x18\x06 \x01(\tR\tsignature\"/\n" +
+	"\x14GetUserStatusRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"/\n" +
+	"\x15GetUserStatusResponse\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\x05R\x06status\"*\n" +
 	"\x0fKickUserRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"\x12\n" +
-	"\x10KickUserResponse2\x94\x03\n" +
+	"\x10KickUserResponse2\xde\x03\n" +
 	"\vUserService\x12K\n" +
 	"\x0eUpdateUserInfo\x12\x1b.user.UpdateUserInfoRequest\x1a\x1c.user.UpdateUserInfoResponse\x12B\n" +
 	"\vGetUserInfo\x12\x18.user.GetUserInfoRequest\x1a\x19.user.GetUserInfoResponse\x12T\n" +
 	"\x11GetPublicUserInfo\x12\x1e.user.GetPublicUserInfoRequest\x1a\x1f.user.GetPublicUserInfoResponse\x12c\n" +
-	"\x16BatchGetPublicUserInfo\x12#.user.BatchGetPublicUserInfoRequest\x1a$.user.BatchGetPublicUserInfoResponse\x129\n" +
+	"\x16BatchGetPublicUserInfo\x12#.user.BatchGetPublicUserInfoRequest\x1a$.user.BatchGetPublicUserInfoResponse\x12H\n" +
+	"\rGetUserStatus\x12\x1a.user.GetUserStatusRequest\x1a\x1b.user.GetUserStatusResponse\x129\n" +
 	"\bKickUser\x12\x15.user.KickUserRequest\x1a\x16.user.KickUserResponseB\x1fZ\x1dkama_chat_server/api/gen/userb\x06proto3"
 
 var (
@@ -776,7 +869,7 @@ func file_user_proto_rawDescGZIP() []byte {
 	return file_user_proto_rawDescData
 }
 
-var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_user_proto_goTypes = []any{
 	(*UpdateUserInfoRequest)(nil),          // 0: user.UpdateUserInfoRequest
 	(*UpdateUserInfoResponse)(nil),         // 1: user.UpdateUserInfoResponse
@@ -787,8 +880,10 @@ var file_user_proto_goTypes = []any{
 	(*BatchGetPublicUserInfoRequest)(nil),  // 6: user.BatchGetPublicUserInfoRequest
 	(*BatchGetPublicUserInfoResponse)(nil), // 7: user.BatchGetPublicUserInfoResponse
 	(*PublicUserInfo)(nil),                 // 8: user.PublicUserInfo
-	(*KickUserRequest)(nil),                // 9: user.KickUserRequest
-	(*KickUserResponse)(nil),               // 10: user.KickUserResponse
+	(*GetUserStatusRequest)(nil),           // 9: user.GetUserStatusRequest
+	(*GetUserStatusResponse)(nil),          // 10: user.GetUserStatusResponse
+	(*KickUserRequest)(nil),                // 11: user.KickUserRequest
+	(*KickUserResponse)(nil),               // 12: user.KickUserResponse
 }
 var file_user_proto_depIdxs = []int32{
 	8,  // 0: user.BatchGetPublicUserInfoResponse.users:type_name -> user.PublicUserInfo
@@ -796,14 +891,16 @@ var file_user_proto_depIdxs = []int32{
 	2,  // 2: user.UserService.GetUserInfo:input_type -> user.GetUserInfoRequest
 	4,  // 3: user.UserService.GetPublicUserInfo:input_type -> user.GetPublicUserInfoRequest
 	6,  // 4: user.UserService.BatchGetPublicUserInfo:input_type -> user.BatchGetPublicUserInfoRequest
-	9,  // 5: user.UserService.KickUser:input_type -> user.KickUserRequest
-	1,  // 6: user.UserService.UpdateUserInfo:output_type -> user.UpdateUserInfoResponse
-	3,  // 7: user.UserService.GetUserInfo:output_type -> user.GetUserInfoResponse
-	5,  // 8: user.UserService.GetPublicUserInfo:output_type -> user.GetPublicUserInfoResponse
-	7,  // 9: user.UserService.BatchGetPublicUserInfo:output_type -> user.BatchGetPublicUserInfoResponse
-	10, // 10: user.UserService.KickUser:output_type -> user.KickUserResponse
-	6,  // [6:11] is the sub-list for method output_type
-	1,  // [1:6] is the sub-list for method input_type
+	9,  // 5: user.UserService.GetUserStatus:input_type -> user.GetUserStatusRequest
+	11, // 6: user.UserService.KickUser:input_type -> user.KickUserRequest
+	1,  // 7: user.UserService.UpdateUserInfo:output_type -> user.UpdateUserInfoResponse
+	3,  // 8: user.UserService.GetUserInfo:output_type -> user.GetUserInfoResponse
+	5,  // 9: user.UserService.GetPublicUserInfo:output_type -> user.GetPublicUserInfoResponse
+	7,  // 10: user.UserService.BatchGetPublicUserInfo:output_type -> user.BatchGetPublicUserInfoResponse
+	10, // 11: user.UserService.GetUserStatus:output_type -> user.GetUserStatusResponse
+	12, // 12: user.UserService.KickUser:output_type -> user.KickUserResponse
+	7,  // [7:13] is the sub-list for method output_type
+	1,  // [1:7] is the sub-list for method input_type
 	1,  // [1:1] is the sub-list for extension type_name
 	1,  // [1:1] is the sub-list for extension extendee
 	0,  // [0:1] is the sub-list for field type_name
@@ -821,7 +918,7 @@ func file_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_proto_rawDesc), len(file_user_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

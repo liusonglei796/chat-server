@@ -5,10 +5,14 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/domain/repository"
 	friendshiprsp "kama_chat_server/internal/dto/respond/friendship"
 	userrsp "kama_chat_server/internal/dto/respond/user"
+	"kama_chat_server/internal/grpc_client"
 	cacheutil "kama_chat_server/internal/infrastructure/cache"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
@@ -129,6 +133,19 @@ func (s *FriendshipService) GetFriendInfo(ctx context.Context, userId, friendId 
 		return friendshiprsp.FriendInfoRespond{}, errorx.New(errorx.CodeForbidden, "你们还不是好友")
 	}
 
+	// 校验好友账号状态（通过 user_service 的 GetUserStatus，避免跨服务直读 user 表）
+	friendStatusRsp, err := grpc_client.UserClient.GetUserStatus(ctx, &userpb.GetUserStatusRequest{UserId: friendId})
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return friendshiprsp.FriendInfoRespond{}, errorx.New(errorx.CodeUserNotExist, "该用户不存在")
+		}
+		zap.L().Error("Get friend status error", zap.String("friendId", friendId), zap.Error(err))
+		return friendshiprsp.FriendInfoRespond{}, errorx.ErrServerBusy
+	}
+	if int8(friendStatusRsp.Status) == user_status.DISABLE {
+		return friendshiprsp.FriendInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "该用户处于禁用状态")
+	}
+
 	cacheKey := constants.CacheKeyUserInfo + friendId
 	var userRsp userrsp.GetUserInfoRespond
 
@@ -142,9 +159,6 @@ func (s *FriendshipService) GetFriendInfo(ctx context.Context, userId, friendId 
 					return nil, errorx.New(errorx.CodeUserNotExist, "该用户不存在")
 				}
 				return nil, err
-			}
-			if user.Status == user_status.DISABLE {
-				return nil, errorx.New(errorx.CodeInvalidParam, "该用户处于禁用状态")
 			}
 			return buildUserInfoRespond(user), nil
 		},

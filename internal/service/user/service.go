@@ -380,3 +380,16 @@ func (u *UserService) BatchGetPublicUserInfo(ctx context.Context, userIds []stri
 	}
 	return rsp, nil
 }
+
+// GetUserStatus 获取用户账号状态（正常/禁用）
+// 供跨服务在写操作前置校验目标用户状态，避免读整个用户表
+func (u *UserService) GetUserStatus(ctx context.Context, userId string) (int8, error) {
+	user, err := u.uow.UserRepo().FindByUuid(ctx, userId)
+	if err != nil {
+		if errorx.IsNotFound(err) {
+			return 0, errorx.New(errorx.CodeUserNotExist, "用户不存在")
+		}
+		return 0, errorx.ErrServerBusy
+	}
+	return user.Status, nil
+}

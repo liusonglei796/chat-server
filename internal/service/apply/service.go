@@ -6,10 +6,14 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/domain/repository"
 	applyreq "kama_chat_server/internal/dto/request/apply"
 	applyrsp "kama_chat_server/internal/dto/respond/apply"
+	"kama_chat_server/internal/grpc_client"
 	cacheutil "kama_chat_server/internal/infrastructure/cache"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
@@ -60,21 +64,20 @@ func (u *ApplyService) ApplyFriend(ctx context.Context, userId string, req apply
 		return errorx.New(errorx.CodeInvalidParam, "不能添加自己为好友")
 	}
 
-	// 2. 检查目标用户是否存在
-	// 调用用户仓库查找目标用户信息，防止向不存在的用户发送申请
-	user, err := u.uow.UserRepo().FindByUuid(ctx, req.FriendId)
+	// 2. 检查目标用户是否存在与状态
+	// 通过 user_service 的 GetUserStatus 校验，防止向不存在或已禁用的用户发送申请
+	// 也避免跨服务直读 user 表
+	userStatusRsp, err := grpc_client.UserClient.GetUserStatus(ctx, &userpb.GetUserStatusRequest{UserId: req.FriendId})
 	if err != nil {
-		// 如果错误是记录未找到，则返回用户不存在的业务错误
-		if errorx.IsNotFound(err) {
+		if status.Code(err) == codes.NotFound {
 			return errorx.New(errorx.CodeUserNotExist, "该用户不存在")
 		}
-		// 其他数据库错误则返回服务器繁忙
 		return errorx.ErrServerBusy
 	}
 
-	// 3. 检查目标用户状态
+	// 检查目标用户状态
 	// 检查目标用户账号状态是否为禁用，防止与已被封禁或注销的用户建立关系
-	if user.Status == user_status.DISABLE {
+	if int8(userStatusRsp.Status) == user_status.DISABLE {
 		return errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
 	}
 
@@ -217,7 +220,7 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req applyr
 		// 1. 创建群成员记录
 		// 2. 增加群成员计数
 		// 3. 清理旧的申请记录（如果有）
-		err := u.uow.Transaction(func(tx repository.UnitOfWork) error {
+		err := u.uow.WithTx(func(tx repository.UnitOfWork) error {
 			// 创建群成员对象，Role默认为1（普通成员）
 			member := model.GroupMember{
 				GroupUuid: req.GroupId,
@@ -500,22 +503,26 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	// 2. 开启事务
+	// 2. 校验申请人状态
+	// 再次检查用户状态：虽然申请时已校验，但用户可能在申请后、审批前被禁用
+	// 防止审批通过时的竞态条件（Race Condition），确保不与禁用用户建立关系
+	// 通过 user_service 的 GetUserStatus 校验，避免跨服务直读 user 表
+	applicantStatusRsp, err := grpc_client.UserClient.GetUserStatus(ctx, &userpb.GetUserStatusRequest{UserId: applicantId})
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return errorx.New(errorx.CodeUserNotExist, "该用户不存在")
+		}
+		zap.L().Error("Get applicant status error", zap.String("applicantId", applicantId), zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+	if int8(applicantStatusRsp.Status) == user_status.DISABLE {
+		return errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
+	}
+
+	// 3. 开启事务
 	// 建立好友关系涉及多张表的更新（更新申请状态、双方各创建一条联系记录）
 	// 使用事务保证操作的原子性，要么全部成功，要么全部回滚
-	err = u.uow.Transaction(func(tx repository.UnitOfWork) error {
-		// 3. 查询申请人信息并校验状态
-		user, err := tx.UserRepo().FindByUuid(ctx, applicantId)
-		if err != nil {
-			zap.L().Error("Find user error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
-		// 再次检查用户状态：虽然申请时已校验，但用户可能在申请后、审批前被禁用
-		// 防止审批通过时的竞态条件（Race Condition），确保不与禁用用户建立关系
-		if user.Status == user_status.DISABLE {
-			return errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
-		}
-
+	err = u.uow.WithTx(func(tx repository.UnitOfWork) error {
 		// 4. 更新申请状态
 		// 将申请状态更新为已同意（AGREE）
 		apply.Status = apply_status.AGREE
@@ -601,7 +608,7 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 
 	// 3. 开启事务
 	// 保证入群操作（更新申请、添加成员、增加计数、添加联系）的原子性
-	err = u.uow.Transaction(func(tx repository.UnitOfWork) error {
+	err = u.uow.WithTx(func(tx repository.UnitOfWork) error {
 		// 3.1 获取并校验群组信息
 		group, err := tx.GroupRepo().FindByUuid(ctx, groupId)
 		if err != nil {

@@ -17,6 +17,7 @@ import (
 	mysqlimpl "kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/domain/repository"
+	"kama_chat_server/internal/grpc_client"
 	"kama_chat_server/internal/infrastructure/logger"
 	"kama_chat_server/internal/service/apply"
 	"kama_chat_server/internal/service/friendship"
@@ -42,14 +43,17 @@ func main() {
 	cacheService := myredis.Init()
 	var cachePort repository.AsyncCacheService = cacheService
 
-	// 5. 初始化 Service
+	// 5. 初始化 gRPC 客户端（跨服务调用 user_service 等）
+	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
+
+	// 6. 初始化 Service
 	friendshipSvc := friendship.NewFriendshipService(repos, cachePort)
 	groupSvc := group.NewGroupService(repos, cachePort)
 	applySvc := apply.NewApplyService(repos, cachePort)
 
 	grpcServer := relation.NewGrpcServer(friendshipSvc, groupSvc, applySvc)
 
-	// 6. 启动 gRPC 服务
+	// 7. 启动 gRPC 服务
 	port := 50053
 	addr := fmt.Sprintf("0.0.0.0:%d", port)
 	lis, err := net.Listen("tcp", addr)
@@ -87,5 +91,10 @@ func main() {
 
 	zap.L().Info("Shutting down Relation Service...")
 	s.GracefulStop()
+
+	// 关闭 Redis 异步任务池，等待已提交任务完成
+	if rc, ok := cacheService.(*myredis.RedisCache); ok {
+		rc.Release()
+	}
 	zap.L().Info("Relation Service stopped")
 }

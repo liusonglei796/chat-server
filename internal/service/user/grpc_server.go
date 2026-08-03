@@ -2,9 +2,14 @@ package user
 
 import (
 	"context"
+	"errors"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/dto/request/user"
+	"kama_chat_server/pkg/errorx"
 )
 
 type GrpcServer struct {
@@ -84,6 +89,18 @@ func (s *GrpcServer) BatchGetPublicUserInfo(ctx context.Context, req *userpb.Bat
 		})
 	}
 	return &userpb.BatchGetPublicUserInfoResponse{Users: users}, nil
+}
+
+func (s *GrpcServer) GetUserStatus(ctx context.Context, req *userpb.GetUserStatusRequest) (*userpb.GetUserStatusResponse, error) {
+	userStatus, err := s.svc.GetUserStatus(ctx, req.UserId)
+	if err != nil {
+		var codeErr *errorx.CodeError
+		if errors.As(err, &codeErr) && codeErr.Code == errorx.CodeUserNotExist {
+			return nil, status.Error(codes.NotFound, codeErr.Msg)
+		}
+		return nil, err
+	}
+	return &userpb.GetUserStatusResponse{Status: int32(userStatus)}, nil
 }
 
 func (s *GrpcServer) KickUser(ctx context.Context, req *userpb.KickUserRequest) (*userpb.KickUserResponse, error) {

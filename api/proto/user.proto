@@ -9,6 +9,7 @@ service UserService {
     rpc GetUserInfo (GetUserInfoRequest) returns (GetUserInfoResponse);
     rpc GetPublicUserInfo (GetPublicUserInfoRequest) returns (GetPublicUserInfoResponse);
     rpc BatchGetPublicUserInfo (BatchGetPublicUserInfoRequest) returns (BatchGetPublicUserInfoResponse);
+    rpc GetUserStatus (GetUserStatusRequest) returns (GetUserStatusResponse);
     rpc KickUser (KickUserRequest) returns (KickUserResponse);
 }
 
@@ -70,6 +71,14 @@ message PublicUserInfo {
     int32 gender = 4;
     string birthday = 5;
     string signature = 6;
+}
+
+message GetUserStatusRequest {
+    string user_id = 1;
+}
+
+message GetUserStatusResponse {
+    int32 status = 1;
 }
 
 message KickUserRequest {
