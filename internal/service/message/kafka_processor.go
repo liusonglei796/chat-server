@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
+	gootel "go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
 
@@ -104,6 +105,13 @@ func (k *KafkaProcessor) Start() {
 
 			msgCtx := otel.ExtractTraceContext(context.Background(), kafkaMessage.Headers)
 
+			// 创建 consumer span，承接 chat_server 侧注入的 trace context
+			// 使用全局 TracerProvider：无上游 span 时 SpanFromContext 会返回 noop provider
+			// 注意：不能使用 defer span.End()——该 defer 在 for 循环内，要到 goroutine 退出才执行，
+			// 导致 span 永不结束、永不导出；必须在每条消息处理完成后立即 End()
+			tracer := gootel.GetTracerProvider().Tracer("kama_chat_server/internal/service/message")
+			msgCtx, span := tracer.Start(msgCtx, "kafka.consume")
+
 			switch chatMessageReq.Type {
 			case message_type.Text:
 				k.handleTextMessage(msgCtx, chatMessageReq)
@@ -112,6 +120,7 @@ func (k *KafkaProcessor) Start() {
 			case message_type.AudioOrVideo:
 				k.handleAVMessage(msgCtx, chatMessageReq)
 			}
+			span.End()
 		}
 	}()
 }

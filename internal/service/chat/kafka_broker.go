@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/segmentio/kafka-go"
+	gootel "go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
 
@@ -39,6 +40,12 @@ func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
 	defer func() {
 		metrics.PublishDuration.Observe(time.Since(start).Seconds())
 	}()
+
+	// 创建 producer span，作为消息链路在 chat_server 侧的根
+	// 使用全局 TracerProvider：WS read 循环传入的 ctx 无 span，SpanFromContext 会返回 noop provider
+	tracer := gootel.GetTracerProvider().Tracer("kama_chat_server/internal/service/chat")
+	ctx, span := tracer.Start(ctx, "kafka.publish")
+	defer span.End()
 
 	key := []byte("0")
 	var req struct {

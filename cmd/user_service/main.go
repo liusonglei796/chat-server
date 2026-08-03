@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -24,6 +26,7 @@ import (
 	"kama_chat_server/internal/service/user"
 	"kama_chat_server/pkg/discovery"
 	"kama_chat_server/pkg/interceptor"
+	otelinit "kama_chat_server/pkg/otel"
 	"kama_chat_server/pkg/outbox"
 )
 
@@ -34,6 +37,20 @@ func main() {
 	// 2. 初始化日志
 	if err := logger.Init(&conf.LogConfig, "dev"); err != nil {
 		log.Fatalf("init logger failed: %v", err)
+	}
+
+	// 2.5. 初始化 OpenTelemetry（如果启用），服务名固定为 user_service
+	var otelShutdown func(context.Context) error
+	if conf.OtelConfig.Enabled {
+		var err error
+		otelShutdown, err = otelinit.InitTracer(context.Background(), conf.OtelConfig.Endpoint, "user_service")
+		if err != nil {
+			zap.L().Fatal("OpenTelemetry 初始化失败", zap.Error(err))
+		}
+		zap.L().Info("OpenTelemetry 初始化成功",
+			zap.String("endpoint", conf.OtelConfig.Endpoint),
+			zap.String("serviceName", "user_service"),
+		)
 	}
 
 	// 3. 初始化数据库
@@ -64,7 +81,10 @@ func main() {
 	}
 
 	s := grpc.NewServer(
-		grpc.UnaryInterceptor(interceptor.ServerAuthInterceptor()),
+		grpc.ChainUnaryInterceptor(
+			interceptor.ServerAuthInterceptor(),
+			otelinit.ServerTraceInterceptor(),
+		),
 	)
 	userpb.RegisterUserServiceServer(s, grpcServer)
 	authpb.RegisterAuthServiceServer(s, authGrpcServer)
@@ -98,6 +118,15 @@ func main() {
 	// 关闭 Redis 异步任务池，等待已提交任务完成
 	if rc, ok := cacheService.(*myredis.RedisCache); ok {
 		rc.Release()
+	}
+
+	// 关闭 OpenTelemetry TracerProvider，确保未导出的 span 被刷新
+	if otelShutdown != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := otelShutdown(shutdownCtx); err != nil {
+			zap.L().Error("failed to shutdown tracer", zap.Error(err))
+		}
 	}
 	zap.L().Info("User Service stopped")
 }

@@ -16,6 +16,7 @@ import (
 	"kama_chat_server/pkg/discovery"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/interceptor"
+	otelinit "kama_chat_server/pkg/otel"
 )
 
 var (
@@ -34,7 +35,11 @@ func Init(etcdEndpoints []string) {
 
 		opts := []grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithUnaryInterceptor(interceptor.ClientAuthInterceptor()),
+			// 先注入用户身份，再注入 trace context（顺序：auth → trace）
+			grpc.WithChainUnaryInterceptor(
+				interceptor.ClientAuthInterceptor(),
+				otelinit.ClientTraceInterceptor(),
+			),
 			grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`),
 		}
 
