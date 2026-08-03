@@ -9,7 +9,7 @@ import (
 	"kama_chat_server/internal/dto/event"
 	messagereq "kama_chat_server/internal/dto/request/message"
 	messagersp "kama_chat_server/internal/dto/respond/message"
-	cacheutil "kama_chat_server/internal/infrastructure/cache"
+	"kama_chat_server/internal/grpc_client"
 	"kama_chat_server/internal/infrastructure/metrics"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
@@ -30,13 +30,13 @@ type KafkaProcessor struct {
 	UpstreamReader   *kafka.Reader
 	DownstreamWriter *kafka.Writer
 	MessageRepo      repository.MessageRepository
-	friendshipRepo   repository.FriendshipRepository
-	groupMemberRepo  repository.GroupMemberRepository
-	sessionRepo      repository.SessionRepository
-	cacheService     repository.AsyncCacheService
-	cacheHelper      *cacheutil.Helper
-	userRepo         repository.UserRepository
-	quit             chan os.Signal
+	// 以下仓库字段拆分后废弃，仅兼容构造签名（Task 21 收尾时移除）
+	friendshipRepo  repository.FriendshipRepository
+	groupMemberRepo repository.GroupMemberRepository
+	userRepo        repository.UserRepository
+	sessionRepo     repository.SessionRepository
+	cacheService    repository.AsyncCacheService
+	quit            chan os.Signal
 }
 
 func normalizePath(path string) string {
@@ -58,11 +58,6 @@ func NewKafkaProcessor(
 	cacheService repository.AsyncCacheService,
 	userRepo repository.UserRepository,
 ) *KafkaProcessor {
-	var helper *cacheutil.Helper
-	if cacheService != nil {
-		helper = cacheutil.NewHelper(cacheService)
-	}
-
 	kafkaConfig := config.GetConfig().KafkaConfig
 
 	reader := kafka.NewReader(kafka.ReaderConfig{
@@ -90,7 +85,6 @@ func NewKafkaProcessor(
 		groupMemberRepo:  groupMemberRepo,
 		sessionRepo:      sessionRepo,
 		cacheService:     cacheService,
-		cacheHelper:      helper,
 		userRepo:         userRepo,
 		quit:             make(chan os.Signal, 1),
 	}
@@ -195,33 +189,25 @@ func (k *KafkaProcessor) checkSendPermission(sendId, receiveId string) error {
 		return fmt.Errorf("接收者ID不能为空")
 	}
 
-	if k.userRepo != nil {
-		sender, err := k.userRepo.FindByUuid(ctx, sendId)
-		if err != nil {
-			zap.L().Error("查询发送者信息失败", zap.String("sendId", sendId), zap.Error(err))
-			return fmt.Errorf("权限校验失败")
-		}
-		if sender.Status == user_status.DISABLE {
+	if k.userRepo != nil { // 降级开关：grpc 失败时按旧行为放行
+		senderStatus, err := grpc_client.GetUserStatus(ctx, sendId)
+		if err == nil && senderStatus == user_status.DISABLE {
 			zap.L().Warn("被禁用的用户尝试发送消息", zap.String("sendId", sendId))
 			return fmt.Errorf("您的账号已被禁用，无法发送消息")
 		}
 	}
 
 	if receiveId[0] == 'U' {
-		if k.friendshipRepo != nil {
-			isFriend, err := k.friendshipRepo.IsFriend(ctx, sendId, receiveId)
-			if err != nil {
-				zap.L().Error("检查好友关系失败", zap.String("sendId", sendId), zap.String("receiveId", receiveId), zap.Error(err))
-				return fmt.Errorf("权限校验失败")
-			}
-			if !isFriend {
+		if k.friendshipRepo != nil { // 降级开关：grpc 失败时按旧行为放行
+			fsStatus, err := grpc_client.CheckFriendshipStatus(ctx, sendId, receiveId)
+			if err == nil && fsStatus != 1 {
 				return fmt.Errorf("你们还不是好友，无法发送消息")
 			}
 		}
 	} else if receiveId[0] == 'G' {
-		if k.groupMemberRepo != nil {
-			_, err := k.groupMemberRepo.FindByGroupAndUser(ctx, receiveId, sendId)
-			if err != nil {
+		if k.groupMemberRepo != nil { // 降级开关：grpc 失败时按旧行为放行
+			isMember, err := grpc_client.CheckGroupMember(ctx, receiveId, sendId)
+			if err == nil && !isMember {
 				return fmt.Errorf("你不是该群成员，无法发送消息")
 			}
 		}
@@ -420,7 +406,7 @@ func (k *KafkaProcessor) dispatchToUser(message model.Message, originalAvatar st
 		CreatedAt:  message.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
 	jsonMessage, _ := json.Marshal(messageRsp)
-	
+
 	trySendBack(k, message.ReceiveId, message.Uuid, jsonMessage)
 	trySendBack(k, message.SendId, message.Uuid, jsonMessage)
 
@@ -461,13 +447,10 @@ func (k *KafkaProcessor) dispatchToGroup(message model.Message, originalAvatar s
 	}
 	jsonMessage, _ := json.Marshal(messageRsp)
 
-	var groupMembers []model.GroupMember
-	if k.groupMemberRepo != nil {
-		groupMembers = k.getGroupMembersCached(message.ReceiveId)
-	}
+	memberIds := k.getGroupMemberIds(message.ReceiveId)
 
-	for _, gm := range groupMembers {
-		trySendBack(k, gm.UserUuid, message.Uuid, jsonMessage)
+	for _, uid := range memberIds {
+		trySendBack(k, uid, message.Uuid, jsonMessage)
 	}
 
 	if k.cacheService != nil {
@@ -487,26 +470,11 @@ func (k *KafkaProcessor) dispatchToGroup(message model.Message, originalAvatar s
 	}
 }
 
-func (k *KafkaProcessor) getGroupMembersCached(groupId string) []model.GroupMember {
-	if k.cacheHelper == nil {
-		if k.groupMemberRepo != nil {
-			members, _ := k.groupMemberRepo.FindByGroupUuid(context.Background(), groupId)
-			return members
-		}
+func (k *KafkaProcessor) getGroupMemberIds(groupId string) []string {
+	ids, err := grpc_client.ListGroupMemberIds(context.Background(), groupId)
+	if err != nil {
+		zap.L().Error("get group members via grpc error", zap.Error(err))
 		return nil
 	}
-
-	cacheKey := constants.CacheKeyGroupMembers + groupId
-	fetchFn := func(ctx context.Context) (interface{}, error) {
-		return k.groupMemberRepo.FindByGroupUuid(ctx, groupId)
-	}
-	var members []model.GroupMember
-	err := k.cacheHelper.GetOrLoad(context.Background(), cacheKey, fetchFn, 24*time.Hour, 0, &members)
-	if err != nil {
-		zap.L().Error("获取群成员失败", zap.Error(err))
-		if k.groupMemberRepo != nil {
-			members, _ = k.groupMemberRepo.FindByGroupUuid(context.Background(), groupId)
-		}
-	}
-	return members
+	return ids
 }

@@ -127,3 +127,15 @@ func GetGroupDetail(ctx context.Context, userId, groupId string) (*relationpb.Ge
 	}
 	return rsp, nil
 }
+
+// ListGroupMemberIds 跨服务获取群全部成员ID（不要求调用方是成员）
+func ListGroupMemberIds(ctx context.Context, groupId string) ([]string, error) {
+	if RelationClient == nil {
+		return nil, errorx.New(errorx.CodeServerBusy, "relation grpc client not initialized")
+	}
+	rsp, err := RelationClient.ListGroupMemberIds(ctx, &relationpb.ListGroupMemberIdsRequest{GroupId: groupId})
+	if err != nil {
+		return nil, err
+	}
+	return rsp.UserIds, nil
+}
