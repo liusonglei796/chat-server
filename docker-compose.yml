@@ -107,24 +107,6 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  auth-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_PATH: ./cmd/auth_service
-    container_name: auth-service
-    volumes:
-      - ./configs/config.toml:/app/configs/config.toml:ro
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      etcd:
-        condition: service_started
-    restart: unless-stopped
-
   relation-service:
     build:
       context: .

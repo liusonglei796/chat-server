@@ -13,11 +13,13 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	userpb "kama_chat_server/api/gen/user"
+	authpb "kama_chat_server/api/gen/auth"
 	"kama_chat_server/internal/config"
 	mysqlimpl "kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/domain/repository"
 	"kama_chat_server/internal/infrastructure/logger"
+	"kama_chat_server/internal/service/auth"
 	"kama_chat_server/internal/service/user"
 	"kama_chat_server/pkg/discovery"
 	"kama_chat_server/pkg/interceptor"
@@ -42,6 +44,8 @@ func main() {
 	// 5. 初始化 Service
 	userSvc := user.NewUserService(repos, cachePort)
 	grpcServer := user.NewGrpcServer(userSvc)
+	authSvc := auth.NewAuthService(cachePort, repos.User)
+	authGrpcServer := auth.NewGrpcServer(authSvc, userSvc)
 
 	// 6. 启动 gRPC 服务
 	port := 50051
@@ -55,6 +59,7 @@ func main() {
 		grpc.UnaryInterceptor(interceptor.ServerAuthInterceptor()),
 	)
 	userpb.RegisterUserServiceServer(s, grpcServer)
+	authpb.RegisterAuthServiceServer(s, authGrpcServer)
 	reflection.Register(s)
 
 	// 7. 注册到 Etcd

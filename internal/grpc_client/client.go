@@ -45,8 +45,8 @@ func Init(etcdEndpoints []string) {
 		}
 		UserClient = userpb.NewUserServiceClient(userConn)
 
-		// Auth Service
-		authConn, err := grpc.Dial(discovery.BuildDialTarget("auth_service"), opts...)
+		// Auth Service (hosted by user_service)
+		authConn, err := grpc.Dial(discovery.BuildDialTarget("user_service"), opts...)
 		if err != nil {
 			log.Fatalf("failed to connect auth_service: %v", err)
 		}
