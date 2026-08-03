@@ -656,16 +656,22 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 			return errorx.ErrServerBusy
 		}
 
-		// 3.5 创建群聊会话（入群时自动创建）
-		session := model.Session{
-			Uuid:        "S" + snowflake.GenerateIDString(),
-			SendId:      applicantId,
-			ReceiveId:   groupId,
-			ReceiveName: group.Name,
-			Avatar:      group.Avatar,
+		// 3.5 事务内写 outbox 事件，message_service 消费后创建群会话
+		payload, _ := json.Marshal(event.GroupJoinedEvent{
+			GroupId:     groupId,
+			UserId:      applicantId,
+			GroupName:   group.Name,
+			GroupAvatar: group.Avatar,
+		})
+		o := model.Outbox{
+			Uuid:      fmt.Sprintf("O%s", snowflake.GenerateIDString()),
+			EventType: event.EventGroupJoined,
+			Payload:   string(payload),
+			Status:    0,
+			CreatedAt: time.Now(),
 		}
-		if err := tx.SessionRepo().CreateSession(ctx, &session); err != nil {
-			zap.L().Error("创建入群会话失败", zap.Error(err))
+		if err := tx.OutboxRepo().Create(ctx, &o); err != nil {
+			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		return nil
