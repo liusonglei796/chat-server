@@ -48,7 +48,7 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 		Status:    group_status.NORMAL,
 	}
 
-	err := g.uow.Transaction(func(tx repository.UnitOfWork) error {
+	err := g.uow.WithTx(func(tx repository.UnitOfWork) error {
 		if err := tx.GroupRepo().CreateGroup(ctx, &group); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -215,7 +215,7 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 		return errorx.New(errorx.CodeInvalidParam, "群主不能退群，请先转让群主或解散群聊")
 	}
 
-	err = g.uow.Transaction(func(tx repository.UnitOfWork) error {
+	err = g.uow.WithTx(func(tx repository.UnitOfWork) error {
 		if err := tx.GroupMemberRepo().DeleteByUserUuids(ctx, groupId, []string{userId}); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -269,7 +269,7 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 
 	var memberIds []string
 
-	err = g.uow.Transaction(func(tx repository.UnitOfWork) error {
+	err = g.uow.WithTx(func(tx repository.UnitOfWork) error {
 		// 1. 获取涉及的成员ID
 		members, err := tx.GroupMemberRepo().FindByGroupUuid(ctx, groupId)
 		if err != nil {
@@ -470,7 +470,7 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 	}
 
 	// 3. 事务执行删除操作
-	err = g.uow.Transaction(func(tx repository.UnitOfWork) error {
+	err = g.uow.WithTx(func(tx repository.UnitOfWork) error {
 		// 删除群成员
 		if err := tx.GroupMemberRepo().DeleteByUserUuids(ctx, req.GroupId, req.UuidList); err != nil {
 			zap.L().Error("Delete group members error", zap.Error(err))
@@ -640,4 +640,31 @@ func (g *GroupService) MuteMember(ctx context.Context, operatorId string, req gr
 	})
 
 	return nil
+}
+
+// IsGroupMember 检查用户是否为群成员
+func (g *GroupService) IsGroupMember(ctx context.Context, groupId, userId string) (bool, error) {
+	_, err := g.uow.GroupMemberRepo().FindByGroupAndUser(ctx, groupId, userId)
+	if err != nil {
+		if errorx.IsNotFound(err) {
+			return false, nil
+		}
+		zap.L().Error("query group member error", zap.Error(err))
+		return false, errorx.ErrServerBusy
+	}
+	return true, nil
+}
+
+// ListGroupMemberIds 返回群全部成员ID（直接读 group_member 表，不 JOIN user 表）
+func (g *GroupService) ListGroupMemberIds(ctx context.Context, groupId string) ([]string, error) {
+	members, err := g.uow.GroupMemberRepo().FindByGroupUuid(ctx, groupId)
+	if err != nil {
+		zap.L().Error("query group members error", zap.Error(err))
+		return nil, errorx.ErrServerBusy
+	}
+	ids := make([]string, 0, len(members))
+	for _, m := range members {
+		ids = append(ids, m.UserUuid)
+	}
+	return ids, nil
 }

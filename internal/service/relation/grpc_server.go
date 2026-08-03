@@ -209,6 +209,33 @@ func (s *GrpcServer) MuteMember(ctx context.Context, req *relationpb.MuteMemberR
 	return &relationpb.MuteMemberResponse{}, err
 }
 
+// CheckFriendship 返回好友关系状态：0=非好友 1=正常 2=已拉黑对方 3=被对方拉黑
+func (s *GrpcServer) CheckFriendship(ctx context.Context, req *relationpb.CheckFriendshipRequest) (*relationpb.CheckFriendshipResponse, error) {
+	fs, err := s.friendshipSvc.GetFriendshipStatus(ctx, req.UserId, req.FriendId)
+	if err != nil {
+		return nil, err
+	}
+	return &relationpb.CheckFriendshipResponse{Status: int32(fs)}, nil
+}
+
+// CheckGroupMember 检查用户是否为群成员
+func (s *GrpcServer) CheckGroupMember(ctx context.Context, req *relationpb.CheckGroupMemberRequest) (*relationpb.CheckGroupMemberResponse, error) {
+	isMember, err := s.groupSvc.IsGroupMember(ctx, req.GroupId, req.UserId)
+	if err != nil {
+		return nil, err
+	}
+	return &relationpb.CheckGroupMemberResponse{IsMember: isMember}, nil
+}
+
+// ListGroupMemberIds 获取群全部成员ID（不校验调用方身份，供消息服务群发）
+func (s *GrpcServer) ListGroupMemberIds(ctx context.Context, req *relationpb.ListGroupMemberIdsRequest) (*relationpb.ListGroupMemberIdsResponse, error) {
+	ids, err := s.groupSvc.ListGroupMemberIds(ctx, req.GroupId)
+	if err != nil {
+		return nil, err
+	}
+	return &relationpb.ListGroupMemberIdsResponse{UserIds: ids}, nil
+}
+
 // Apply
 func (s *GrpcServer) ApplyFriend(ctx context.Context, req *relationpb.ApplyFriendRequest) (*relationpb.ApplyFriendResponse, error) {
 	err := s.applySvc.ApplyFriend(ctx, req.UserId, applyreq.ApplyFriendRequest{

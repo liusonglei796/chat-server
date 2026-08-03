@@ -191,7 +191,7 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 		return errorx.New(errorx.CodeForbidden, "你们还不是好友")
 	}
 
-	err = s.uow.Transaction(func(tx repository.UnitOfWork) error {
+	err = s.uow.WithTx(func(tx repository.UnitOfWork) error {
 		if err := tx.FriendshipRepo().SoftDelete(ctx, userId, friendId); err != nil {
 			zap.L().Error("Delete friendship error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -224,7 +224,7 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 		return errorx.New(errorx.CodeInvalidParam, "不能拉黑自己")
 	}
 
-	err := s.uow.Transaction(func(tx repository.UnitOfWork) error {
+	err := s.uow.WithTx(func(tx repository.UnitOfWork) error {
 		myFs, err := tx.FriendshipRepo().FindByUserIdAndFriendId(ctx, userId, friendId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
@@ -284,7 +284,7 @@ func (s *FriendshipService) UnblackFriend(ctx context.Context, userId string, fr
 		return errorx.New(errorx.CodeInvalidParam, "参数错误")
 	}
 
-	err := s.uow.Transaction(func(tx repository.UnitOfWork) error {
+	err := s.uow.WithTx(func(tx repository.UnitOfWork) error {
 		myFs, err := tx.FriendshipRepo().FindByUserIdAndFriendId(ctx, userId, friendId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
@@ -363,4 +363,25 @@ func (s *FriendshipService) UpdateRemark(ctx context.Context, userId, friendId, 
 	}
 
 	return nil
+}
+
+// GetFriendshipStatus 返回好友关系状态（对外契约）
+// 0=非好友 1=正常 2=已拉黑对方 3=被对方拉黑
+func (s *FriendshipService) GetFriendshipStatus(ctx context.Context, userId, friendId string) (int8, error) {
+	fs, err := s.uow.FriendshipRepo().FindByUserIdAndFriendId(ctx, userId, friendId)
+	if err != nil {
+		if errorx.IsNotFound(err) {
+			return 0, nil
+		}
+		zap.L().Error("query friendship error", zap.Error(err))
+		return 0, errorx.ErrServerBusy
+	}
+	switch fs.Status {
+	case friendship_status.BE_BLACK: // 被对方拉黑
+		return 3, nil
+	case friendship_status.BLACK: // 拉黑对方
+		return 2, nil
+	default: // NORMAL
+		return 1, nil
+	}
 }
