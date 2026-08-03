@@ -10,7 +10,7 @@ import (
 
 	"github.com/segmentio/kafka-go"
 
-	"kama_chat_server/internal/config"
+	"kama_chat_server/internal/common/config"
 )
 
 // DomainEventsTopic 跨服务领域事件主题

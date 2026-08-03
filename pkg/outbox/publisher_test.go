@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"kama_chat_server/internal/model"
+	"kama_chat_server/internal/common/model"
 )
 
 type fakeOutboxRepo struct {

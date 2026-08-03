@@ -7,7 +7,7 @@ import (
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 
-	"kama_chat_server/internal/domain/repository"
+	"kama_chat_server/internal/common/domain/repository"
 )
 
 // PublishFunc 发送事件的可注入函数，便于单测替换真实 Kafka

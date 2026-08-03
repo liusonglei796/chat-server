@@ -26,3 +26,15 @@ your log path/
 .env
 .env.local
 .env.*.local
+
+# Compiled service binaries
+/user_service
+/relation_service
+/message_service
+/gateway
+
+# OpenCode internal state
+/.omo/
+
+# One-off refactor script
+/do_refactor.py

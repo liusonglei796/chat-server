@@ -1,3 +1,7 @@
+//go:build ignore
+
+// 一次性脚本：探测 auth-service 的 gRPC reflection 服务列表
+// 用法: go run test_grpc.go
 package main
 
 import (
