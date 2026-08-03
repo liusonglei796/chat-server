@@ -37,6 +37,13 @@ service RelationService {
     rpc RefuseGroupApply (RefuseGroupApplyRequest) returns (RefuseGroupApplyResponse);
     rpc BlackFriendApply (BlackFriendApplyRequest) returns (BlackFriendApplyResponse);
     rpc BlackGroupApply (BlackGroupApplyRequest) returns (BlackGroupApplyResponse);
+
+    // 检查好友关系状态：0=非好友 1=正常 2=已拉黑对方 3=被对方拉黑
+    rpc CheckFriendship (CheckFriendshipRequest) returns (CheckFriendshipResponse);
+    // 检查用户是否为群成员
+    rpc CheckGroupMember (CheckGroupMemberRequest) returns (CheckGroupMemberResponse);
+    // 获取群全部成员ID（供消息服务群发用，不要求调用方是成员）
+    rpc ListGroupMemberIds (ListGroupMemberIdsRequest) returns (ListGroupMemberIdsResponse);
 }
 
 // Friendship Messages
@@ -291,4 +298,27 @@ message BlackGroupApplyRequest {
     string applicant_id = 3;
 }
 message BlackGroupApplyResponse {}
+
+message CheckFriendshipRequest {
+    string user_id = 1;
+    string friend_id = 2;
+}
+message CheckFriendshipResponse {
+    int32 status = 1;
+}
+
+message CheckGroupMemberRequest {
+    string group_id = 1;
+    string user_id = 2;
+}
+message CheckGroupMemberResponse {
+    bool is_member = 1;
+}
+
+message ListGroupMemberIdsRequest {
+    string group_id = 1;
+}
+message ListGroupMemberIdsResponse {
+    repeated string user_ids = 1;
+}
 
