@@ -1,6 +1,7 @@
 package grpc_client
 
 import (
+	"context"
 	"log"
 	"sync"
 
@@ -13,6 +14,7 @@ import (
 	relationpb "kama_chat_server/api/gen/relation"
 	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/pkg/discovery"
+	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/interceptor"
 )
 
@@ -64,4 +66,64 @@ func Init(etcdEndpoints []string) {
 		}
 		MessageClient = messagepb.NewMessageServiceClient(messageConn)
 	})
+}
+
+// GetUserStatus 跨服务获取用户账号状态（0=正常 1=禁用），用户不存在时返回 codes.NotFound
+func GetUserStatus(ctx context.Context, userId string) (int8, error) {
+	if UserClient == nil {
+		return 0, errorx.New(errorx.CodeServerBusy, "user grpc client not initialized")
+	}
+	rsp, err := UserClient.GetUserStatus(ctx, &userpb.GetUserStatusRequest{UserId: userId})
+	if err != nil {
+		return 0, err
+	}
+	return int8(rsp.Status), nil
+}
+
+// GetUserNicknameAvatar 跨服务取用户昵称头像（GetUserInfo 仅允许本人查询，故 requester=target=本人）
+func GetUserNicknameAvatar(ctx context.Context, targetId string) (nickname, avatar string, err error) {
+	if UserClient == nil {
+		return "", "", errorx.New(errorx.CodeServerBusy, "user grpc client not initialized")
+	}
+	rsp, err := UserClient.GetUserInfo(ctx, &userpb.GetUserInfoRequest{RequesterId: targetId, TargetId: targetId})
+	if err != nil {
+		return "", "", err
+	}
+	return rsp.Nickname, rsp.Avatar, nil
+}
+
+// CheckFriendshipStatus 跨服务查好友关系状态（0=非好友 1=正常 2=已拉黑对方 3=被对方拉黑）
+func CheckFriendshipStatus(ctx context.Context, userId, friendId string) (int8, error) {
+	if RelationClient == nil {
+		return 0, errorx.New(errorx.CodeServerBusy, "relation grpc client not initialized")
+	}
+	rsp, err := RelationClient.CheckFriendship(ctx, &relationpb.CheckFriendshipRequest{UserId: userId, FriendId: friendId})
+	if err != nil {
+		return 0, err
+	}
+	return int8(rsp.Status), nil
+}
+
+// CheckGroupMember 跨服务查用户是否为群成员
+func CheckGroupMember(ctx context.Context, groupId, userId string) (bool, error) {
+	if RelationClient == nil {
+		return false, errorx.New(errorx.CodeServerBusy, "relation grpc client not initialized")
+	}
+	rsp, err := RelationClient.CheckGroupMember(ctx, &relationpb.CheckGroupMemberRequest{GroupId: groupId, UserId: userId})
+	if err != nil {
+		return false, err
+	}
+	return rsp.IsMember, nil
+}
+
+// GetGroupDetail 跨服务获取群详情（已含成员校验/禁用校验/存在性校验）
+func GetGroupDetail(ctx context.Context, userId, groupId string) (*relationpb.GetGroupDetailResponse, error) {
+	if RelationClient == nil {
+		return nil, errorx.New(errorx.CodeServerBusy, "relation grpc client not initialized")
+	}
+	rsp, err := RelationClient.GetGroupDetail(ctx, &relationpb.GetGroupDetailRequest{UserId: userId, GroupId: groupId})
+	if err != nil {
+		return nil, err
+	}
+	return rsp, nil
 }

@@ -17,6 +17,7 @@ import (
 	mysqlimpl "kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/domain/repository"
+	"kama_chat_server/internal/grpc_client"
 	"kama_chat_server/internal/infrastructure/logger"
 	"kama_chat_server/internal/service/message"
 	"kama_chat_server/internal/service/session"
@@ -40,7 +41,10 @@ func main() {
 	cacheService := myredis.Init()
 	var cachePort repository.AsyncCacheService = cacheService
 
-	// 5. 初始化 Service
+	// 5. 初始化 gRPC 客户端（跨服务调用 user_service/relation_service 等）
+	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
+
+	// 6. 初始化 Service
 	// 此时暂时传入 nil 给 pushRecallNotify，如果是真实微服务，需要通过 Kafka 给 ChatServer 发送撤回消息通知
 	// 或者稍后我们再修改此处
 	msgSvc := message.NewMessageService(repos.Message, repos.Friendship, repos.Session, cachePort, nil)
@@ -63,7 +67,7 @@ func main() {
 
 	grpcServer := message.NewGrpcServer(msgSvc, sessionSvc)
 
-	// 6. 启动 gRPC 服务
+	// 7. 启动 gRPC 服务
 	port := 50054
 	addr := fmt.Sprintf("0.0.0.0:%d", port)
 	lis, err := net.Listen("tcp", addr)
@@ -77,7 +81,7 @@ func main() {
 	messagepb.RegisterMessageServiceServer(s, grpcServer)
 	reflection.Register(s)
 
-	// 7. 注册到 Etcd
+	// 8. 注册到 Etcd
 	register, err := discovery.NewRegister([]string{"etcd:2379", "127.0.0.1:2379"}, discovery.ServerInfo{
 		Name:   "message_service",
 		Addr:   fmt.Sprintf("message-service:%d", port),
@@ -101,5 +105,10 @@ func main() {
 
 	zap.L().Info("Shutting down Message Service...")
 	s.GracefulStop()
+
+	// 关闭 Redis 异步任务池，等待已提交任务完成
+	if rc, ok := cacheService.(*myredis.RedisCache); ok {
+		rc.Release()
+	}
 	zap.L().Info("Message Service stopped")
 }

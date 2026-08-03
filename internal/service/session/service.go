@@ -7,17 +7,19 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"kama_chat_server/internal/domain/repository"
 	sessionreq "kama_chat_server/internal/dto/request/session"
 	"kama_chat_server/internal/dto/respond/group"
 	sessionrsp "kama_chat_server/internal/dto/respond/session"
 	"kama_chat_server/internal/dto/respond/user"
+	"kama_chat_server/internal/grpc_client"
 	cacheutil "kama_chat_server/internal/infrastructure/cache"
 	"kama_chat_server/internal/infrastructure/snowflake"
 	"kama_chat_server/internal/model"
 	"kama_chat_server/pkg/constants"
-	"kama_chat_server/pkg/enum/friendship/friendship_status"
 	"kama_chat_server/pkg/enum/group/group_status"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
@@ -26,7 +28,8 @@ import (
 // SessionService 会话业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖
 type SessionService struct {
-	sessionRepo     repository.SessionRepository
+	sessionRepo repository.SessionRepository
+	// 以下四个仓库字段拆分后废弃，仅兼容构造签名（Task 21 收尾时移除）
 	userRepo        repository.UserRepository
 	groupRepo       repository.GroupRepository
 	groupMemberRepo repository.GroupMemberRepository
@@ -83,10 +86,10 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 		return existingSession.Uuid, nil
 	}
 
-	// 2. 验证发送者是否存在
-	_, err = s.userRepo.FindByUuid(ctx, sendId)
+	// 2. 验证发送者是否存在与状态
+	sendStatus, err := grpc_client.GetUserStatus(ctx, sendId)
 	if err != nil {
-		if errorx.GetCode(err) == errorx.CodeNotFound {
+		if status.Code(err) == codes.NotFound {
 			zap.L().Warn("发送用户不存在",
 				zap.String("send_id", sendId),
 				zap.String("operation", "create_session"),
@@ -99,6 +102,13 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 		)
 		return "", errorx.ErrServerBusy
 	}
+	if sendStatus == user_status.DISABLE {
+		zap.L().Warn("发送用户已被禁用",
+			zap.String("send_id", sendId),
+			zap.String("operation", "create_session"),
+		)
+		return "", errorx.New(errorx.CodeUserNotExist, "发送用户不存在")
+	}
 
 	// 3. 构建会话基础信息
 	var session model.Session
@@ -110,9 +120,9 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 	// 4. 根据接收者类型设置会话信息
 	if receiveId[0] == 'U' {
 		// 用户对用户会话
-		receiveUser, err := s.userRepo.FindByUuid(ctx, receiveId)
+		recvStatus, err := grpc_client.GetUserStatus(ctx, receiveId)
 		if err != nil {
-			if errorx.GetCode(err) == errorx.CodeNotFound {
+			if status.Code(err) == codes.NotFound {
 				zap.L().Warn("接收用户不存在",
 					zap.String("send_id", sendId),
 					zap.String("receive_id", receiveId),
@@ -127,7 +137,7 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 			)
 			return "", errorx.ErrServerBusy
 		}
-		if receiveUser.Status == user_status.DISABLE {
+		if recvStatus == user_status.DISABLE {
 			zap.L().Warn("接收用户已被禁用",
 				zap.String("send_id", sendId),
 				zap.String("receive_id", receiveId),
@@ -135,54 +145,31 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 			return "", errorx.New(errorx.CodeInvalidParam, "该用户被禁用了")
 		}
 		// 验证好友关系 (必须是好友才能发起会话)
-		isFriend, err := s.friendshipRepo.IsFriend(ctx, sendId, receiveId)
+		isFriend, err := grpc_client.CheckFriendshipStatus(ctx, sendId, receiveId)
 		if err != nil {
 			zap.L().Error("Check friend relationship error", zap.Error(err))
 			return "", errorx.ErrServerBusy
 		}
-		if !isFriend {
+		if isFriend != 1 {
 			return "", errorx.New(errorx.CodeForbidden, "你们还不是好友")
 		}
 
-		session.ReceiveName = receiveUser.Nickname
-		session.Avatar = receiveUser.Avatar
+		nickname, avatar, err := grpc_client.GetUserNicknameAvatar(ctx, receiveId)
+		if err != nil {
+			zap.L().Error("get receiver info via grpc error", zap.Error(err))
+			return "", errorx.ErrServerBusy
+		}
+		session.ReceiveName = nickname
+		session.Avatar = avatar
 	} else {
 		// 用户对群组会话
-		receiveGroup, err := s.groupRepo.FindByUuid(ctx, receiveId)
+		group, err := grpc_client.GetGroupDetail(ctx, sendId, receiveId)
 		if err != nil {
-			if errorx.GetCode(err) == errorx.CodeNotFound {
-				zap.L().Warn("接收群组不存在",
-					zap.String("send_id", sendId),
-					zap.String("receive_id", receiveId),
-					zap.String("operation", "create_session"),
-				)
-				return "", errorx.New(errorx.CodeNotFound, "接收群组不存在")
-			}
-			zap.L().Error("查询接收群组失败",
-				zap.String("send_id", sendId),
-				zap.String("receive_id", receiveId),
-				zap.Error(err),
-			)
-			return "", errorx.ErrServerBusy
+			zap.L().Error("query group via grpc error", zap.Error(err))
+			return "", err
 		}
-		if receiveGroup.Status == group_status.DISABLE {
-			zap.L().Warn("接收群组已被禁用",
-				zap.String("send_id", sendId),
-				zap.String("receive_id", receiveId),
-			)
-			return "", errorx.New(errorx.CodeInvalidParam, "该群聊被禁用了")
-		}
-		// 验证群成员身份 (用户必须是群成员才能发起会话)
-		_, errMember := s.groupMemberRepo.FindByGroupAndUser(ctx, receiveId, sendId)
-		if errMember != nil {
-			if errorx.IsNotFound(errMember) {
-				return "", errorx.New(errorx.CodeForbidden, "你不是该群成员")
-			}
-			zap.L().Error("Check group membership error", zap.Error(errMember))
-			return "", errorx.ErrServerBusy
-		}
-		session.ReceiveName = receiveGroup.Name
-		session.Avatar = receiveGroup.Avatar
+		session.ReceiveName = group.GroupName
+		session.Avatar = group.GroupAvatar
 	}
 
 	// 5. 创建会话
@@ -214,11 +201,8 @@ func (s *SessionService) CheckOpenSessionAllowed(ctx context.Context, sendId, re
 	// 根据接收方类型执行不同的校验逻辑
 	if receiveId[0] == 'U' {
 		// 用户会话：检查好友关系状态
-		friendship, err := s.friendshipRepo.FindByUserIdAndFriendId(ctx, sendId, receiveId)
+		fsStatus, err := grpc_client.CheckFriendshipStatus(ctx, sendId, receiveId)
 		if err != nil {
-			if errorx.IsNotFound(err) {
-				return false, errorx.New(errorx.CodeForbidden, "你们还不是好友，无法发起会话")
-			}
 			zap.L().Error("查询好友关系失败",
 				zap.String("send_id", sendId),
 				zap.String("receive_id", receiveId),
@@ -226,18 +210,17 @@ func (s *SessionService) CheckOpenSessionAllowed(ctx context.Context, sendId, re
 			)
 			return false, errorx.ErrServerBusy
 		}
-		if friendship.Status == friendship_status.BE_BLACK {
+		if fsStatus == 0 {
+			return false, errorx.New(errorx.CodeForbidden, "你们还不是好友，无法发起会话")
+		} else if fsStatus == 3 {
 			return false, errorx.New(errorx.CodeInvalidParam, "已被对方拉黑，无法发起会话")
-		} else if friendship.Status == friendship_status.BLACK {
+		} else if fsStatus == 2 {
 			return false, errorx.New(errorx.CodeInvalidParam, "已拉黑对方，先解除拉黑状态才能发起会话")
 		}
 	} else if receiveId[0] == 'G' {
 		// 群组会话：检查群成员身份
-		_, err := s.groupMemberRepo.FindByGroupAndUser(ctx, receiveId, sendId)
+		isMember, err := grpc_client.CheckGroupMember(ctx, receiveId, sendId)
 		if err != nil {
-			if errorx.IsNotFound(err) {
-				return false, errorx.New(errorx.CodeForbidden, "你不是该群成员，无法发起会话")
-			}
 			zap.L().Error("查询群成员关系失败",
 				zap.String("send_id", sendId),
 				zap.String("receive_id", receiveId),
@@ -245,12 +228,15 @@ func (s *SessionService) CheckOpenSessionAllowed(ctx context.Context, sendId, re
 			)
 			return false, errorx.ErrServerBusy
 		}
+		if !isMember {
+			return false, errorx.New(errorx.CodeForbidden, "你不是该群成员，无法发起会话")
+		}
 	} else {
 		return false, errorx.New(errorx.CodeInvalidParam, "无效的接收方ID格式")
 	}
 
 	// 检查接收方(用户或群组)是否可用 (使用缓存优化)
-	if err := s.checkTargetStatusWithCache(ctx, receiveId); err != nil {
+	if err := s.checkTargetStatusWithCache(ctx, sendId, receiveId); err != nil {
 		zap.L().Warn("接收方状态不可用",
 			zap.String("send_id", sendId),
 			zap.String("receive_id", receiveId),
@@ -263,7 +249,7 @@ func (s *SessionService) CheckOpenSessionAllowed(ctx context.Context, sendId, re
 }
 
 // checkTargetStatusWithCache 检查目标(用户或群组)状态，使用 cacheHelper
-func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, targetId string) error {
+func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, sendId, targetId string) error {
 	if len(targetId) == 0 {
 		return errorx.New(errorx.CodeInvalidParam, "目标ID为空")
 	}
@@ -277,16 +263,16 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, targetI
 			ctx,
 			key,
 			func(loaderCtx context.Context) (interface{}, error) {
-				u, err := s.userRepo.FindByUuid(loaderCtx, targetId)
+				userStatus, err := grpc_client.GetUserStatus(loaderCtx, targetId)
 				if err != nil {
-					if errorx.IsNotFound(err) {
+					if status.Code(err) == codes.NotFound {
 						return nil, errorx.New(errorx.CodeUserNotExist, "对方用户不存在")
 					}
 					return nil, errorx.ErrServerBusy
 				}
 				return user.GetUserInfoRespond{
-					Uuid:   u.Uuid,
-					Status: u.Status,
+					Uuid:   targetId,
+					Status: userStatus,
 				}, nil
 			},
 			cacheutil.RandomizedTTL(30*time.Minute), // 数据 TTL
@@ -311,17 +297,10 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, targetI
 			ctx,
 			key,
 			func(loaderCtx context.Context) (interface{}, error) {
-				g, err := s.groupRepo.FindByUuid(loaderCtx, targetId)
-				if err != nil {
-					if errorx.IsNotFound(err) {
-						return nil, errorx.New(errorx.CodeNotFound, "对方群组不存在")
-					}
-					return nil, errorx.ErrServerBusy
+				if _, err := grpc_client.GetGroupDetail(loaderCtx, sendId, targetId); err != nil {
+					return nil, err
 				}
-				return group.GetGroupInfoRespond{
-					Uuid:   g.Uuid,
-					Status: g.Status,
-				}, nil
+				return group.GetGroupInfoRespond{Uuid: targetId, Status: group_status.NORMAL}, nil
 			},
 			cacheutil.RandomizedTTL(30*time.Minute), // 数据 TTL
 			5*time.Minute, // 空值 TTL
@@ -329,9 +308,6 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, targetI
 		)
 		if err != nil {
 			return err
-		}
-		if groupRsp.Status == group_status.DISABLE {
-			return errorx.New(errorx.CodeInvalidParam, "对方群组已被禁用，无法发起会话")
 		}
 		return nil
 	}
