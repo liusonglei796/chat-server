@@ -28,6 +28,8 @@ your log path/
 .env.*.local
 
 # Compiled service binaries
+/bin/
+/main
 /user_service
 /relation_service
 /message_service
