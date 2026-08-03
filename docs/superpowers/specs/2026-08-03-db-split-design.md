@@ -118,7 +118,21 @@ message BatchGetPublicUserInfoResponse {
 
 `PublicUserInfo` 复用已有结构（uuid/nickname/avatar/gender/birthday/signature）。
 
-重新生成 `api/gen/user/`（protoc 生成 user_grpc.pb.go 与 user.pb.go），user_service 实现 `BatchGetPublicUserInfo`，复用现有 `FindByUuids` 批量查询。
+`api/proto/relation.proto` 新增（供 message/session 服务校验用）：
+
+```proto
+// 检查好友关系状态（NORMAL/BLACK/BE_BLACK/不存在）
+rpc CheckFriendship (CheckFriendshipRequest) returns (CheckFriendshipResponse);
+message CheckFriendshipRequest { string user_id = 1; string friend_id = 2; }
+message CheckFriendshipResponse { int32 status = 1; }  // 0=非好友 1=正常 2=已拉黑对方 3=被对方拉黑
+
+// 检查用户是否群成员
+rpc CheckGroupMember (CheckGroupMemberRequest) returns (CheckGroupMemberResponse);
+message CheckGroupMemberRequest { string group_id = 1; string user_id = 2; }
+message CheckGroupMemberResponse { bool is_member = 1; }
+```
+
+重新生成 `api/gen/`（protoc 生成 *_grpc.pb.go 与 *.pb.go），实现侧复用现有 `FindByUuids` / `FindByUserIdAndFriendId` / `FindByGroupAndUser` 查询。
 
 ### 2.2 各服务读路径替换（按实测访问矩阵）
 
@@ -126,7 +140,8 @@ message BatchGetPublicUserInfoResponse {
 
 | # | 现状（直查共享库） | 改为 | 涉及文件 |
 |---|---|---|---|
-| R1 | relation 查 user 状态（ApplyFriend/PassFriendApply 校验；session 服务 CreateSession/OpenSession 校验 sendId/receiveId 存在性与状态） | gRPC `GetUserInfo`（现有接口已返回 `status` 字段，直接用，不新增） | internal/service/apply/service.go, internal/service/friendship/service.go, internal/service/session/service.go |
+| R1 | relation 查 user 状态（ApplyFriend/PassFriendApply 校验） | gRPC `GetUserInfo`（现有接口已返回 `status` 字段，直接用，不新增） | internal/service/apply/service.go, internal/service/friendship/service.go |
+| R1b | **message/session 服务读 user/group/friendship/group_member 表**（CreateSession/OpenSession/CheckOpenSessionAllowed 校验 sendId/receiveId 存在性、好友关系、群成员身份、目标状态） | gRPC：user 状态→`GetUserInfo`；群信息→relation `GetGroupDetail`；**好友关系→relation 新增 `CheckFriendship`**；**群成员→relation 新增 `CheckGroupMember`** | internal/service/session/service.go |
 | R2 | relation 好友列表/群成员列表/申请列表需昵称头像（cacheHelper.GetOrLoad 逐个查 user） | 列表方法改为"查本地关系表 → 收集 userIds → 一次 gRPC `BatchGetPublicUserInfo` → 组装返回"；缓存层（cacheHelper/singleflight）本轮保留用于 GetUserInfo 单点查询，批量路径可后续演进 | internal/service/friendship/service.go, internal/service/group/service.go, internal/service/apply/service.go |
 | R3 | message 消息列表 sendName/sendAvatar | **无需改造**（写入时冗余快照，见前置发现） | internal/service/message/service.go |
 | R4 | message 会话列表需用户名/头像 | **无需改造**（session 表冗余 ReceiveName/Avatar） | internal/service/session/service.go |
@@ -178,15 +193,18 @@ CREATE TABLE IF NOT EXISTS outbox (
 
 ### 3.3 写路径拆分清单
 
-| # | 现状（跨库事务） | 改为 | 归属服务 |
+**实测修正**：PassFriendApply（仅 apply+friendship）、DeleteFriend（仅 friendship+apply）、KickUser（仅 Redis token）均**不写 session 表**，无需事件化——只需 R1 的 gRPC 读替换。真正跨库写 session 的只有以下 6 处：
+
+| # | 现状（relation/user 服务写 session 表） | 改为 | 归属服务 |
 |---|---|---|---|
-| W1 | PassFriendApply：apply+friendship+session 一个事务 | 事务①(relation)：apply 状态+friendship+outbox(friend_approved) → message 消费建 session | relation → message |
-| W2 | ApplyFriend/ApplyGroup：写 apply 时建 session | 事务①写 apply+outbox → message 消费建 session | relation → message |
-| W3 | DeleteFriend：删 friendship 需同步会话 | 事务删 friendship + outbox(friend_removed) → message 消费清理会话 | relation → message |
-| W4 | PassGroupApply/群操作涉及 session | 事务写 apply/group_member + outbox(group_joined) → message 消费 | relation → message |
-| W5 | DismissGroup：删群需清会话 | 事务删群/成员 + outbox → message 消费清会话 | relation → message |
-| W6 | UpdateUserInfo：改 user + 更新 session 冗余昵称头像 | user 事务改 user + outbox(user_updated) → message 消费更新 session 冗余字段 | user → message |
-| W7 | KickUser：清 token + 更新 session | user 事务清 token + outbox → message 消费 | user → message |
+| W1 | CreateGroup：group+member+**session** 一个事务 | 事务(group+member+outbox `group_created`) → message 消费建群主会话 | relation → message |
+| W2 | ApplyGroup(DIRECT)：member+count+**session** | 事务(member+count+outbox `group_joined`) → message 消费建成员会话 | relation → message |
+| W3 | PassGroupApply：apply+member+count+**session** | 事务(apply+member+count+outbox `group_joined`) → message 消费建成员会话 | relation → message |
+| W4 | DismissGroup：删成员+删群+**session** | 事务(删成员+删群+outbox `group_dismissed`) → message 消费软删群会话 | relation → message |
+| W5 | UpdateGroupInfo：改 group+**session 冗余** | 事务(改 group+outbox `group_updated`) → message 消费更新会话冗余字段 | relation → message |
+| W6 | UpdateUserInfo：改 user+**session 冗余** | 事务(改 user+outbox `user_updated`) → message 消费更新会话冗余字段 | user → message |
+
+事件类型全集：`group_created` / `group_joined` / `group_dismissed` / `group_updated` / `user_updated`
 
 ### 3.4 一致性保证
 
