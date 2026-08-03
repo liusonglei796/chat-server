@@ -2,6 +2,7 @@ package apply
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/domain/repository"
+	"kama_chat_server/internal/dto/event"
 	applyreq "kama_chat_server/internal/dto/request/apply"
 	applyrsp "kama_chat_server/internal/dto/respond/apply"
 	"kama_chat_server/internal/grpc_client"
@@ -37,14 +39,16 @@ type ApplyService struct {
 	uow         repository.UnitOfWork
 	cache       repository.AsyncCacheService
 	cacheHelper *cacheutil.Helper
+	outboxRepo  repository.OutboxRepository
 }
 
 // NewApplyService 构造函数
-func NewApplyService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService) *ApplyService {
+func NewApplyService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, outboxRepo repository.OutboxRepository) *ApplyService {
 	return &ApplyService{
 		uow:         uow,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
+		outboxRepo:  outboxRepo,
 	}
 }
 
@@ -239,16 +243,22 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req applyr
 				return errorx.ErrServerBusy
 			}
 
-			// 创建群聊会话（入群时自动创建，方便用户在会话列表中看到该群）
-			session := model.Session{
-				Uuid:        "S" + snowflake.GenerateIDString(),
-				SendId:      userId,
-				ReceiveId:   req.GroupId,
-				ReceiveName: group.Name,
-				Avatar:      group.Avatar,
+			// 事务内写 outbox 事件，message_service 消费后创建群会话
+			payload, _ := json.Marshal(event.GroupJoinedEvent{
+				GroupId:     req.GroupId,
+				UserId:      userId,
+				GroupName:   group.Name,
+				GroupAvatar: group.Avatar,
+			})
+			o := model.Outbox{
+				Uuid:      fmt.Sprintf("O%s", snowflake.GenerateIDString()),
+				EventType: event.EventGroupJoined,
+				Payload:   string(payload),
+				Status:    0,
+				CreatedAt: time.Now(),
 			}
-			if err := tx.SessionRepo().CreateSession(ctx, &session); err != nil {
-				zap.L().Error("创建入群会话失败", zap.Error(err))
+			if err := tx.OutboxRepo().Create(ctx, &o); err != nil {
+				zap.L().Error("service error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
 

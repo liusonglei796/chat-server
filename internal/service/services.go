@@ -50,7 +50,7 @@ func NewServices(uow repository.UnitOfWork, cacheService repository.AsyncCacheSe
 	userSvc := user.NewUserService(uow, cacheService, uow.OutboxRepo())
 	groupSvc := group.NewGroupService(uow, cacheService, uow.OutboxRepo())
 	friendshipSvc := friendship.NewFriendshipService(uow, cacheService)
-	applySvc := apply.NewApplyService(uow, cacheService)
+	applySvc := apply.NewApplyService(uow, cacheService, uow.OutboxRepo())
 	authSvc := auth.NewAuthService(cacheService, uow.UserRepo())
 
 	// 后台管理服务（事务型）
