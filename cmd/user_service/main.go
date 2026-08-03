@@ -18,6 +18,7 @@ import (
 	mysqlimpl "kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
 	"kama_chat_server/internal/domain/repository"
+	"kama_chat_server/internal/infrastructure/jwt"
 	"kama_chat_server/internal/infrastructure/logger"
 	"kama_chat_server/internal/service/auth"
 	"kama_chat_server/internal/service/user"
@@ -38,11 +39,14 @@ func main() {
 	// 3. 初始化数据库
 	repos := mysqlimpl.Init()
 
-	// 4. 初始化 Redis
+	// 4. 初始化 JWT（auth 合并入本服务后，注册/登录在此处理）
+	jwt.Init(conf.JWTConfig.Secret, conf.JWTConfig.AccessTokenExpiry, conf.JWTConfig.RefreshTokenExpiry)
+
+	// 5. 初始化 Redis
 	cacheService := myredis.Init()
 	var cachePort repository.AsyncCacheService = cacheService
 
-	// 5. 初始化 Service
+	// 6. 初始化 Service
 	userSvc := user.NewUserService(repos, cachePort, repos.Outbox)
 	grpcServer := user.NewGrpcServer(userSvc)
 	authSvc := auth.NewAuthService(cachePort, repos.User)
