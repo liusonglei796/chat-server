@@ -9,6 +9,7 @@ services:
       MYSQL_DATABASE: chat
     volumes:
       - mysql_data:/var/lib/mysql
+      - ./migrations/split_db.sql:/docker-entrypoint-initdb.d/split_db.sql:ro
     command: --default-authentication-plugin=mysql_native_password --slow_query_log=ON --long_query_time=1 --slow_query_log_file=/var/lib/mysql/slow-query.log
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
