@@ -48,6 +48,8 @@ func (f *fakeUOW) UserRepo() repository.UserRepository {
 	return f.userRepo
 }
 
+func (f *fakeUOW) OutboxRepo() repository.OutboxRepository { return nil }
+
 func TestBatchGetPublicUserInfo(t *testing.T) {
 	ctx := context.Background()
 	svc := NewUserService(&fakeUOW{

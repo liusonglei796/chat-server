@@ -31,6 +31,8 @@ func (f *fakeUOW) FriendshipRepo() repository.FriendshipRepository {
 	return f.friendshipRepo
 }
 
+func (f *fakeUOW) OutboxRepo() repository.OutboxRepository { return nil }
+
 func TestGetFriendshipStatus(t *testing.T) {
 	ctx := context.Background()
 

@@ -62,6 +62,12 @@ func main() {
 	kafkaProcessor.Start()
 	defer kafkaProcessor.Close()
 
+	// 初始化领域事件消费者（消费 outbox 发布的事件，维护本地 session 冗余字段）
+	eventHandler := message.NewSessionEventHandler(repos.Session)
+	eventConsumer := message.NewDomainEventConsumer(eventHandler)
+	eventConsumer.Start()
+	defer eventConsumer.Close()
+
 	// 注入 recall notify (通过 KafkaProcessor 发送撤回通知)
 	msgSvc.SetPushRecallNotify(kafkaProcessor.PushRecallNotify)
 

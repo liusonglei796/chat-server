@@ -12,8 +12,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
-	userpb "kama_chat_server/api/gen/user"
 	authpb "kama_chat_server/api/gen/auth"
+	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/config"
 	mysqlimpl "kama_chat_server/internal/dao/mysql"
 	myredis "kama_chat_server/internal/dao/redis"
@@ -23,6 +23,7 @@ import (
 	"kama_chat_server/internal/service/user"
 	"kama_chat_server/pkg/discovery"
 	"kama_chat_server/pkg/interceptor"
+	"kama_chat_server/pkg/outbox"
 )
 
 func main() {
@@ -46,6 +47,9 @@ func main() {
 	grpcServer := user.NewGrpcServer(userSvc)
 	authSvc := auth.NewAuthService(cachePort, repos.User)
 	authGrpcServer := auth.NewGrpcServer(authSvc, userSvc)
+
+	// 启动 outbox 发布器，将本地事务中的领域事件投递到 Kafka
+	outbox.NewPublisher(repos.Outbox, outbox.NewProducer()).Start()
 
 	// 6. 启动 gRPC 服务
 	port := 50051

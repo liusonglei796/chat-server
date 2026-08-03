@@ -9,6 +9,7 @@ import (
 	"kama_chat_server/internal/dao/mysql/group"
 	"kama_chat_server/internal/dao/mysql/member"
 	"kama_chat_server/internal/dao/mysql/message"
+	"kama_chat_server/internal/dao/mysql/outbox"
 	"kama_chat_server/internal/dao/mysql/session"
 	"kama_chat_server/internal/dao/mysql/user"
 	"kama_chat_server/internal/domain/repository"
@@ -25,6 +26,7 @@ type Repositories struct {
 	Message     repository.MessageRepository
 	Apply       repository.ApplyRepository
 	GroupMember repository.GroupMemberRepository
+	Outbox      repository.OutboxRepository
 }
 
 // NewRepositories 创建所有 Repository 实例
@@ -38,6 +40,7 @@ func NewRepositories(db *gorm.DB) *Repositories {
 		Message:     message.NewMessageRepository(db),
 		Apply:       apply.NewApplyRepository(db),
 		GroupMember: member.NewGroupMemberRepository(db),
+		Outbox:      outbox.NewOutboxRepository(db),
 	}
 }
 
@@ -65,8 +68,13 @@ func (r *Repositories) ApplyRepo() repository.ApplyRepository { return r.Apply }
 // GroupMemberRepo 返回群成员 Repository
 func (r *Repositories) GroupMemberRepo() repository.GroupMemberRepository { return r.GroupMember }
 
-// Transaction 在数据库事务中执行函数
-func (r *Repositories) Transaction(fn func(uow repository.UnitOfWork) error) error {
+// OutboxRepo 返回发件箱 Repository
+func (r *Repositories) OutboxRepo() repository.OutboxRepository { return r.Outbox }
+
+// WithTx 在数据库事务中执行函数
+// 回调参数 tx 是绑定了事务连接的新 Repositories，
+// 回调内所有 Repository 操作共享同一事务：返回 nil 提交，返回 error 回滚
+func (r *Repositories) WithTx(fn func(uow repository.UnitOfWork) error) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		return fn(NewRepositories(tx))
 	})

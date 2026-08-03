@@ -25,6 +25,7 @@ import (
 	"kama_chat_server/internal/service/relation"
 	"kama_chat_server/pkg/discovery"
 	"kama_chat_server/pkg/interceptor"
+	"kama_chat_server/pkg/outbox"
 )
 
 func main() {
@@ -52,6 +53,9 @@ func main() {
 	applySvc := apply.NewApplyService(repos, cachePort)
 
 	grpcServer := relation.NewGrpcServer(friendshipSvc, groupSvc, applySvc)
+
+	// 启动 outbox 发布器，将本地事务中的领域事件投递到 Kafka
+	outbox.NewPublisher(repos.Outbox, outbox.NewProducer()).Start()
 
 	// 7. 启动 gRPC 服务
 	port := 50053

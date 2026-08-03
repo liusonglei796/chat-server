@@ -36,6 +36,8 @@ func (f *fakeUOW) GroupMemberRepo() repository.GroupMemberRepository {
 	return f.memberRepo
 }
 
+func (f *fakeUOW) OutboxRepo() repository.OutboxRepository { return nil }
+
 func TestListGroupMemberIds(t *testing.T) {
 	svc := NewGroupService(&fakeUOW{
 		memberRepo: &fakeGroupMemberRepo{

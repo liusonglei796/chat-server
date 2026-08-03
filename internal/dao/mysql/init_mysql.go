@@ -54,6 +54,7 @@ func Init() *Repositories {
 		&model.Apply{},       // 联系人申请表
 		&model.Message{},     // 消息表
 		&model.GroupMember{}, // 群组成员表
+		&model.Outbox{},      // 事务发件箱表
 	)
 	if err != nil {
 		// 迁移失败，记录致命错误并退出程序
