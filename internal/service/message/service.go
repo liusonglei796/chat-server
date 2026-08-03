@@ -29,10 +29,9 @@ import (
 // MessageService 消息业务逻辑实现
 // 通过构造函数注入 Repository 和 Cache 依赖，遵循依赖倒置原则
 type MessageService struct {
-	messageRepo    repository.MessageRepository
-	friendshipRepo repository.FriendshipRepository
-	sessionRepo    repository.SessionRepository
-	cache          repository.AsyncCacheService
+	messageRepo repository.MessageRepository
+	sessionRepo repository.SessionRepository
+	cache       repository.AsyncCacheService
 	// pushRecallNotify 撤回通知回调（由 ChatServer.Broker.PushRecallNotify 提供）
 	// 用于在撤回成功后通过 WebSocket 实时通知对方
 	pushRecallNotify func(messageUuid, receiveId string)
@@ -42,14 +41,12 @@ type MessageService struct {
 // pushRecallNotify: 可选回调，撤回消息后通过 WebSocket 推送通知
 func NewMessageService(
 	messageRepo repository.MessageRepository,
-	friendshipRepo repository.FriendshipRepository,
 	sessionRepo repository.SessionRepository,
 	cacheService repository.AsyncCacheService,
 	pushRecallNotify func(messageUuid, receiveId string),
 ) *MessageService {
 	return &MessageService{
 		messageRepo:      messageRepo,
-		friendshipRepo:   friendshipRepo,
 		sessionRepo:      sessionRepo,
 		cache:            cacheService,
 		pushRecallNotify: pushRecallNotify,

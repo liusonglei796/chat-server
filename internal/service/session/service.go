@@ -29,35 +29,22 @@ import (
 // 通过构造函数注入 Repository 和 Cache 依赖
 type SessionService struct {
 	sessionRepo repository.SessionRepository
-	// 以下四个仓库字段拆分后废弃，仅兼容构造签名（Task 21 收尾时移除）
-	userRepo        repository.UserRepository
-	groupRepo       repository.GroupRepository
-	groupMemberRepo repository.GroupMemberRepository
-	friendshipRepo  repository.FriendshipRepository
-	messageRepo     repository.MessageRepository
-	cache           repository.AsyncCacheService
-	cacheHelper     *cacheutil.Helper // 缓存辅助工具（带 singleflight）
+	messageRepo repository.MessageRepository
+	cache       repository.AsyncCacheService
+	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
 }
 
 // NewSessionService 构造函数，注入所有依赖
 func NewSessionService(
 	sessionRepo repository.SessionRepository,
-	userRepo repository.UserRepository,
-	groupRepo repository.GroupRepository,
-	groupMemberRepo repository.GroupMemberRepository,
-	friendshipRepo repository.FriendshipRepository,
 	messageRepo repository.MessageRepository,
 	cacheService repository.AsyncCacheService,
 ) *SessionService {
 	return &SessionService{
-		sessionRepo:     sessionRepo,
-		userRepo:        userRepo,
-		groupRepo:       groupRepo,
-		groupMemberRepo: groupMemberRepo,
-		friendshipRepo:  friendshipRepo,
-		messageRepo:     messageRepo,
-		cache:           cacheService,
-		cacheHelper:     cacheutil.NewHelper(cacheService),
+		sessionRepo: sessionRepo,
+		messageRepo: messageRepo,
+		cache:       cacheService,
+		cacheHelper: cacheutil.NewHelper(cacheService),
 	}
 }
 

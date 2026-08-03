@@ -49,17 +49,14 @@ func main() {
 	// 6. 初始化 Service
 	// 此时暂时传入 nil 给 pushRecallNotify，如果是真实微服务，需要通过 Kafka 给 ChatServer 发送撤回消息通知
 	// 或者稍后我们再修改此处
-	msgSvc := message.NewMessageService(repos.Message, repos.Friendship, repos.Session, cachePort, nil)
-	sessionSvc := session.NewSessionService(repos.Session, repos.User, repos.Group, repos.GroupMember, repos.Friendship, repos.Message, cachePort)
+	msgSvc := message.NewMessageService(repos.Message, repos.Session, cachePort, nil)
+	sessionSvc := session.NewSessionService(repos.Session, repos.Message, cachePort)
 
 	// 初始化 KafkaProcessor
 	kafkaProcessor := message.NewKafkaProcessor(
 		repos.Message,
-		repos.Friendship,
-		repos.GroupMember,
 		repos.Session,
 		cachePort,
-		repos.User,
 	)
 	kafkaProcessor.Start()
 	defer kafkaProcessor.Close()

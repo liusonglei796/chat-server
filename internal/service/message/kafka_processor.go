@@ -30,13 +30,9 @@ type KafkaProcessor struct {
 	UpstreamReader   *kafka.Reader
 	DownstreamWriter *kafka.Writer
 	MessageRepo      repository.MessageRepository
-	// 以下仓库字段拆分后废弃，仅兼容构造签名（Task 21 收尾时移除）
-	friendshipRepo  repository.FriendshipRepository
-	groupMemberRepo repository.GroupMemberRepository
-	userRepo        repository.UserRepository
-	sessionRepo     repository.SessionRepository
-	cacheService    repository.AsyncCacheService
-	quit            chan os.Signal
+	sessionRepo      repository.SessionRepository
+	cacheService     repository.AsyncCacheService
+	quit             chan os.Signal
 }
 
 func normalizePath(path string) string {
@@ -52,11 +48,8 @@ func normalizePath(path string) string {
 
 func NewKafkaProcessor(
 	messageRepo repository.MessageRepository,
-	friendshipRepo repository.FriendshipRepository,
-	groupMemberRepo repository.GroupMemberRepository,
 	sessionRepo repository.SessionRepository,
 	cacheService repository.AsyncCacheService,
-	userRepo repository.UserRepository,
 ) *KafkaProcessor {
 	kafkaConfig := config.GetConfig().KafkaConfig
 
@@ -81,11 +74,8 @@ func NewKafkaProcessor(
 		UpstreamReader:   reader,
 		DownstreamWriter: writer,
 		MessageRepo:      messageRepo,
-		friendshipRepo:   friendshipRepo,
-		groupMemberRepo:  groupMemberRepo,
 		sessionRepo:      sessionRepo,
 		cacheService:     cacheService,
-		userRepo:         userRepo,
 		quit:             make(chan os.Signal, 1),
 	}
 }
@@ -189,27 +179,21 @@ func (k *KafkaProcessor) checkSendPermission(sendId, receiveId string) error {
 		return fmt.Errorf("接收者ID不能为空")
 	}
 
-	if k.userRepo != nil { // 降级开关：grpc 失败时按旧行为放行
-		senderStatus, err := grpc_client.GetUserStatus(ctx, sendId)
-		if err == nil && senderStatus == user_status.DISABLE {
-			zap.L().Warn("被禁用的用户尝试发送消息", zap.String("sendId", sendId))
-			return fmt.Errorf("您的账号已被禁用，无法发送消息")
-		}
+	senderStatus, err := grpc_client.GetUserStatus(ctx, sendId)
+	if err == nil && senderStatus == user_status.DISABLE {
+		zap.L().Warn("被禁用的用户尝试发送消息", zap.String("sendId", sendId))
+		return fmt.Errorf("您的账号已被禁用，无法发送消息")
 	}
 
 	if receiveId[0] == 'U' {
-		if k.friendshipRepo != nil { // 降级开关：grpc 失败时按旧行为放行
-			fsStatus, err := grpc_client.CheckFriendshipStatus(ctx, sendId, receiveId)
-			if err == nil && fsStatus != 1 {
-				return fmt.Errorf("你们还不是好友，无法发送消息")
-			}
+		fsStatus, err := grpc_client.CheckFriendshipStatus(ctx, sendId, receiveId)
+		if err == nil && fsStatus != 1 {
+			return fmt.Errorf("你们还不是好友，无法发送消息")
 		}
 	} else if receiveId[0] == 'G' {
-		if k.groupMemberRepo != nil { // 降级开关：grpc 失败时按旧行为放行
-			isMember, err := grpc_client.CheckGroupMember(ctx, receiveId, sendId)
-			if err == nil && !isMember {
-				return fmt.Errorf("你不是该群成员，无法发送消息")
-			}
+		isMember, err := grpc_client.CheckGroupMember(ctx, receiveId, sendId)
+		if err == nil && !isMember {
+			return fmt.Errorf("你不是该群成员，无法发送消息")
 		}
 	}
 
