@@ -49,7 +49,7 @@ func main() {
 
 	// 6. 初始化 Service
 	friendshipSvc := friendship.NewFriendshipService(repos, cachePort)
-	groupSvc := group.NewGroupService(repos, cachePort)
+	groupSvc := group.NewGroupService(repos, cachePort, repos.Outbox)
 	applySvc := apply.NewApplyService(repos, cachePort)
 
 	grpcServer := relation.NewGrpcServer(friendshipSvc, groupSvc, applySvc)

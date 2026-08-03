@@ -2,6 +2,7 @@ package group
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/domain/repository"
+	"kama_chat_server/internal/dto/event"
 	"kama_chat_server/internal/dto/request/group"
 	grouprsp "kama_chat_server/internal/dto/respond/group"
 	"kama_chat_server/internal/grpc_client"
@@ -26,14 +28,16 @@ type GroupService struct {
 	uow         repository.UnitOfWork
 	cache       repository.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
+	outboxRepo  repository.OutboxRepository
 }
 
 // NewGroupService 构造函数，注入所有依赖
-func NewGroupService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService) *GroupService {
+func NewGroupService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, outboxRepo repository.OutboxRepository) *GroupService {
 	return &GroupService{
 		uow:         uow,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
+		outboxRepo:  outboxRepo,
 	}
 }
 
@@ -65,15 +69,21 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
-		// 创建会话
-		session := model.Session{
-			Uuid:        fmt.Sprintf("S%s", snowflake.GenerateIDString()),
-			SendId:      ownerId,
-			ReceiveId:   group.Uuid,
-			ReceiveName: group.Name,
-			Avatar:      group.Avatar,
+		// 事务内写 outbox 事件，message_service 消费后创建群会话
+		payload, _ := json.Marshal(event.GroupCreatedEvent{
+			GroupId:     group.Uuid,
+			OwnerId:     ownerId,
+			GroupName:   group.Name,
+			GroupAvatar: group.Avatar,
+		})
+		o := model.Outbox{
+			Uuid:      fmt.Sprintf("O%s", snowflake.GenerateIDString()),
+			EventType: event.EventGroupCreated,
+			Payload:   string(payload),
+			Status:    0,
+			CreatedAt: time.Now(),
 		}
-		if err := tx.SessionRepo().CreateSession(ctx, &session); err != nil {
+		if err := tx.OutboxRepo().Create(ctx, &o); err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
