@@ -3,11 +3,13 @@
 package mysql
 
 import (
+	"errors"
 	"fmt"
 
 	"kama_chat_server/internal/config" // 配置管理
 	"kama_chat_server/internal/model"  // 数据模型
 
+	"github.com/go-sql-driver/mysql"   // MySQL 驱动错误码
 	"go.uber.org/zap"                  // 日志库
 	mysqldriver "gorm.io/driver/mysql" // GORM MySQL 驱动
 	"gorm.io/gorm"                     // GORM ORM 框架
@@ -46,7 +48,8 @@ func Init() *Repositories {
 	// AutoMigrate 自动迁移表结构
 	// 如果表不存在则创建，如果字段变更则更新结构
 	// 注意：不会删除已有字段或数据
-	err = db.AutoMigrate(
+	// 多个服务共享同一库并发启动时，可能同时建表触发 Error 1050，重试一次即可
+	models := []interface{}{
 		&model.UserInfo{},    // 用户信息表
 		&model.GroupInfo{},   // 群组信息表
 		&model.Friendship{},  // 好友关系表
@@ -55,10 +58,17 @@ func Init() *Repositories {
 		&model.Message{},     // 消息表
 		&model.GroupMember{}, // 群组成员表
 		&model.Outbox{},      // 事务发件箱表
-	)
+	}
+	err = db.AutoMigrate(models...)
 	if err != nil {
-		// 迁移失败，记录致命错误并退出程序
-		zap.L().Fatal(err.Error())
+		var mysqlErr *mysql.MySQLError
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1050 {
+			err = db.AutoMigrate(models...)
+		}
+		if err != nil {
+			// 迁移失败，记录致命错误并退出程序
+			zap.L().Fatal(err.Error())
+		}
 	}
 
 	// 创建并返回 Repository 实例集合
