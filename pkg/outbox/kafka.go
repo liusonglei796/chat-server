@@ -4,6 +4,8 @@ package outbox
 
 import (
 	"context"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -13,6 +15,34 @@ import (
 
 // DomainEventsTopic 跨服务领域事件主题
 const DomainEventsTopic = "domain_events"
+
+// EnsureTopic 确保 domain_events 主题已存在。
+// Kafka 数据目录无持久卷，冷启动时主题可能尚未由生产者创建；
+// 若消费者在主题创建前加入消费组，将被分配 0 个分区且不会自动重平衡。
+func EnsureTopic(ctx context.Context, brokers []string) error {
+	conn, err := kafka.Dial("tcp", brokers[0])
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	controller, err := conn.Controller()
+	if err != nil {
+		return err
+	}
+	controllerConn, err := kafka.Dial("tcp", net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port)))
+	if err != nil {
+		return err
+	}
+	defer controllerConn.Close()
+
+	// CreateTopics 对已存在的主题幂等，无副作用
+	return controllerConn.CreateTopics(kafka.TopicConfig{
+		Topic:             DomainEventsTopic,
+		NumPartitions:     3,
+		ReplicationFactor: 1,
+	})
+}
 
 // NewProducer 创建指向 domain_events 主题的 Kafka 生产者
 func NewProducer() *kafka.Writer {

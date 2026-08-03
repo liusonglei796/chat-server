@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -23,6 +24,7 @@ import (
 	"kama_chat_server/internal/service/session"
 	"kama_chat_server/pkg/discovery"
 	"kama_chat_server/pkg/interceptor"
+	"kama_chat_server/pkg/outbox"
 )
 
 func main() {
@@ -63,6 +65,10 @@ func main() {
 	defer kafkaProcessor.Close()
 
 	// 初始化领域事件消费者（消费 outbox 发布的事件，维护本地 session 冗余字段）
+	// 先确保 domain_events 主题存在，避免消费者在主题创建前加入消费组而被分配 0 个分区
+	if err := outbox.EnsureTopic(context.Background(), []string{conf.KafkaConfig.HostPort}); err != nil {
+		zap.L().Fatal("failed to ensure domain_events topic", zap.Error(err))
+	}
 	eventHandler := message.NewSessionEventHandler(repos.Session)
 	eventConsumer := message.NewDomainEventConsumer(eventHandler)
 	eventConsumer.Start()
