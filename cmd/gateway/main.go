@@ -11,16 +11,15 @@ import (
 
 	"kama_chat_server/internal/common/config"
 
-	myredis "kama_chat_server/internal/common/dao/redis"
-	"kama_chat_server/internal/common/domain/repository"
-	"kama_chat_server/internal/common/grpc_client"
 	"kama_chat_server/internal/apps/gateway/handler"
 	"kama_chat_server/internal/apps/gateway/https_server"
+	"kama_chat_server/internal/apps/message/chat"
+	myredis "kama_chat_server/internal/common/dao/redis"
+	"kama_chat_server/internal/common/domain/store"
+	"kama_chat_server/internal/common/grpc_client"
 	"kama_chat_server/internal/common/infrastructure/jwt"
 	"kama_chat_server/internal/common/infrastructure/logger"
-	"kama_chat_server/internal/apps/message/chat"
 	otelinit "kama_chat_server/pkg/otel"
-	authpb "kama_chat_server/api/gen/auth"
 
 	"go.uber.org/zap"
 )
@@ -51,12 +50,12 @@ func main() {
 	}
 
 	// 3. 初始化数据库 (已移除，ChatServer不再直连MySQL)
-	// repos := mysqlimpl.Init()
+	// stores := mysqlimpl.Init()
 	// zap.L().Info("数据库初始化成功")
 
 	// 4. 初始化 Redis
 	cacheService := myredis.Init()
-	var cachePort repository.AsyncCacheService = cacheService
+	var cachePort store.AsyncCacheService = cacheService
 	zap.L().Info("Redis 初始化成功")
 
 	// 5. 初始化 JWT
@@ -81,18 +80,8 @@ func main() {
 	handlers := handler.NewHandlers(chatServer.GetBroker())
 	zap.L().Info("Handler 层初始化成功")
 
-	// 10. 初始化 HTTPS 服务器 (传入 handlers 和管理员校验回调进行依赖注入)
-	// 创建适配器：调用 gRPC 的 Auth 服务进行 Admin 校验
-	adminChecker := func(userId string) (bool, error) {
-		rsp, err := grpc_client.AuthClient.GetUserIsAdmin(context.Background(), &authpb.GetUserIsAdminRequest{
-			UserId: userId,
-		})
-		if err != nil {
-			return false, err
-		}
-		return rsp.IsAdmin, nil
-	}
-	engine := https_server.Init(handlers, adminChecker, cachePort)
+	// 10. 初始化 HTTPS 服务器
+	engine := https_server.Init(handlers, cachePort)
 	zap.L().Info("HTTPS 服务器初始化成功")
 
 	// 11. 启动服务

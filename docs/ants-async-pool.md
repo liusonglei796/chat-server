@@ -28,7 +28,7 @@ HTTP 请求 ──> Service 业务逻辑
 
 ## 2. 核心 API
 
-接口定义在 `internal/domain/repository/cache.go`：
+接口定义在 `internal/domain/store/cache.go`：
 
 ```go
 type AsyncCacheService interface {
@@ -48,20 +48,20 @@ Service 构造时已经注入好了。两种拿法：
 ```go
 // 方式 A：整个注入（事务型 Service 的通用模式）
 type GroupService struct {
-	uow    repository.UnitOfWork
-	cache  repository.AsyncCacheService   // ← 这就是池的入口
+	uow    store.UnitOfWork
+	cache  store.AsyncCacheService   // ← 这就是池的入口
 }
 
 // 方式 B：只注入缓存接口（非事务型 Service）
-func NewSessionService(cache repository.AsyncCacheService, ...) *SessionService
+func NewSessionService(cache store.AsyncCacheService, ...) *SessionService
 ```
 
 ### 第二步：提交异步任务
 
 ```go
 // 业务操作完成后，把缓存清理丢进池
-if err := g.uow.WithTx(func(tx repository.UnitOfWork) error {
-	return tx.GroupRepo().UpdateGroup(ctx, &group)
+if err := g.uow.WithTx(func(tx store.UnitOfWork) error {
+	return tx.GroupStore().UpdateGroup(ctx, &group)
 }); err != nil {
 	return errorx.ErrServerBusy
 }
@@ -256,7 +256,7 @@ return NewRedisCache(client, 15)   // 15 = Worker 数量
 | 文件 | 角色 |
 |---|---|
 | `internal/dao/redis/redis.go` | 池的实现（ants 封装 + SubmitTask + Release） |
-| `internal/domain/repository/cache.go` | `AsyncCacheService` 接口定义 |
+| `internal/domain/store/cache.go` | `AsyncCacheService` 接口定义 |
 | `internal/service/group/service.go` | 使用示例（异步失效缓存） |
 | `internal/service/message/kafka_processor.go` | 使用示例（异步读改写缓存） |
 | `cmd/*/main.go`（5 个） | 优雅关闭接线（`rc.Release()`） |

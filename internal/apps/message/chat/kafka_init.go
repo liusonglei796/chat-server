@@ -1,11 +1,10 @@
 package chat
 
 import (
-	myconfig "kama_chat_server/internal/common/config"
-	"time"
-
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
+
+	kafkainfra "kama_chat_server/internal/common/infrastructure/kafka"
 )
 
 type KafkaClient struct {
@@ -18,26 +17,11 @@ func NewKafkaClient() *KafkaClient {
 }
 
 func (k *KafkaClient) KafkaInit() {
-	kafkaConfig := myconfig.GetConfig().KafkaConfig
-
 	// 生产者：写入上行消息到 chat_upstream
-	k.Producer = &kafka.Writer{
-		Addr:                   kafka.TCP(kafkaConfig.HostPort),
-		Topic:                  "chat_upstream",
-		Balancer:               &kafka.Hash{},
-		WriteTimeout:           kafkaConfig.Timeout * time.Second,
-		RequiredAcks:           kafka.RequireNone,
-		AllowAutoTopicCreation: true,
-	}
+	k.Producer = kafkainfra.NewProducer(kafkainfra.TopicChatUpstream)
 
 	// 消费者：从 chat_downstream 读取下行消息
-	k.Consumer = kafka.NewReader(kafka.ReaderConfig{
-		Brokers:        []string{kafkaConfig.HostPort},
-		Topic:          "chat_downstream",
-		CommitInterval: kafkaConfig.Timeout * time.Second,
-		GroupID:        "chat_server",
-		StartOffset:    kafka.LastOffset,
-	})
+	k.Consumer = kafkainfra.NewConsumer(kafkainfra.TopicChatDownstream, "chat_server")
 }
 
 func (k *KafkaClient) KafkaClose() {

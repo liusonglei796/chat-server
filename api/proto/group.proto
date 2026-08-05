@@ -1,0 +1,156 @@
+syntax = "proto3";
+
+package group;
+
+option go_package = "kama_chat_server/api/gen/group";
+
+service GroupService {
+    rpc CreateGroup (CreateGroupRequest) returns (CreateGroupResponse);
+    rpc LoadMyGroup (LoadMyGroupRequest) returns (LoadMyGroupResponse);
+    rpc GetGroupListByMember (GetGroupListByMemberRequest) returns (GetGroupListByMemberResponse);
+    rpc CheckGroupAddMode (CheckGroupAddModeRequest) returns (CheckGroupAddModeResponse);
+    rpc LeaveGroup (LeaveGroupRequest) returns (LeaveGroupResponse);
+    rpc DismissGroup (DismissGroupRequest) returns (DismissGroupResponse);
+    rpc UpdateGroupInfo (UpdateGroupInfoRequest) returns (UpdateGroupInfoResponse);
+    rpc GetGroupMemberList (GetGroupMemberListRequest) returns (GetGroupMemberListResponse);
+    rpc RemoveGroupMembers (RemoveGroupMembersRequest) returns (RemoveGroupMembersResponse);
+    rpc GetGroupDetail (GetGroupDetailRequest) returns (GetGroupDetailResponse);
+    rpc MuteMember (MuteMemberRequest) returns (MuteMemberResponse);
+    // 检查用户是否为群成员
+    rpc CheckGroupMember (CheckGroupMemberRequest) returns (CheckGroupMemberResponse);
+    // 获取群全部成员ID（供消息服务群发用，不要求调用方是成员）
+    rpc ListGroupMemberIds (ListGroupMemberIdsRequest) returns (ListGroupMemberIdsResponse);
+    // 获取用户在某群的角色（供 apply 服务跨库校验管理员权限）
+    rpc GetGroupMemberRole (GetGroupMemberRoleRequest) returns (GetGroupMemberRoleResponse);
+}
+
+message CreateGroupRequest {
+    string owner_id = 1;
+    string name = 2;
+    string notice = 3;
+    int32 add_mode = 4;
+    string avatar = 5;
+}
+message CreateGroupResponse {}
+
+message LoadMyGroupRequest {
+    string user_id = 1;
+    int32 page = 2;
+    int32 page_size = 3;
+}
+message MyGroupListRespond {
+    string group_id = 1;
+    string group_name = 2;
+    string avatar = 3;
+}
+message LoadMyGroupResponse {
+    int64 total = 1;
+    repeated MyGroupListRespond list = 2;
+}
+
+message GetGroupListByMemberRequest {
+    string user_id = 1;
+    int32 page = 2;
+    int32 page_size = 3;
+}
+message GetGroupListByMemberResponse {
+    int64 total = 1;
+    repeated MyGroupListRespond list = 2;
+}
+
+message CheckGroupAddModeRequest {
+    string group_id = 1;
+}
+message CheckGroupAddModeResponse {
+    int32 add_mode = 1;
+}
+
+message LeaveGroupRequest {
+    string user_id = 1;
+    string group_id = 2;
+}
+message LeaveGroupResponse {}
+
+message DismissGroupRequest {
+    string operator_id = 1;
+    string group_id = 2;
+}
+message DismissGroupResponse {}
+
+message UpdateGroupInfoRequest {
+    string operator_id = 1;
+    string uuid = 2;
+    optional string name = 3;
+    optional string notice = 4;
+    optional int32 add_mode = 5;
+    optional string avatar = 6;
+}
+message UpdateGroupInfoResponse {}
+
+message GetGroupMemberListRequest {
+    string user_id = 1;
+    string group_id = 2;
+    int32 page = 3;
+    int32 page_size = 4;
+}
+message GetGroupMemberListRespond {
+    string user_id = 1;
+    string nickname = 2;
+    string avatar = 3;
+}
+message GetGroupMemberListResponse {
+    int64 total = 1;
+    repeated GetGroupMemberListRespond list = 2;
+}
+
+message RemoveGroupMembersRequest {
+    string operator_id = 1;
+    string group_id = 2;
+    repeated string uuid_list = 3;
+}
+message RemoveGroupMembersResponse {}
+
+message GetGroupDetailRequest {
+    string user_id = 1;
+    string group_id = 2;
+}
+message GetGroupDetailResponse {
+    string group_id = 1;
+    string group_name = 2;
+    string group_avatar = 3;
+    string group_notice = 4;
+    int32 member_cnt = 5;
+    string owner_id = 6;
+    int32 add_mode = 7;
+}
+
+message MuteMemberRequest {
+    string operator_id = 1;
+    string group_id = 2;
+    string user_id = 3;
+    int64 duration = 4;
+}
+message MuteMemberResponse {}
+
+message CheckGroupMemberRequest {
+    string group_id = 1;
+    string user_id = 2;
+}
+message CheckGroupMemberResponse {
+    bool is_member = 1;
+}
+
+message ListGroupMemberIdsRequest {
+    string group_id = 1;
+}
+message ListGroupMemberIdsResponse {
+    repeated string user_ids = 1;
+}
+
+message GetGroupMemberRoleRequest {
+    string group_id = 1;
+    string user_id = 2;
+}
+message GetGroupMemberRoleResponse {
+    int32 role = 1;
+}

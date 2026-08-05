@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"kama_chat_server/internal/common/config"
-	"kama_chat_server/internal/common/domain/repository"
+	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/dto/event"
 	messagereq "kama_chat_server/internal/common/dto/request/message"
 	messagersp "kama_chat_server/internal/common/dto/respond/message"
 	"kama_chat_server/internal/common/grpc_client"
+	kafkainfra "kama_chat_server/internal/common/infrastructure/kafka"
 	"kama_chat_server/internal/common/infrastructure/metrics"
 	"kama_chat_server/internal/common/infrastructure/snowflake"
 	"kama_chat_server/internal/common/model"
@@ -30,9 +30,9 @@ import (
 type KafkaProcessor struct {
 	UpstreamReader   *kafka.Reader
 	DownstreamWriter *kafka.Writer
-	MessageRepo      repository.MessageRepository
-	sessionRepo      repository.SessionRepository
-	cacheService     repository.AsyncCacheService
+	MessageStore      store.MessageStore
+	sessionStore      store.SessionStore
+	cacheService     store.AsyncCacheService
 	quit             chan os.Signal
 }
 
@@ -48,34 +48,18 @@ func normalizePath(path string) string {
 }
 
 func NewKafkaProcessor(
-	messageRepo repository.MessageRepository,
-	sessionRepo repository.SessionRepository,
-	cacheService repository.AsyncCacheService,
+	messageStore store.MessageStore,
+	sessionStore store.SessionStore,
+	cacheService store.AsyncCacheService,
 ) *KafkaProcessor {
-	kafkaConfig := config.GetConfig().KafkaConfig
-
-	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:        []string{kafkaConfig.HostPort},
-		Topic:          "chat_upstream",
-		CommitInterval: kafkaConfig.Timeout * time.Second,
-		GroupID:        "message_service",
-		StartOffset:    kafka.LastOffset,
-	})
-
-	writer := &kafka.Writer{
-		Addr:                   kafka.TCP(kafkaConfig.HostPort),
-		Topic:                  "chat_downstream",
-		Balancer:               &kafka.Hash{},
-		WriteTimeout:           kafkaConfig.Timeout * time.Second,
-		RequiredAcks:           kafka.RequireNone,
-		AllowAutoTopicCreation: true,
-	}
+	reader := kafkainfra.NewConsumer(kafkainfra.TopicChatUpstream, "message_service")
+	writer := kafkainfra.NewProducer(kafkainfra.TopicChatDownstream)
 
 	return &KafkaProcessor{
 		UpstreamReader:   reader,
 		DownstreamWriter: writer,
-		MessageRepo:      messageRepo,
-		sessionRepo:      sessionRepo,
+		MessageStore:      messageStore,
+		sessionStore:      sessionStore,
 		cacheService:     cacheService,
 		quit:             make(chan os.Signal, 1),
 	}
@@ -141,10 +125,7 @@ func trySendBack(k *KafkaProcessor, targetUserId string, messageUuid string, pay
 		MessageUuid:  messageUuid,
 	}
 	b, _ := json.Marshal(pe)
-	if err := k.DownstreamWriter.WriteMessages(context.Background(), kafka.Message{
-		Key:   []byte(targetUserId),
-		Value: b,
-	}); err != nil {
+	if err := kafkainfra.Publish(context.Background(), k.DownstreamWriter, []byte(targetUserId), b, nil); err != nil {
 		zap.L().Error("write to downstream error", zap.Error(err))
 		metrics.MessagesDropped.Inc()
 	} else {
@@ -242,22 +223,22 @@ func (k *KafkaProcessor) buildMessageFromRequest(req messagereq.ChatMessageReque
 }
 
 func (k *KafkaProcessor) persistMessage(message *model.Message) {
-	if k.MessageRepo != nil {
-		if err := k.MessageRepo.Create(context.Background(), message); err != nil {
+	if k.MessageStore != nil {
+		if err := k.MessageStore.Create(context.Background(), message); err != nil {
 			zap.L().Error("创建消息失败", zap.Error(err))
 		}
 	}
 }
 
 func (k *KafkaProcessor) updateSessionLastMessage(message *model.Message, content string) {
-	if k.sessionRepo == nil {
+	if k.sessionStore == nil {
 		return
 	}
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := k.sessionRepo.UpdateLastMessage(ctx,
+		if err := k.sessionStore.UpdateLastMessage(ctx,
 			message.SendId,
 			message.ReceiveId,
 			content,
@@ -268,7 +249,7 @@ func (k *KafkaProcessor) updateSessionLastMessage(message *model.Message, conten
 		}
 
 		if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
-			if err := k.sessionRepo.UpdateLastMessage(ctx,
+			if err := k.sessionStore.UpdateLastMessage(ctx,
 				message.ReceiveId,
 				message.SendId,
 				content,
@@ -349,8 +330,8 @@ func (k *KafkaProcessor) handleAVMessage(ctx context.Context, req messagereq.Cha
 	message.Content = ""
 
 	if avData.MessageId == "PROXY" && (avData.Type == "start_call" || avData.Type == "receive_call" || avData.Type == "reject_call") {
-		if k.MessageRepo != nil {
-			_ = k.MessageRepo.Create(context.Background(), &message)
+		if k.MessageStore != nil {
+			_ = k.MessageStore.Create(context.Background(), &message)
 		}
 		var summary string
 		switch avData.Type {

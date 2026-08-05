@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"kama_chat_server/internal/common/domain/repository"
+	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/pkg/errorx"
 )
 
@@ -24,7 +24,7 @@ type RateLimitKeyFunc func(c *gin.Context) string
 // maxRequests: 窗口内允许的最大请求数
 
 // window: 窗口时间长度
-func RateLimit(cache repository.CacheService, keyPrefix string, keyFunc RateLimitKeyFunc, maxRequests int64, window time.Duration) gin.HandlerFunc {
+func RateLimit(cache store.CacheService, keyPrefix string, keyFunc RateLimitKeyFunc, maxRequests int64, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		identifier := keyFunc(c)
 		if identifier == "" {

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"kama_chat_server/internal/common/domain/repository"
+	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/infrastructure/jwt"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
@@ -65,7 +65,7 @@ func JWTAuth() gin.HandlerFunc {
 // JWTAuthWithCache JWT 认证中间件（带 Redis SSO 验证）
 // 验证 Access Token 并将用户信息存入上下文
 // SSO: 同时检查 Redis 中 token 是否有效
-func JWTAuthWithCache(cache repository.CacheService) gin.HandlerFunc {
+func JWTAuthWithCache(cache store.CacheService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 1. 从 Header 获取 Token
 		authHeader := c.GetHeader("Authorization")

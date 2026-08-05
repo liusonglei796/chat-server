@@ -18,7 +18,6 @@ type Handlers struct {
 	Session    *SessionHandler
 	Message    *MessageHandler
 	Ws         *WsHandler
-	Admin      *AdminHandler // 后台管理
 }
 
 // NewHandlers 创建并注入所有 Handler 实例
@@ -32,6 +31,5 @@ func NewHandlers(broker *chat.MsgConsumer) *Handlers {
 		Session:    NewSessionHandler(),
 		Message:    NewMessageHandler(),
 		Ws:         NewWsHandler(broker),
-		Admin:      NewAdminHandler(nil, nil),
 	}
 }

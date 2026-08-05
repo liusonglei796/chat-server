@@ -5,24 +5,24 @@ package auth
 import (
 	"context"
 
-	"kama_chat_server/internal/common/domain/repository"
+	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
 )
 
 // Service 认证服务实现
 type Service struct {
-	cache    repository.CacheService   // 缓存服务（依赖倒置）
-	userRepo repository.UserRepository // 用户仓库（用于获取管理员状态）
+	cache    store.CacheService   // 缓存服务（依赖倒置）
+	userStore store.UserStore // 用户仓库（用于获取管理员状态）
 }
 
 // NewAuthService 创建认证服务实例
 // cache: 缓存服务接口实例
-// userRepo: 用户仓库接口实例
-func NewAuthService(cache repository.CacheService, userRepo repository.UserRepository) *Service {
+// userStore: 用户仓库接口实例
+func NewAuthService(cache store.CacheService, userStore store.UserStore) *Service {
 	return &Service{
 		cache:    cache,
-		userRepo: userRepo,
+		userStore: userStore,
 	}
 }
 
@@ -46,7 +46,7 @@ func (s *Service) ValidateTokenID(ctx context.Context, userID, tokenID string) (
 // GetUserIsAdmin 获取用户是否为管理员
 // 用于 Token 刷新时获取最新的管理员状态
 func (s *Service) GetUserIsAdmin(ctx context.Context, userID string) (bool, error) {
-	user, err := s.userRepo.FindByUuid(ctx, userID)
+	user, err := s.userStore.FindByUuid(ctx, userID)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return false, errorx.New(errorx.CodeUserNotExist, "用户不存在")

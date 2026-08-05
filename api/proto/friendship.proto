@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package friendship;
+
+option go_package = "kama_chat_server/api/gen/friendship";
+
+service FriendshipService {
+    rpc GetFriendList (GetFriendListRequest) returns (GetFriendListResponse);
+    rpc GetFriendInfo (GetFriendInfoRequest) returns (GetFriendInfoResponse);
+    rpc DeleteFriend (DeleteFriendRequest) returns (DeleteFriendResponse);
+    rpc BlackFriend (BlackFriendRequest) returns (BlackFriendResponse);
+    rpc UnblackFriend (UnblackFriendRequest) returns (UnblackFriendResponse);
+    rpc UpdateRemark (UpdateRemarkRequest) returns (UpdateRemarkResponse);
+    // 检查好友关系状态：0=非好友 1=正常 2=已拉黑对方 3=被对方拉黑
+    rpc CheckFriendship (CheckFriendshipRequest) returns (CheckFriendshipResponse);
+}
+
+message GetFriendListRequest {
+    string user_id = 1;
+    int32 page = 2;
+    int32 page_size = 3;
+}
+message MyUserListRespond {
+    string user_id = 1;
+    string user_name = 2;
+    string avatar = 3;
+}
+message GetFriendListResponse {
+    int64 total = 1;
+    repeated MyUserListRespond list = 2;
+}
+
+message GetFriendInfoRequest {
+    string user_id = 1;
+    string friend_id = 2;
+}
+message GetFriendInfoResponse {
+    string friend_id = 1;
+    string friend_name = 2;
+    string friend_avatar = 3;
+    string friend_birthday = 4;
+    string friend_email = 5;
+    string friend_phone = 6;
+    int32 friend_gender = 7;
+    string friend_signature = 8;
+    string remark = 9;
+}
+
+message DeleteFriendRequest {
+    string user_id = 1;
+    string friend_id = 2;
+}
+message DeleteFriendResponse {}
+
+message BlackFriendRequest {
+    string user_id = 1;
+    string friend_id = 2;
+}
+message BlackFriendResponse {}
+
+message UnblackFriendRequest {
+    string user_id = 1;
+    string friend_id = 2;
+}
+message UnblackFriendResponse {}
+
+message UpdateRemarkRequest {
+    string user_id = 1;
+    string friend_id = 2;
+    string remark = 3;
+}
+message UpdateRemarkResponse {}
+
+message CheckFriendshipRequest {
+    string user_id = 1;
+    string friend_id = 2;
+}
+message CheckFriendshipResponse {
+    int32 status = 1;
+}

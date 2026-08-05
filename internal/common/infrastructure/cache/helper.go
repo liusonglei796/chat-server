@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"kama_chat_server/internal/common/domain/repository"
+	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/infrastructure/metrics"
 	"kama_chat_server/pkg/errorx"
 
@@ -22,7 +22,7 @@ const (
 // Helper 缓存辅助工具
 // 提供 Cache-Aside 模式的标准实现，包含空值缓存和 singleflight 保护
 type Helper struct {
-	cache         repository.CacheService
+	cache         store.CacheService
 	sf            singleflight.Group
 	loaderTimeout time.Duration
 }
@@ -38,7 +38,7 @@ func WithLoaderTimeout(d time.Duration) HelperOption {
 }
 
 // NewHelper 创建缓存辅助工具
-func NewHelper(cache repository.CacheService, opts ...HelperOption) *Helper {
+func NewHelper(cache store.CacheService, opts ...HelperOption) *Helper {
 	h := &Helper{
 		cache:         cache,
 		loaderTimeout: DefaultLoaderTimeout,

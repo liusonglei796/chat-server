@@ -9,36 +9,40 @@ import (
 
 	"go.uber.org/zap"
 
-	"kama_chat_server/internal/common/domain/repository"
+	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/dto/event"
 	"kama_chat_server/internal/common/dto/request/auth"
 	userreq "kama_chat_server/internal/common/dto/request/user"
 	userrsp "kama_chat_server/internal/common/dto/respond/user"
-	cacheutil "kama_chat_server/internal/common/infrastructure/cache"
+	cacheutil 	"kama_chat_server/internal/common/infrastructure/cache"
 	"kama_chat_server/internal/common/infrastructure/jwt"
-	"kama_chat_server/internal/common/infrastructure/snowflake"
 	"kama_chat_server/internal/common/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
 )
 
+// userUoW 用户服务的 UoW 接口：事务/事件能力 + 仅本服务拥有的 User Store
+type userUoW interface {
+	store.TxExecutor
+	RecordEvent(ctx context.Context, eventType string, payload []byte) error
+	UserStore() store.UserStore
+}
+
 // UserService 用户业务逻辑实现
-// 通过构造函数注入 Repository 和 Cache 依赖
+// 通过构造函数注入 Store 和 Cache 依赖
 type UserService struct {
-	uow         repository.UnitOfWork
-	cache       repository.AsyncCacheService
+	uow         userUoW
+	cache       store.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
-	outboxRepo  repository.OutboxRepository
 }
 
 // NewUserService 构造函数，注入所有依赖
-func NewUserService(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, outboxRepo repository.OutboxRepository) *UserService {
+func NewUserService(uow userUoW, cacheService store.AsyncCacheService) *UserService {
 	return &UserService{
 		uow:         uow,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
-		outboxRepo:  outboxRepo,
 	}
 }
 
@@ -123,7 +127,7 @@ func (u *UserService) buildLoginResponse(ctx context.Context, user *model.UserIn
 // Login 登录（密码登录）
 // SSO: 登录时会将 token 存入 Redis，实现单点登录
 func (u *UserService) Login(ctx context.Context, loginReq auth.LoginRequest, clientIP string) (*userrsp.LoginRespond, error) {
-	user, err := u.uow.UserRepo().FindByNickname(ctx, loginReq.Username)
+	user, err := u.uow.UserStore().FindByNickname(ctx, loginReq.Username)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -141,7 +145,7 @@ func (u *UserService) Login(ctx context.Context, loginReq auth.LoginRequest, cli
 // Register 用户注册
 func (u *UserService) Register(ctx context.Context, registerReq auth.RegisterRequest, clientIP string) (*userrsp.LoginRespond, error) {
 	// 检查用户名是否已存在
-	existing, err := u.uow.UserRepo().FindByNickname(ctx, registerReq.Username)
+	existing, err := u.uow.UserStore().FindByNickname(ctx, registerReq.Username)
 	if err == nil && existing != nil {
 		return nil, errorx.New(errorx.CodeUserExist, "用户名已被占用")
 	}
@@ -160,7 +164,7 @@ func (u *UserService) Register(ctx context.Context, registerReq auth.RegisterReq
 		Status:      0,
 	}
 
-	if err := u.uow.UserRepo().CreateUser(ctx, user); err != nil {
+	if err := u.uow.UserStore().CreateUser(ctx, user); err != nil {
 		zap.L().Error("创建用户失败", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}
@@ -186,7 +190,7 @@ func (u *UserService) Logout(ctx context.Context, userId string) error {
 // 从 Redis 删除指定用户的 SSO token
 func (u *UserService) KickUser(ctx context.Context, userId string) error {
 	// 检查用户是否存在
-	_, err := u.uow.UserRepo().FindByUuid(ctx, userId)
+	_, err := u.uow.UserStore().FindByUuid(ctx, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -211,7 +215,7 @@ func (u *UserService) KickUser(ctx context.Context, userId string) error {
 // 使用指针类型区分"未传字段"(nil=不更新)和"清空字段"(""=置空)
 // 警告问题修复：使用数据库事务确保用户信息和会话信息的一致性
 func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateReq userreq.UpdateUserInfoRequest) error {
-	user, err := u.uow.UserRepo().FindByUuid(ctx, userId)
+	user, err := u.uow.UserStore().FindByUuid(ctx, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -238,9 +242,9 @@ func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateR
 	// 警告问题修复：使用事务管理确保数据一致性
 	// 事务内的操作：1.更新用户信息 2.更新会话冗余字段
 	// 任一操作失败都会回滚，保证数据一致性
-	if err := u.uow.WithTx(func(tx repository.UnitOfWork) error {
+	if err := store.WithTx(u.uow, func(tx userUoW) error {
 		// 1. 在事务内更新用户信息
-		if err := tx.UserRepo().UpdateUserInfo(ctx, user); err != nil {
+		if err := tx.UserStore().UpdateUserInfo(ctx, user); err != nil {
 			return err
 		}
 
@@ -249,14 +253,7 @@ func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateR
 		av := updateReq.Avatar
 		if nick != nil || av != nil {
 			payload, _ := json.Marshal(event.UserUpdatedEvent{UserId: userId, Nickname: nick, Avatar: av})
-			o := model.Outbox{
-				Uuid:      fmt.Sprintf("O%s", snowflake.GenerateIDString()),
-				EventType: event.EventUserUpdated,
-				Payload:   string(payload),
-				Status:    0,
-				CreatedAt: time.Now(),
-			}
-			if err := tx.OutboxRepo().Create(ctx, &o); err != nil {
+			if err := tx.RecordEvent(ctx, event.EventUserUpdated, payload); err != nil {
 				return err
 			}
 		}
@@ -297,7 +294,7 @@ func (u *UserService) GetUserInfo(ctx context.Context, requesterId, targetId str
 		ctx,
 		key,
 		func(loaderCtx context.Context) (interface{}, error) {
-			user, err := u.uow.UserRepo().FindByUuid(loaderCtx, targetId)
+			user, err := u.uow.UserStore().FindByUuid(loaderCtx, targetId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -338,7 +335,7 @@ func (u *UserService) GetPublicUserInfo(ctx context.Context, targetId string) (*
 		ctx,
 		key,
 		func(loaderCtx context.Context) (interface{}, error) {
-			user, err := u.uow.UserRepo().FindByUuid(loaderCtx, targetId)
+			user, err := u.uow.UserStore().FindByUuid(loaderCtx, targetId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -370,7 +367,7 @@ func (u *UserService) BatchGetPublicUserInfo(ctx context.Context, userIds []stri
 	if len(userIds) == 0 {
 		return []userrsp.PublicUserInfoRespond{}, nil
 	}
-	userList, err := u.uow.UserRepo().FindByUuids(ctx, userIds)
+	userList, err := u.uow.UserStore().FindByUuids(ctx, userIds)
 	if err != nil {
 		zap.L().Error("batch find users error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -392,7 +389,7 @@ func (u *UserService) BatchGetPublicUserInfo(ctx context.Context, userIds []stri
 // GetUserStatus 获取用户账号状态（正常/禁用）
 // 供跨服务在写操作前置校验目标用户状态，避免读整个用户表
 func (u *UserService) GetUserStatus(ctx context.Context, userId string) (int8, error) {
-	user, err := u.uow.UserRepo().FindByUuid(ctx, userId)
+	user, err := u.uow.UserStore().FindByUuid(ctx, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return 0, errorx.New(errorx.CodeUserNotExist, "用户不存在")

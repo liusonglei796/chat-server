@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"kama_chat_server/internal/common/dto/event"
+	kafkainfra "kama_chat_server/internal/common/infrastructure/kafka"
 	"kama_chat_server/internal/common/infrastructure/metrics"
 	"kama_chat_server/pkg/otel"
 	"os"
@@ -68,11 +69,7 @@ func (k *MsgConsumer) Publish(ctx context.Context, msg []byte) error {
 	var headers []kafka.Header
 	otel.InjectTraceContext(ctx, &headers)
 
-	return k.kafkaClient.Producer.WriteMessages(ctx, kafka.Message{
-		Key:     key,
-		Value:   msg,
-		Headers: headers,
-	})
+	return kafkainfra.Publish(ctx, k.kafkaClient.Producer, key, msg, headers)
 }
 
 func (k *MsgConsumer) Start() {

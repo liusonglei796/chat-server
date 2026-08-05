@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"kama_chat_server/internal/common/dao/mysql/dberr"
-	"kama_chat_server/internal/common/domain/repository"
+	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/dto/event"
 	userreq "kama_chat_server/internal/common/dto/request/user"
 	"kama_chat_server/internal/common/model"
@@ -47,14 +47,14 @@ func repoRoot() (string, error) {
 	}
 }
 
-// fakeUserRepo 内嵌 UserRepository 接口占位，仅实现测试所需的方法
-type fakeUserRepo struct {
-	repository.UserRepository
+// fakeUserStore 内嵌 UserStore 接口占位，仅实现测试所需的方法
+type fakeUserStore struct {
+	store.UserStore
 	users map[string]model.UserInfo
 }
 
 // FindByUuids 按请求顺序返回存在的用户，不存在的 uuid 被过滤掉
-func (f *fakeUserRepo) FindByUuids(_ context.Context, uuids []string) ([]model.UserInfo, error) {
+func (f *fakeUserStore) FindByUuids(_ context.Context, uuids []string) ([]model.UserInfo, error) {
 	result := make([]model.UserInfo, 0, len(uuids))
 	for _, uuid := range uuids {
 		if usr, ok := f.users[uuid]; ok {
@@ -65,7 +65,7 @@ func (f *fakeUserRepo) FindByUuids(_ context.Context, uuids []string) ([]model.U
 }
 
 // FindByUuid 返回单个用户，未找到时返回被 dberr 包装的 not-found 错误（与真实仓库行为一致）
-func (f *fakeUserRepo) FindByUuid(_ context.Context, uuid string) (*model.UserInfo, error) {
+func (f *fakeUserStore) FindByUuid(_ context.Context, uuid string) (*model.UserInfo, error) {
 	if usr, ok := f.users[uuid]; ok {
 		return &usr, nil
 	}
@@ -73,7 +73,7 @@ func (f *fakeUserRepo) FindByUuid(_ context.Context, uuid string) (*model.UserIn
 }
 
 // UpdateUserInfo 应用字段变更到内存 map，模拟事务内更新
-func (f *fakeUserRepo) UpdateUserInfo(_ context.Context, user *model.UserInfo) error {
+func (f *fakeUserStore) UpdateUserInfo(_ context.Context, user *model.UserInfo) error {
 	if _, ok := f.users[user.Uuid]; !ok {
 		return dberr.WrapDBError(gorm.ErrRecordNotFound, "更新用户")
 	}
@@ -83,7 +83,7 @@ func (f *fakeUserRepo) UpdateUserInfo(_ context.Context, user *model.UserInfo) e
 
 // fakeOutbox 记录写入的 outbox 事件类型，用于断言事件是否发出
 type fakeOutbox struct {
-	repository.OutboxRepository
+	store.OutboxStore
 	lastType string
 }
 
@@ -92,31 +92,35 @@ func (f *fakeOutbox) Create(_ context.Context, o *model.Outbox) error {
 	return nil
 }
 
-// fakeUOW 内嵌 UnitOfWork 接口占位，实现 UserRepo/OutboxRepo/WithTx
+// fakeUOW 实现 UserStore/RecordEvent/WithTx，满足 userUoW 接口
 type fakeUOW struct {
-	repository.UnitOfWork
-	userRepo   *fakeUserRepo
-	outboxRepo *fakeOutbox
+	userStore   *fakeUserStore
+	outboxStore *fakeOutbox
 }
 
-func (f *fakeUOW) UserRepo() repository.UserRepository {
-	return f.userRepo
+func (f *fakeUOW) UserStore() store.UserStore {
+	return f.userStore
 }
 
-func (f *fakeUOW) OutboxRepo() repository.OutboxRepository { return f.outboxRepo }
+func (f *fakeUOW) RecordEvent(_ context.Context, eventType string, _ []byte) error {
+	if f.outboxStore != nil {
+		f.outboxStore.lastType = eventType
+	}
+	return nil
+}
 
-func (f *fakeUOW) WithTx(fn func(tx repository.UnitOfWork) error) error { return fn(f) }
+func (f *fakeUOW) WithTx(fn func(tx any) error) error { return fn(f) }
 
 func TestBatchGetPublicUserInfo(t *testing.T) {
 	ctx := context.Background()
 	svc := NewUserService(&fakeUOW{
-		userRepo: &fakeUserRepo{
+		userStore: &fakeUserStore{
 			users: map[string]model.UserInfo{
 				"U1": {Uuid: "U1", Nickname: "a"},
 				"U3": {Uuid: "U3", Nickname: "c"},
 			},
 		},
-	}, nil, nil)
+	}, nil)
 
 	rsp, err := svc.BatchGetPublicUserInfo(ctx, []string{"U1", "U2", "U3"})
 	if err != nil {
@@ -141,7 +145,7 @@ func TestBatchGetPublicUserInfo(t *testing.T) {
 }
 
 func TestBatchGetPublicUserInfoEmpty(t *testing.T) {
-	svc := NewUserService(&fakeUOW{}, nil, nil)
+	svc := NewUserService(&fakeUOW{}, nil)
 
 	rsp, err := svc.BatchGetPublicUserInfo(context.Background(), nil)
 	if err != nil {
@@ -155,13 +159,13 @@ func TestBatchGetPublicUserInfoEmpty(t *testing.T) {
 func TestGetUserStatus(t *testing.T) {
 	ctx := context.Background()
 	svc := NewUserService(&fakeUOW{
-		userRepo: &fakeUserRepo{
+		userStore: &fakeUserStore{
 			users: map[string]model.UserInfo{
 				"U-NORMAL":  {Uuid: "U-NORMAL", Status: 0},
 				"U-DISABLE": {Uuid: "U-DISABLE", Status: 1},
 			},
 		},
-	}, nil, nil)
+	}, nil)
 
 	status, err := svc.GetUserStatus(ctx, "U-NORMAL")
 	if err != nil {
@@ -182,8 +186,8 @@ func TestGetUserStatus(t *testing.T) {
 
 func TestGetUserStatusNotFound(t *testing.T) {
 	svc := NewUserService(&fakeUOW{
-		userRepo: &fakeUserRepo{users: map[string]model.UserInfo{}},
-	}, nil, nil)
+		userStore: &fakeUserStore{users: map[string]model.UserInfo{}},
+	}, nil)
 
 	_, err := svc.GetUserStatus(context.Background(), "U-MISSING")
 	if err == nil {
@@ -197,7 +201,7 @@ func TestGetUserStatusNotFound(t *testing.T) {
 
 // fakeCache 空实现，避免 UpdateUserInfo 尾部异步缓存清理调用 nil 接口
 type fakeCache struct {
-	repository.AsyncCacheService
+	store.AsyncCacheService
 }
 
 func (f *fakeCache) SubmitTask(action func()) {}
@@ -206,11 +210,11 @@ func TestUpdateUserInfo_EmitsUserUpdatedEvent(t *testing.T) {
 	ctx := context.Background()
 	ob := &fakeOutbox{}
 	svc := NewUserService(&fakeUOW{
-		userRepo: &fakeUserRepo{users: map[string]model.UserInfo{
+		userStore: &fakeUserStore{users: map[string]model.UserInfo{
 			"U1": {Uuid: "U1", Nickname: "old", Avatar: "old_av"},
 		}},
-		outboxRepo: ob,
-	}, &fakeCache{}, ob)
+		outboxStore: ob,
+	}, &fakeCache{})
 
 	nick := "new"
 	av := "new_av"
@@ -229,11 +233,11 @@ func TestUpdateUserInfo_NoEventWhenOnlyEmailChanged(t *testing.T) {
 	ctx := context.Background()
 	ob := &fakeOutbox{}
 	svc := NewUserService(&fakeUOW{
-		userRepo: &fakeUserRepo{users: map[string]model.UserInfo{
+		userStore: &fakeUserStore{users: map[string]model.UserInfo{
 			"U1": {Uuid: "U1", Nickname: "old"},
 		}},
-		outboxRepo: ob,
-	}, &fakeCache{}, ob)
+		outboxStore: ob,
+	}, &fakeCache{})
 
 	email := "new@example.com"
 	err := svc.UpdateUserInfo(ctx, "U1", userreq.UpdateUserInfoRequest{

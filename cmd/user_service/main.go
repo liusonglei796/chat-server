@@ -16,18 +16,19 @@ import (
 
 	authpb "kama_chat_server/api/gen/auth"
 	userpb "kama_chat_server/api/gen/user"
+	"kama_chat_server/internal/apps/auth/auth"
+	"kama_chat_server/internal/apps/user/user"
 	"kama_chat_server/internal/common/config"
 	mysqlimpl "kama_chat_server/internal/common/dao/mysql"
 	myredis "kama_chat_server/internal/common/dao/redis"
-	"kama_chat_server/internal/common/domain/repository"
+	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/infrastructure/jwt"
+	"kama_chat_server/internal/common/infrastructure/kafka"
 	"kama_chat_server/internal/common/infrastructure/logger"
-	"kama_chat_server/internal/apps/auth/auth"
-	"kama_chat_server/internal/apps/user/user"
+	outbox "kama_chat_server/internal/common/infrastructure/outbox"
 	"kama_chat_server/pkg/discovery"
 	"kama_chat_server/pkg/interceptor"
 	otelinit "kama_chat_server/pkg/otel"
-	"kama_chat_server/pkg/outbox"
 )
 
 func main() {
@@ -54,23 +55,23 @@ func main() {
 	}
 
 	// 3. 初始化数据库
-	repos := mysqlimpl.InitFor("user")
+	stores := mysqlimpl.InitFor("user")
 
 	// 4. 初始化 JWT（auth 合并入本服务后，注册/登录在此处理）
 	jwt.Init(conf.JWTConfig.Secret, conf.JWTConfig.AccessTokenExpiry, conf.JWTConfig.RefreshTokenExpiry)
 
 	// 5. 初始化 Redis
 	cacheService := myredis.Init()
-	var cachePort repository.AsyncCacheService = cacheService
+	var cachePort store.AsyncCacheService = cacheService
 
 	// 6. 初始化 Service
-	userSvc := user.NewUserService(repos, cachePort, repos.Outbox)
+	userSvc := user.NewUserService(stores, cachePort)
 	grpcServer := user.NewGrpcServer(userSvc)
-	authSvc := auth.NewAuthService(cachePort, repos.User)
+	authSvc := auth.NewAuthService(cachePort, stores.User)
 	authGrpcServer := auth.NewGrpcServer(authSvc, userSvc)
 
 	// 启动 outbox 发布器，将本地事务中的领域事件投递到 Kafka
-	outbox.NewPublisher(repos.Outbox, outbox.NewProducer()).Start()
+	outbox.NewPublisher(stores.Outbox, kafka.NewProducer(kafka.TopicDomainEvents)).Start()
 
 	// 6. 启动 gRPC 服务
 	port := 50051

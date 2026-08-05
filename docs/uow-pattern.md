@@ -3,6 +3,13 @@
 > 本文档解释本项目（chat-server）中 Unit of Work（工作单元）模式的设计与实现，
 > 重点说明"回调（callback）"这一核心机制是如何在代码中体现的。
 
+> **⚠️ 现状说明（2026-08 重构后）**
+> 本文档描述的"全家桶式共享 `UnitOfWork`"设计已废弃。当前实现是**每个服务一个精简 UoW 接口**：
+> 每个服务只声明自己拥有的 Store 访问器（如 `groupUoW` 仅含 `GroupStore()`/`GroupMemberStore()`），
+> 从根上杜绝跨库访问。共享部分只剩一个纯事务契约
+> `store.TxExecutor`（`WithTx(fn func(tx any) error) error`）+ 泛型辅助 `store.WithTx[T]`。
+> 下文概念（回调、事务连接到达业务代码、两层嵌套）仍然成立，但接口签名以实际代码为准。
+
 ---
 
 ## 1. 什么是 Unit of Work（工作单元）
@@ -35,17 +42,17 @@
 
 ### 2.1 接口定义（domain 层）
 
-`internal/domain/repository/unit_of_work.go`
+`internal/domain/store/transaction.go`
 
 ```go
 type UnitOfWork interface {
-	UserRepo() UserRepository
-	GroupRepo() GroupRepository
-	FriendshipRepo() FriendshipRepository
-	SessionRepo() SessionRepository
-	MessageRepo() MessageRepository
-	ApplyRepo() ApplyRepository
-	GroupMemberRepo() GroupMemberRepository
+	UserStore() UserStore
+	GroupStore() GroupStore
+	FriendshipStore() FriendshipStore
+	SessionStore() SessionStore
+	MessageStore() MessageStore
+	ApplyStore() ApplyStore
+	GroupMemberStore() GroupMemberStore
 
 	// WithTx 在数据库事务中执行函数
 	// 回调参数 tx 是绑定了事务连接的新 UnitOfWork 实例，
@@ -63,49 +70,49 @@ type UnitOfWork interface {
 
 ### 2.2 实现（infrastructure 层）
 
-`internal/dao/mysql/repositories.go`
+`internal/dao/mysql/stores.go`
 
 ```go
-type Repositories struct {
+type Stores struct {
 	db          *gorm.DB
-	User        repository.UserRepository
-	Group       repository.GroupRepository
-	Friendship  repository.FriendshipRepository
-	Session     repository.SessionRepository
-	Message     repository.MessageRepository
-	Apply       repository.ApplyRepository
-	GroupMember repository.GroupMemberRepository
+	User        store.UserStore
+	Group       store.GroupStore
+	Friendship  store.FriendshipStore
+	Session     store.SessionStore
+	Message     store.MessageStore
+	Apply       store.ApplyStore
+	GroupMember store.GroupMemberStore
 }
 
-// 编译期断言：保证 Repositories 确实实现了 UnitOfWork 接口
-var _ repository.UnitOfWork = (*Repositories)(nil)
+// 编译期断言：保证 Stores 确实实现了 UnitOfWork 接口
+var _ store.TxExecutor = (*Stores)(nil)
 
-func (r *Repositories) WithTx(fn func(uow repository.UnitOfWork) error) error {
+func (r *Stores) WithTx(fn func(tx any) error) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		return fn(NewRepositories(tx))
+		return fn(NewStores(tx))
 	})
 }
 ```
 
 要点：
 
-- `Repositories` 持有 `*gorm.DB` 和 7 个 Repository 实例
+- `Stores` 持有 `*gorm.DB` 和 7 个 Repository 实例
 - 事务本身**没有自己实现**——直接使用 GORM 的 `db.Transaction`（BEGIN/COMMIT/ROLLBACK 全在 gorm 内部）
-- 项目的唯一贡献是 `NewRepositories(tx)`：**用事务连接重建一套 Repository**
+- 项目的唯一贡献是 `NewStores(tx)`：**用事务连接重建一套 Repository**
 
 ### 2.3 注入（组合根）
 
 `internal/service/services.go`
 
 ```go
-func NewServices(uow repository.UnitOfWork, cacheService repository.AsyncCacheService, ...) *Services {
+func NewServices(tx store.TxExecutor, cacheService store.AsyncCacheService, ...) *Services {
 	// 事务型 Service：注入整个 UnitOfWork 接口
 	userSvc := user.NewUserService(uow, cacheService)
 	groupSvc := group.NewGroupService(uow, cacheService)
 	// ...
 
 	// 非事务型 Service：只注入单个 Repository
-	sessionSvc := session.NewSessionService(uow.SessionRepo(), ...)
+	sessionSvc := session.NewSessionService(uow.SessionStore(), ...)
 }
 ```
 
@@ -114,10 +121,10 @@ func NewServices(uow repository.UnitOfWork, cacheService repository.AsyncCacheSe
 `internal/service/group/service.go` — 建群：
 
 ```go
-err := g.uow.WithTx(func(tx repository.UnitOfWork) error {
-	tx.GroupRepo().CreateGroup(ctx, &group)             // 1. 插入群
-	tx.GroupMemberRepo().CreateGroupMember(ctx, &member) // 2. 插入群主成员
-	tx.SessionRepo().CreateSession(ctx, &session)        // 3. 插入会话
+err := g.uow.WithTx(func(tx store.TxExecutor) error {
+	tx.GroupStore().CreateGroup(ctx, &group)             // 1. 插入群
+	tx.GroupMemberStore().CreateGroupMember(ctx, &member) // 2. 插入群主成员
+	tx.SessionStore().CreateSession(ctx, &session)        // 3. 插入会话
 	return nil
 })
 ```
@@ -131,11 +138,11 @@ err := g.uow.WithTx(func(tx repository.UnitOfWork) error {
 ### 3.1 关键事实：Repository 是无状态的"壳"
 
 ```go
-type userRepository struct {
+type userStore struct {
 	db *gorm.DB   // 唯一字段：一个数据库连接
 }
 
-func (r *userRepository) FindByUuid(ctx context.Context, uuid string) (*model.UserInfo, error) {
+func (r *userStore) FindByUuid(ctx context.Context, uuid string) (*model.UserInfo, error) {
 	return r.db.WithContext(ctx).First(&user, "uuid = ?", uuid).Error  // SQL 走 r.db
 }
 ```
@@ -143,7 +150,7 @@ func (r *userRepository) FindByUuid(ctx context.Context, uuid string) (*model.Us
 Repository 没有任何业务状态，所有 SQL 都通过 `r.db` 执行。
 **谁持有 db，谁的 SQL 就走哪条连接。**
 
-### 3.2 绑定的动作：`NewRepositories(tx)`
+### 3.2 绑定的动作：`NewStores(tx)`
 
 GORM 的 `db.Transaction` 内部会：
 
@@ -156,11 +163,11 @@ tx.Commit() / Rollback() // 根据回调返回值决定
 `WithTx` 拿到事务连接 `tx` 后，用它重建整套 Repository：
 
 ```go
-return fn(NewRepositories(tx))
+return fn(NewStores(tx))
 //          └─────────────────┐
-//   &Repositories{
-//       User:       &userRepository{db: tx},     ← db 指向事务连接
-//       Group:      &groupRepository{db: tx},    ← 全部绑定到同一事务
+//   &Stores{
+//       User:       &userStore{db: tx},     ← db 指向事务连接
+//       Group:      &groupStore{db: tx},    ← 全部绑定到同一事务
 //       ...
 //   }
 ```
@@ -174,15 +181,15 @@ return fn(NewRepositories(tx))
 
 ### 3.3 结构体如何满足接口
 
-`NewRepositories(tx)` 返回的是 `*Repositories`（结构体指针），不是 `UnitOfWork`。
-但 `*Repositories` 拥有接口要求的全部方法，Go 的**隐式接口满足**让它自动成为 `UnitOfWork`：
+`NewStores(tx)` 返回的是 `*Stores`（结构体指针），不是 `UnitOfWork`。
+但 `*Stores` 拥有接口要求的全部方法，Go 的**隐式接口满足**让它自动成为 `UnitOfWork`：
 
 ```go
-// 方法全是指针接收者 → 只有 *Repositories 实现接口
-func (r *Repositories) WithTx(...) error { ... }
+// 方法全是指针接收者 → 只有 *Stores 实现接口
+func (r *Stores) WithTx(...) error { ... }
 
-var _ repository.UnitOfWork = (*Repositories)(nil)  // ✅ 编译通过 = 实现了
-var _ repository.UnitOfWork = (Repositories)(nil)   // ❌ 值类型不实现
+var _ store.TxExecutor = (*Stores)(nil)  // ✅ 编译通过 = 实现了
+var _ store.TxExecutor = (Stores)(nil)   // ❌ 值类型不实现
 ```
 
 ---
@@ -200,7 +207,7 @@ var _ repository.UnitOfWork = (Repositories)(nil)   // ❌ 值类型不实现
 |---|---|---|
 | ① 形参声明 | 接口 `WithTx(fn func(tx UnitOfWork) error) error` | 参数类型本身就是函数类型，定义契约 |
 | ② 调用处注册 | service 里的匿名函数字面量 | 你"交"出函数，此刻不执行 |
-| ③ 内部调用 | `fn(NewRepositories(tx))` | 回调被真正调用的那一行 |
+| ③ 内部调用 | `fn(NewStores(tx))` | 回调被真正调用的那一行 |
 
 ### 4.3 两层嵌套回调
 
@@ -209,14 +216,14 @@ var _ repository.UnitOfWork = (Repositories)(nil)   // ❌ 值类型不实现
 ```go
 // 你写的代码（service 层）
 err := uow.WithTx(func(tx UnitOfWork) error {     // 回调 A：你定义，你不管何时跑
-	tx.UserRepo().Create(user)
+	tx.UserStore().Create(user)
 	return nil
 })
 
 // WithTx 实现（repositories.go）
-func (r *Repositories) WithTx(fn func(uow repository.UnitOfWork) error) error {
+func (r *Stores) WithTx(fn func(tx any) error) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {   // 回调 B：也是匿名函数
-		return fn(NewRepositories(tx))                   // ← 回调 A 在这里被调用
+		return fn(NewStores(tx))                   // ← 回调 A 在这里被调用
 	})
 }
 
@@ -238,7 +245,7 @@ func (db *DB) Transaction(fc func(tx *DB) error) error {
 WithTx 内   ② r.db.Transaction(B)       → B 被"递"给 gorm，也没跑
 gorm 内     ③ tx := db.Begin()          → 事务建立
             ④ B(tx)                     → gorm 先调用自己的回调 B
-            ⑤ B 内: A(NewRepositories(tx)) → 再调用你的回调 A ← 业务代码此刻才真正执行
+            ⑤ B 内: A(NewStores(tx)) → 再调用你的回调 A ← 业务代码此刻才真正执行
             ⑥ A 返回 nil → Commit；返回 err → Rollback
 ```
 
@@ -258,13 +265,17 @@ uow.WithTx(func(tx UnitOfWork) error { ... })   // 调用时机由 WithTx/gorm �
 
 ## 5. 自引用设计与嵌套事务
 
+> **⚠️ 现状**：自引用是"共享全家桶 UoW"时代的特性。当前 `WithTx(fn func(tx any) error)` 的
+> 回调参数是 `any`，由泛型辅助 `store.WithTx[T]` 断言为具体服务的 UoW 接口，**不再自引用**。
+> 下面的示例仅用于说明嵌套事务与 savepoint 机制。
+
 因为回调参数 `tx` 的类型就是 `UnitOfWork` 接口本身，函数体内可以**再次调用 WithTx**：
 
 ```go
 uow.WithTx(func(tx UnitOfWork) error {
-	tx.UserRepo().Create(user)                     // 外层事务
+	tx.UserStore().Create(user)                     // 外层事务
 	return tx.WithTx(func(tx2 UnitOfWork) error {  // 嵌套事务
-		tx2.MessageRepo().Create(msg)
+		tx2.MessageStore().Create(msg)
 		return nil
 	})
 })
@@ -279,7 +290,7 @@ GORM 对嵌套事务有原生支持（**savepoint** 机制）：内层失败只�
 ### Q1: 项目是自己实现事务还是用 GORM 的？
 
 **用 GORM 的。** 全项目搜不到任何手动 `Begin()/Commit()/Rollback()`。
-`WithTx` 只是包装——它的唯一职责是 `NewRepositories(tx)`（让事务连接到达业务代码），
+`WithTx` 只是包装——它的唯一职责是 `NewStores(tx)`（让事务连接到达业务代码），
 事务本身的开启、提交、回滚、panic 兜底全是 `(*gorm.DB).Transaction` 在做。
 
 ### Q2: 为什么不能去掉包装直接用 `db.Transaction`？
@@ -290,7 +301,7 @@ GORM 对嵌套事务有原生支持（**savepoint** 机制）：内层失败只�
 ### Q3: 包装了不还是每次事务都重建 Repo 吗？
 
 是的，重建**每次事务都发生**。但包装省的不是重建本身，而是**每个调用点的重建代码和分层破坏**
-——15 处调用点不需要知道 `NewRepositories(tx)` 的存在。重建 7 个 struct 的成本可忽略。
+——15 处调用点不需要知道 `NewStores(tx)` 的存在。重建 7 个 struct 的成本可忽略。
 
 ### Q4: 不用 UOW 有哪些替代方案？
 
@@ -304,8 +315,8 @@ GORM 对嵌套事务有原生支持（**savepoint** 机制）：内层失败只�
 ### Q5: 为什么接口方法没有函数体？
 
 接口只定义**契约**（能干什么），不定义**实现**（怎么干）。
-函数体在实现者 `Repositories.WithTx` 中（`internal/dao/mysql/repositories.go`）。
-调用 `uow.WithTx(...)` 时，Go 根据接口中存储的真实类型（`*Repositories`）**动态派发**到实现。
+函数体在实现者 `Stores.WithTx` 中（`internal/dao/mysql/stores.go`）。
+调用 `uow.WithTx(...)` 时，Go 根据接口中存储的真实类型（`*Stores`）**动态派发**到实现。
 
 ---
 
@@ -313,8 +324,8 @@ GORM 对嵌套事务有原生支持（**savepoint** 机制）：内层失败只�
 
 | 文件 | 角色 |
 |---|---|
-| `internal/domain/repository/unit_of_work.go` | 接口定义（契约） |
-| `internal/dao/mysql/repositories.go` | 实现（函数体所在） |
+| `internal/domain/store/transaction.go` | 接口定义（契约） |
+| `internal/dao/mysql/stores.go` | 实现（函数体所在） |
 | `internal/service/services.go` | 注入（组合根） |
 | `internal/service/group/service.go` | 使用示例（建群，15 处之一） |
 | `internal/dao/mysql/*/xxx_repository.go` | 各 Repository 实现（持 db 的壳） |
@@ -325,4 +336,4 @@ GORM 对嵌套事务有原生支持（**savepoint** 机制）：内层失败只�
 
 > **UOW = 用接口把"多个 Repository 共享一个事务"这件事抽象出来；
 > 回调 = 把"你的业务代码"交给事务框架，由它在事务就绪后调用；
-> 而 `NewRepositories(tx)` 是让这一切成立的魔术——把整套 Repo 绑定到事务连接上。**
+> 而 `NewStores(tx)` 是让这一切成立的魔术——把整套 Repo 绑定到事务连接上。**

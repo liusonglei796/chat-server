@@ -8,7 +8,7 @@ import (
 
 	"kama_chat_server/internal/common/config"
 	"kama_chat_server/internal/common/dao/redis/ops"
-	"kama_chat_server/internal/common/domain/repository"
+	"kama_chat_server/internal/common/domain/store"
 
 	"github.com/panjf2000/ants/v2"
 	"github.com/redis/go-redis/v9"
@@ -20,7 +20,7 @@ import (
 // Init 初始化 Redis 连接并返回缓存服务
 // 从配置文件读取连接参数并创建客户端实例
 // 返回 AsyncCacheService 接口，供 Service 层依赖注入使用
-func Init() repository.AsyncCacheService {
+func Init() store.AsyncCacheService {
 	conf := config.GetConfig()
 	host := conf.RedisConfig.Host         // Redis 服务器地址
 	port := conf.RedisConfig.Port         // Redis 端口
@@ -71,7 +71,7 @@ func NewRedisCache(client *redis.Client, poolSize int) *RedisCache {
 }
 
 // 确保 RedisCache 实现了 AsyncCacheService 接口
-var _ repository.AsyncCacheService = (*RedisCache)(nil)
+var _ store.AsyncCacheService = (*RedisCache)(nil)
 
 // SetNX 设置键值对，仅当键不存在时生效（原子操作）
 // 返回 bool 表示是否设置成功（true=新键，false=键已存在）

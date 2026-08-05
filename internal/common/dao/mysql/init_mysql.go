@@ -1,5 +1,5 @@
 // Package mysql 提供数据访问层的初始化和全局数据库实例管理
-// 负责建立 MySQL 连接、自动迁移表结构、初始化 Repository 层
+// 负责建立 MySQL 连接、自动迁移表结构、初始化 Store 层
 package mysql
 
 import (
@@ -20,9 +20,14 @@ var ServiceModels = map[string][]interface{}{
 	"user": {
 		&model.UserInfo{}, &model.Outbox{},
 	},
-	"relation": {
-		&model.GroupInfo{}, &model.GroupMember{},
-		&model.Friendship{}, &model.Apply{}, &model.Outbox{},
+	"apply": {
+		&model.Apply{}, &model.Outbox{},
+	},
+	"friendship": {
+		&model.Friendship{}, &model.Outbox{},
+	},
+	"group": {
+		&model.GroupInfo{}, &model.GroupMember{}, &model.Outbox{},
 	},
 	"message": {
 		&model.Session{}, &model.Message{}, &model.Outbox{},
@@ -30,7 +35,7 @@ var ServiceModels = map[string][]interface{}{
 }
 
 // InitFor 初始化指定服务对应的库表迁移
-func InitFor(service string) *Repositories {
+func InitFor(service string) *Stores {
 	conf := config.GetConfig()
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		conf.MysqlConfig.User, conf.MysqlConfig.Password,
@@ -53,5 +58,5 @@ func InitFor(service string) *Repositories {
 			zap.L().Fatal(err.Error())
 		}
 	}
-	return NewRepositories(db)
+	return NewStores(db)
 }

@@ -15,18 +15,18 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	messagepb "kama_chat_server/api/gen/message"
+	"kama_chat_server/internal/apps/message/message"
+	"kama_chat_server/internal/apps/message/session"
 	"kama_chat_server/internal/common/config"
 	mysqlimpl "kama_chat_server/internal/common/dao/mysql"
 	myredis "kama_chat_server/internal/common/dao/redis"
-	"kama_chat_server/internal/common/domain/repository"
+	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/grpc_client"
+	"kama_chat_server/internal/common/infrastructure/kafka"
 	"kama_chat_server/internal/common/infrastructure/logger"
-	"kama_chat_server/internal/apps/message/message"
-	"kama_chat_server/internal/apps/message/session"
 	"kama_chat_server/pkg/discovery"
 	"kama_chat_server/pkg/interceptor"
 	otelinit "kama_chat_server/pkg/otel"
-	"kama_chat_server/pkg/outbox"
 )
 
 func main() {
@@ -53,11 +53,11 @@ func main() {
 	}
 
 	// 3. 初始化数据库
-	repos := mysqlimpl.InitFor("message")
+	stores := mysqlimpl.InitFor("message")
 
 	// 4. 初始化 Redis
 	cacheService := myredis.Init()
-	var cachePort repository.AsyncCacheService = cacheService
+	var cachePort store.AsyncCacheService = cacheService
 
 	// 5. 初始化 gRPC 客户端（跨服务调用 user_service/relation_service 等）
 	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
@@ -65,13 +65,13 @@ func main() {
 	// 6. 初始化 Service
 	// 此时暂时传入 nil 给 pushRecallNotify，如果是真实微服务，需要通过 Kafka 给 ChatServer 发送撤回消息通知
 	// 或者稍后我们再修改此处
-	msgSvc := message.NewMessageService(repos.Message, repos.Session, cachePort, nil)
-	sessionSvc := session.NewSessionService(repos.Session, repos.Message, cachePort)
+	msgSvc := message.NewMessageService(stores.Message, stores.Session, cachePort, nil)
+	sessionSvc := session.NewSessionService(stores.Session, stores.Message, cachePort)
 
 	// 初始化 KafkaProcessor
 	kafkaProcessor := message.NewKafkaProcessor(
-		repos.Message,
-		repos.Session,
+		stores.Message,
+		stores.Session,
 		cachePort,
 	)
 	kafkaProcessor.Start()
@@ -79,10 +79,10 @@ func main() {
 
 	// 初始化领域事件消费者（消费 outbox 发布的事件，维护本地 session 冗余字段）
 	// 先确保 domain_events 主题存在，避免消费者在主题创建前加入消费组而被分配 0 个分区
-	if err := outbox.EnsureTopic(context.Background(), []string{conf.KafkaConfig.HostPort}); err != nil {
+	if err := kafka.EnsureTopic(context.Background(), kafka.TopicDomainEvents); err != nil {
 		zap.L().Fatal("failed to ensure domain_events topic", zap.Error(err))
 	}
-	eventHandler := message.NewSessionEventHandler(repos.Session)
+	eventHandler := message.NewSessionEventHandler(stores.Session)
 	eventConsumer := message.NewDomainEventConsumer(eventHandler)
 	eventConsumer.Start()
 	defer eventConsumer.Close()

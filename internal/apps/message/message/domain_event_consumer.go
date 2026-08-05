@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 
-	"kama_chat_server/internal/common/config"
-	"kama_chat_server/pkg/outbox"
+	kafkainfra "kama_chat_server/internal/common/infrastructure/kafka"
+	"kama_chat_server/internal/common/infrastructure/outbox"
 )
 
 // DomainEventConsumer 消费 domain_events topic，处理跨服务会话变更
@@ -22,14 +21,7 @@ type DomainEventConsumer struct {
 
 // NewDomainEventConsumer 创建领域事件消费者
 func NewDomainEventConsumer(handler *SessionEventHandler) *DomainEventConsumer {
-	kafkaConfig := config.GetConfig().KafkaConfig
-	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:        []string{kafkaConfig.HostPort},
-		Topic:          outbox.DomainEventsTopic,
-		CommitInterval: kafkaConfig.Timeout * time.Second,
-		GroupID:        "message_domain_events",
-		StartOffset:    kafka.LastOffset,
-	})
+	reader := kafkainfra.NewConsumer(kafkainfra.TopicDomainEvents, "message_domain_events")
 	return &DomainEventConsumer{reader: reader, handler: handler, quit: make(chan os.Signal, 1)}
 }
 
@@ -47,12 +39,7 @@ func (c *DomainEventConsumer) Start() {
 				zap.L().Error("read domain event error", zap.Error(err))
 				continue
 			}
-			eventType := ""
-			for _, h := range msg.Headers {
-				if h.Key == "event_type" {
-					eventType = string(h.Value)
-				}
-			}
+			eventType := outbox.ExtractEventType(msg.Headers)
 			if err := c.handler.Handle(context.Background(), eventType, msg.Value); err != nil {
 				zap.L().Error("handle domain event error", zap.String("type", eventType), zap.Error(err))
 			}

@@ -5,7 +5,8 @@ package handler
 import (
 	"kama_chat_server/internal/common/dto/request/friendship"
 	"kama_chat_server/internal/common/grpc_client"
-	relationpb "kama_chat_server/api/gen/relation"
+	friendshippb "kama_chat_server/api/gen/friendship"
+	grouppb "kama_chat_server/api/gen/group"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
@@ -45,7 +46,7 @@ func (h *FriendshipHandler) GetFriendList(c *gin.Context) {
 		pageSize = 20
 	}
 
-	rsp, err := grpc_client.RelationClient.GetFriendList(ctx, &relationpb.GetFriendListRequest{
+	rsp, err := grpc_client.FriendshipClient.GetFriendList(ctx, &friendshippb.GetFriendListRequest{
 		UserId:   userId.(string),
 		Page:     int32(page),
 		PageSize: int32(pageSize),
@@ -87,7 +88,7 @@ func (h *FriendshipHandler) LoadMyJoinedGroup(c *gin.Context) {
 		pageSize = 20
 	}
 
-	rsp, err := grpc_client.RelationClient.GetGroupListByMember(ctx, &relationpb.GetGroupListByMemberRequest{
+	rsp, err := grpc_client.GroupClient.GetGroupListByMember(ctx, &grouppb.GetGroupListByMemberRequest{
 		UserId:   userId.(string),
 		Page:     int32(page),
 		PageSize: int32(pageSize),
@@ -119,7 +120,7 @@ func (h *FriendshipHandler) GetFriendInfo(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	rsp, err := grpc_client.RelationClient.GetFriendInfo(ctx, &relationpb.GetFriendInfoRequest{
+	rsp, err := grpc_client.FriendshipClient.GetFriendInfo(ctx, &friendshippb.GetFriendInfoRequest{
 		UserId:   userId.(string),
 		FriendId: req.FriendId,
 	})
@@ -152,7 +153,7 @@ func (h *FriendshipHandler) DeleteFriend(c *gin.Context) {
 	}
 
 	for _, uuid := range req.UuidList {
-		if _, err := grpc_client.RelationClient.DeleteFriend(ctx, &relationpb.DeleteFriendRequest{
+		if _, err := grpc_client.FriendshipClient.DeleteFriend(ctx, &friendshippb.DeleteFriendRequest{
 			UserId:   userId.(string),
 			FriendId: uuid,
 		}); err != nil {
@@ -180,7 +181,7 @@ func (h *FriendshipHandler) BlockFriend(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.RelationClient.BlackFriend(ctx, &relationpb.BlackFriendRequest{
+	if _, err := grpc_client.FriendshipClient.BlackFriend(ctx, &friendshippb.BlackFriendRequest{
 		UserId:   userId.(string),
 		FriendId: req.FriendId,
 	}); err != nil {
@@ -207,7 +208,7 @@ func (h *FriendshipHandler) UnblockFriend(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.RelationClient.UnblackFriend(ctx, &relationpb.UnblackFriendRequest{
+	if _, err := grpc_client.FriendshipClient.UnblackFriend(ctx, &friendshippb.UnblackFriendRequest{
 		UserId:   userId.(string),
 		FriendId: req.FriendId,
 	}); err != nil {
@@ -234,7 +235,7 @@ func (h *FriendshipHandler) UpdateRemark(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.RelationClient.UpdateRemark(ctx, &relationpb.UpdateRemarkRequest{
+	if _, err := grpc_client.FriendshipClient.UpdateRemark(ctx, &friendshippb.UpdateRemarkRequest{
 		UserId:   userId.(string),
 		FriendId: req.FriendId,
 		Remark:   req.Remark,

@@ -123,23 +123,71 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  relation-service:
+  apply-service:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        SERVICE_PATH: ./cmd/relation_service
-    container_name: relation-service
+        SERVICE_PATH: ./cmd/apply_service
+    container_name: apply-service
     environment:
-      MYSQL_USER: svc_relation
-      MYSQL_PASSWORD: svc_relation_pwd
-      DB_NAME: chat_relation
+      MYSQL_USER: svc_apply
+      MYSQL_PASSWORD: svc_apply_pwd
+      DB_NAME: chat_apply
     volumes:
       - ./configs/config.toml:/app/configs/config.toml:ro
     depends_on:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      etcd:
+        condition: service_started
+    restart: unless-stopped
+
+  friendship-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_PATH: ./cmd/friendship_service
+    container_name: friendship-service
+    environment:
+      MYSQL_USER: svc_friendship
+      MYSQL_PASSWORD: svc_friendship_pwd
+      DB_NAME: chat_friendship
+    volumes:
+      - ./configs/config.toml:/app/configs/config.toml:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      etcd:
+        condition: service_started
+    restart: unless-stopped
+
+  group-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_PATH: ./cmd/group_service
+    container_name: group-service
+    environment:
+      MYSQL_USER: svc_group
+      MYSQL_PASSWORD: svc_group_pwd
+      DB_NAME: chat_group
+    volumes:
+      - ./configs/config.toml:/app/configs/config.toml:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
       etcd:
         condition: service_started

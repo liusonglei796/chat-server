@@ -11,7 +11,9 @@ import (
 
 	authpb "kama_chat_server/api/gen/auth"
 	messagepb "kama_chat_server/api/gen/message"
-	relationpb "kama_chat_server/api/gen/relation"
+	applypb "kama_chat_server/api/gen/apply"
+	friendshippb "kama_chat_server/api/gen/friendship"
+	grouppb "kama_chat_server/api/gen/group"
 	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/pkg/discovery"
 	"kama_chat_server/pkg/errorx"
@@ -22,7 +24,9 @@ import (
 var (
 	UserClient     userpb.UserServiceClient
 	AuthClient     authpb.AuthServiceClient
-	RelationClient relationpb.RelationServiceClient
+	ApplyClient applypb.ApplyServiceClient
+	FriendshipClient friendshippb.FriendshipServiceClient
+	GroupClient grouppb.GroupServiceClient
 	MessageClient  messagepb.MessageServiceClient
 	once           sync.Once
 )
@@ -59,12 +63,26 @@ func Init(etcdEndpoints []string) {
 		}
 		AuthClient = authpb.NewAuthServiceClient(authConn)
 
-		// Relation Service
-		relationConn, err := grpc.NewClient(discovery.BuildDialTarget("relation_service"), opts...)
+		// Apply Service
+		applyConn, err := grpc.NewClient(discovery.BuildDialTarget("apply_service"), opts...)
 		if err != nil {
-			log.Fatalf("failed to connect relation_service: %v", err)
+			log.Fatalf("failed to connect apply_service: %v", err)
 		}
-		RelationClient = relationpb.NewRelationServiceClient(relationConn)
+		ApplyClient = applypb.NewApplyServiceClient(applyConn)
+
+		// Friendship Service
+		friendshipConn, err := grpc.NewClient(discovery.BuildDialTarget("friendship_service"), opts...)
+		if err != nil {
+			log.Fatalf("failed to connect friendship_service: %v", err)
+		}
+		FriendshipClient = friendshippb.NewFriendshipServiceClient(friendshipConn)
+
+		// Group Service
+		groupConn, err := grpc.NewClient(discovery.BuildDialTarget("group_service"), opts...)
+		if err != nil {
+			log.Fatalf("failed to connect group_service: %v", err)
+		}
+		GroupClient = grouppb.NewGroupServiceClient(groupConn)
 
 		// Message Service
 		messageConn, err := grpc.NewClient(discovery.BuildDialTarget("message_service"), opts...)
@@ -101,10 +119,10 @@ func GetUserNicknameAvatar(ctx context.Context, targetId string) (nickname, avat
 
 // CheckFriendshipStatus 跨服务查好友关系状态（0=非好友 1=正常 2=已拉黑对方 3=被对方拉黑）
 func CheckFriendshipStatus(ctx context.Context, userId, friendId string) (int8, error) {
-	if RelationClient == nil {
+	if FriendshipClient == nil {
 		return 0, errorx.New(errorx.CodeServerBusy, "relation grpc client not initialized")
 	}
-	rsp, err := RelationClient.CheckFriendship(ctx, &relationpb.CheckFriendshipRequest{UserId: userId, FriendId: friendId})
+	rsp, err := FriendshipClient.CheckFriendship(ctx, &friendshippb.CheckFriendshipRequest{UserId: userId, FriendId: friendId})
 	if err != nil {
 		return 0, err
 	}
@@ -113,22 +131,34 @@ func CheckFriendshipStatus(ctx context.Context, userId, friendId string) (int8, 
 
 // CheckGroupMember 跨服务查用户是否为群成员
 func CheckGroupMember(ctx context.Context, groupId, userId string) (bool, error) {
-	if RelationClient == nil {
-		return false, errorx.New(errorx.CodeServerBusy, "relation grpc client not initialized")
+	if GroupClient == nil {
+		return false, errorx.New(errorx.CodeServerBusy, "grpc client not initialized")
 	}
-	rsp, err := RelationClient.CheckGroupMember(ctx, &relationpb.CheckGroupMemberRequest{GroupId: groupId, UserId: userId})
+	rsp, err := GroupClient.CheckGroupMember(ctx, &grouppb.CheckGroupMemberRequest{GroupId: groupId, UserId: userId})
 	if err != nil {
 		return false, err
 	}
 	return rsp.IsMember, nil
 }
 
-// GetGroupDetail 跨服务获取群详情（已含成员校验/禁用校验/存在性校验）
-func GetGroupDetail(ctx context.Context, userId, groupId string) (*relationpb.GetGroupDetailResponse, error) {
-	if RelationClient == nil {
-		return nil, errorx.New(errorx.CodeServerBusy, "relation grpc client not initialized")
+// GetGroupMemberRole 跨服务获取用户在某群的角色（1普通成员 2管理员 3群主）
+func GetGroupMemberRole(ctx context.Context, groupId, userId string) (int8, error) {
+	if GroupClient == nil {
+		return 0, errorx.New(errorx.CodeServerBusy, "grpc client not initialized")
 	}
-	rsp, err := RelationClient.GetGroupDetail(ctx, &relationpb.GetGroupDetailRequest{UserId: userId, GroupId: groupId})
+	rsp, err := GroupClient.GetGroupMemberRole(ctx, &grouppb.GetGroupMemberRoleRequest{GroupId: groupId, UserId: userId})
+	if err != nil {
+		return 0, err
+	}
+	return int8(rsp.Role), nil
+}
+
+// GetGroupDetail 跨服务获取群详情（已含成员校验/禁用校验/存在性校验）
+func GetGroupDetail(ctx context.Context, userId, groupId string) (*grouppb.GetGroupDetailResponse, error) {
+	if GroupClient == nil {
+		return nil, errorx.New(errorx.CodeServerBusy, "grpc client not initialized")
+	}
+	rsp, err := GroupClient.GetGroupDetail(ctx, &grouppb.GetGroupDetailRequest{UserId: userId, GroupId: groupId})
 	if err != nil {
 		return nil, err
 	}
@@ -137,10 +167,10 @@ func GetGroupDetail(ctx context.Context, userId, groupId string) (*relationpb.Ge
 
 // ListGroupMemberIds 跨服务获取群全部成员ID（不要求调用方是成员）
 func ListGroupMemberIds(ctx context.Context, groupId string) ([]string, error) {
-	if RelationClient == nil {
-		return nil, errorx.New(errorx.CodeServerBusy, "relation grpc client not initialized")
+	if GroupClient == nil {
+		return nil, errorx.New(errorx.CodeServerBusy, "grpc client not initialized")
 	}
-	rsp, err := RelationClient.ListGroupMemberIds(ctx, &relationpb.ListGroupMemberIdsRequest{GroupId: groupId})
+	rsp, err := GroupClient.ListGroupMemberIds(ctx, &grouppb.ListGroupMemberIdsRequest{GroupId: groupId})
 	if err != nil {
 		return nil, err
 	}

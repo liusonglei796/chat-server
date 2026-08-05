@@ -34,9 +34,16 @@ your log path/
 /relation_service
 /message_service
 /gateway
+/group_service
+/apply_service
+/friendship_service
 
 # OpenCode internal state
 /.omo/
 
-# One-off refactor script
+# One-off refactor / codegen scripts
 /do_refactor.py
+/gen_*.py
+/refactor_*.py
+/report.json
+/test_exhaustive_apis.py

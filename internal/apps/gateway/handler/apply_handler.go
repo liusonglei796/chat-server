@@ -5,7 +5,7 @@ package handler
 import (
 	"kama_chat_server/internal/common/dto/request/apply"
 	"kama_chat_server/internal/common/grpc_client"
-	relationpb "kama_chat_server/api/gen/relation"
+	applypb "kama_chat_server/api/gen/apply"
 	"kama_chat_server/pkg/errorx"
 
 	"github.com/gin-gonic/gin"
@@ -36,7 +36,7 @@ func (h *ApplyHandler) ApplyFriend(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.RelationClient.ApplyFriend(ctx, &relationpb.ApplyFriendRequest{
+	if _, err := grpc_client.ApplyClient.ApplyFriend(ctx, &applypb.ApplyFriendRequest{
 		UserId:   userId.(string),
 		FriendId: req.FriendId,
 		Message:  req.Message,
@@ -63,7 +63,7 @@ func (h *ApplyHandler) ApplyGroup(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.RelationClient.ApplyGroup(ctx, &relationpb.ApplyGroupRequest{
+	if _, err := grpc_client.ApplyClient.ApplyGroup(ctx, &applypb.ApplyGroupRequest{
 		UserId:  userId.(string),
 		GroupId: req.GroupId,
 		Message: req.Message,
@@ -99,7 +99,7 @@ func (h *ApplyHandler) GetFriendApplyList(c *gin.Context) {
 		pageSize = 20
 	}
 
-	rsp, err := grpc_client.RelationClient.GetFriendApplyList(ctx, &relationpb.GetFriendApplyListRequest{
+	rsp, err := grpc_client.ApplyClient.GetFriendApplyList(ctx, &applypb.GetFriendApplyListRequest{
 		UserId:   userId.(string),
 		Page:     int32(page),
 		PageSize: int32(pageSize),
@@ -141,7 +141,7 @@ func (h *ApplyHandler) GetGroupApplyList(c *gin.Context) {
 		pageSize = 20
 	}
 
-	rsp, err := grpc_client.RelationClient.GetGroupApplyList(ctx, &relationpb.GetGroupApplyListRequest{
+	rsp, err := grpc_client.ApplyClient.GetGroupApplyList(ctx, &applypb.GetGroupApplyListRequest{
 		OperatorId: userId.(string),
 		GroupId:    req.GroupId,
 		Page:       int32(page),
@@ -175,7 +175,7 @@ func (h *ApplyHandler) PassFriendApply(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.RelationClient.PassFriendApply(ctx, &relationpb.PassFriendApplyRequest{
+	if _, err := grpc_client.ApplyClient.PassFriendApply(ctx, &applypb.PassFriendApplyRequest{
 		UserId:      userId.(string),
 		ApplicantId: req.ApplicantId,
 	}); err != nil {
@@ -201,7 +201,7 @@ func (h *ApplyHandler) RefuseFriendApply(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.RelationClient.RefuseFriendApply(ctx, &relationpb.RefuseFriendApplyRequest{
+	if _, err := grpc_client.ApplyClient.RefuseFriendApply(ctx, &applypb.RefuseFriendApplyRequest{
 		UserId:      userId.(string),
 		ApplicantId: req.ApplicantId,
 	}); err != nil {
@@ -227,7 +227,7 @@ func (h *ApplyHandler) BlackFriendApply(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.RelationClient.BlackFriendApply(ctx, &relationpb.BlackFriendApplyRequest{
+	if _, err := grpc_client.ApplyClient.BlackFriendApply(ctx, &applypb.BlackFriendApplyRequest{
 		UserId:      userId.(string),
 		ApplicantId: req.ApplicantId,
 	}); err != nil {
@@ -253,7 +253,7 @@ func (h *ApplyHandler) PassGroupApply(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.RelationClient.PassGroupApply(ctx, &relationpb.PassGroupApplyRequest{
+	if _, err := grpc_client.ApplyClient.PassGroupApply(ctx, &applypb.PassGroupApplyRequest{
 		OperatorId:  userId.(string),
 		GroupId:     req.GroupId,
 		ApplicantId: req.ApplicantId,
@@ -280,7 +280,7 @@ func (h *ApplyHandler) RefuseGroupApply(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.RelationClient.RefuseGroupApply(ctx, &relationpb.RefuseGroupApplyRequest{
+	if _, err := grpc_client.ApplyClient.RefuseGroupApply(ctx, &applypb.RefuseGroupApplyRequest{
 		OperatorId:  userId.(string),
 		GroupId:     req.GroupId,
 		ApplicantId: req.ApplicantId,
@@ -307,7 +307,7 @@ func (h *ApplyHandler) BlackGroupApply(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.RelationClient.BlackGroupApply(ctx, &relationpb.BlackGroupApplyRequest{
+	if _, err := grpc_client.ApplyClient.BlackGroupApply(ctx, &applypb.BlackGroupApplyRequest{
 		OperatorId:  userId.(string),
 		GroupId:     req.GroupId,
 		ApplicantId: req.ApplicantId,

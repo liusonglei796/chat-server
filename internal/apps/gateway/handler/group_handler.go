@@ -5,7 +5,7 @@ package handler
 import (
 	"kama_chat_server/internal/common/dto/request/group"
 	"kama_chat_server/internal/common/grpc_client"
-	relationpb "kama_chat_server/api/gen/relation"
+	grouppb "kama_chat_server/api/gen/group"
 	"kama_chat_server/pkg/errorx"
 	"strconv"
 
@@ -37,7 +37,7 @@ func (h *GroupHandler) CreateGroup(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.RelationClient.CreateGroup(ctx, &relationpb.CreateGroupRequest{
+	if _, err := grpc_client.GroupClient.CreateGroup(ctx, &grouppb.CreateGroupRequest{
 		OwnerId: userId.(string),
 		Name:    req.Name,
 		Notice:  req.Notice,
@@ -73,7 +73,7 @@ func (h *GroupHandler) LoadMyGroup(c *gin.Context) {
 		}
 	}
 
-	rsp, err := grpc_client.RelationClient.LoadMyGroup(ctx, &relationpb.LoadMyGroupRequest{
+	rsp, err := grpc_client.GroupClient.LoadMyGroup(ctx, &grouppb.LoadMyGroupRequest{
 		UserId:   userId.(string),
 		Page:     int32(page),
 		PageSize: int32(pageSize),
@@ -105,7 +105,7 @@ func (h *GroupHandler) LeaveGroup(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if _, err := grpc_client.RelationClient.LeaveGroup(ctx, &relationpb.LeaveGroupRequest{
+	if _, err := grpc_client.GroupClient.LeaveGroup(ctx, &grouppb.LeaveGroupRequest{
 		UserId:  userId.(string),
 		GroupId: req.GroupId,
 	}); err != nil {
@@ -130,7 +130,7 @@ func (h *GroupHandler) DismissGroup(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if _, err := grpc_client.RelationClient.DismissGroup(ctx, &relationpb.DismissGroupRequest{
+	if _, err := grpc_client.GroupClient.DismissGroup(ctx, &grouppb.DismissGroupRequest{
 		OperatorId: userId.(string),
 		GroupId:    req.GroupId,
 	}); err != nil {
@@ -156,7 +156,7 @@ func (h *GroupHandler) UpdateGroupInfo(c *gin.Context) {
 		return
 	}
 
-	rpcReq := &relationpb.UpdateGroupInfoRequest{
+	rpcReq := &grouppb.UpdateGroupInfoRequest{
 		OperatorId: userId.(string),
 		Uuid:       req.Uuid,
 		Name:       req.Name,
@@ -168,7 +168,7 @@ func (h *GroupHandler) UpdateGroupInfo(c *gin.Context) {
 		rpcReq.AddMode = &v
 	}
 
-	if _, err := grpc_client.RelationClient.UpdateGroupInfo(ctx, rpcReq); err != nil {
+	if _, err := grpc_client.GroupClient.UpdateGroupInfo(ctx, rpcReq); err != nil {
 		HandleError(c, err)
 		return
 	}
@@ -199,7 +199,7 @@ func (h *GroupHandler) GetGroupMemberList(c *gin.Context) {
 		pageSize = 20
 	}
 
-	rsp, err := grpc_client.RelationClient.GetGroupMemberList(ctx, &relationpb.GetGroupMemberListRequest{
+	rsp, err := grpc_client.GroupClient.GetGroupMemberList(ctx, &grouppb.GetGroupMemberListRequest{
 		UserId:   userId.(string),
 		GroupId:  req.GroupId,
 		Page:     int32(page),
@@ -232,7 +232,7 @@ func (h *GroupHandler) RemoveGroupMembers(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if _, err := grpc_client.RelationClient.RemoveGroupMembers(ctx, &relationpb.RemoveGroupMembersRequest{
+	if _, err := grpc_client.GroupClient.RemoveGroupMembers(ctx, &grouppb.RemoveGroupMembersRequest{
 		OperatorId: userId.(string),
 		GroupId:    req.GroupId,
 		UuidList:   req.UuidList,
@@ -250,7 +250,7 @@ func (h *GroupHandler) CheckGroupAddMode(c *gin.Context) {
 		HandleError(c, errorx.New(errorx.CodeInvalidParam, "group_id不能为空"))
 		return
 	}
-	rsp, err := grpc_client.RelationClient.CheckGroupAddMode(c.Request.Context(), &relationpb.CheckGroupAddModeRequest{
+	rsp, err := grpc_client.GroupClient.CheckGroupAddMode(c.Request.Context(), &grouppb.CheckGroupAddModeRequest{
 		GroupId: groupId,
 	})
 	if err != nil {
@@ -275,7 +275,7 @@ func (h *GroupHandler) GetGroupDetail(c *gin.Context) {
 		HandleError(c, errorx.New(errorx.CodeInvalidParam, "group_id 不能为空"))
 		return
 	}
-	rsp, err := grpc_client.RelationClient.GetGroupDetail(ctx, &relationpb.GetGroupDetailRequest{
+	rsp, err := grpc_client.GroupClient.GetGroupDetail(ctx, &grouppb.GetGroupDetailRequest{
 		UserId:  userId.(string),
 		GroupId: groupId,
 	})
@@ -301,7 +301,7 @@ func (h *GroupHandler) MuteMember(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
-	if _, err := grpc_client.RelationClient.MuteMember(ctx, &relationpb.MuteMemberRequest{
+	if _, err := grpc_client.GroupClient.MuteMember(ctx, &grouppb.MuteMemberRequest{
 		OperatorId: userId.(string),
 		GroupId:    req.GroupId,
 		UserId:     req.UserId,

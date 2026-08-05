@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"kama_chat_server/internal/common/domain/repository"
+	"kama_chat_server/internal/common/domain/store"
 	sessionreq "kama_chat_server/internal/common/dto/request/session"
 	"kama_chat_server/internal/common/dto/respond/group"
 	sessionrsp "kama_chat_server/internal/common/dto/respond/session"
@@ -26,23 +26,23 @@ import (
 )
 
 // SessionService 会话业务逻辑实现
-// 通过构造函数注入 Repository 和 Cache 依赖
+// 通过构造函数注入 Store 和 Cache 依赖
 type SessionService struct {
-	sessionRepo repository.SessionRepository
-	messageRepo repository.MessageRepository
-	cache       repository.AsyncCacheService
+	sessionStore store.SessionStore
+	messageStore store.MessageStore
+	cache       store.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
 }
 
 // NewSessionService 构造函数，注入所有依赖
 func NewSessionService(
-	sessionRepo repository.SessionRepository,
-	messageRepo repository.MessageRepository,
-	cacheService repository.AsyncCacheService,
+	sessionStore store.SessionStore,
+	messageStore store.MessageStore,
+	cacheService store.AsyncCacheService,
 ) *SessionService {
 	return &SessionService{
-		sessionRepo: sessionRepo,
-		messageRepo: messageRepo,
+		sessionStore: sessionStore,
+		messageStore: messageStore,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
 	}
@@ -51,7 +51,7 @@ func NewSessionService(
 // CreateSession 创建会话
 func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId string) (string, error) {
 	// 1. 幂等性检查：先查询是否已存在会话
-	existingSession, err := s.sessionRepo.FindBySendIdAndReceiveId(ctx, sendId, receiveId)
+	existingSession, err := s.sessionStore.FindBySendIdAndReceiveId(ctx, sendId, receiveId)
 	if err != nil {
 		// 如果不是"未找到"错误，则返回数据库错误
 		if errorx.GetCode(err) != errorx.CodeNotFound {
@@ -160,7 +160,7 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 	}
 
 	// 5. 创建会话
-	if err = s.sessionRepo.CreateSession(ctx, &session); err != nil {
+	if err = s.sessionStore.CreateSession(ctx, &session); err != nil {
 		zap.L().Error("创建会话失败",
 			zap.String("send_id", sendId),
 			zap.String("receive_id", receiveId),
@@ -320,7 +320,7 @@ func (s *SessionService) OpenSession(ctx context.Context, sendId string, req ses
 	}
 
 	// 2. 查库（缓存未命中或反序列化失败）
-	session, err := s.sessionRepo.FindBySendIdAndReceiveId(ctx, sendId, req.ReceiveId)
+	session, err := s.sessionStore.FindBySendIdAndReceiveId(ctx, sendId, req.ReceiveId)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			zap.L().Info("会话没有找到，将新建会话")
@@ -351,7 +351,7 @@ func (s *SessionService) GetUserSessionList(ctx context.Context, ownerId string,
 	}
 
 	// 直接在数据库层按类型过滤，确保 total 准确
-	sessionList, total, err := s.sessionRepo.FindBySendIdAndTypePaged(ctx, ownerId, "U", page, pageSize)
+	sessionList, total, err := s.sessionStore.FindBySendIdAndTypePaged(ctx, ownerId, "U", page, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -390,7 +390,7 @@ func (s *SessionService) GetGroupSessionList(ctx context.Context, ownerId string
 	}
 
 	// 直接在数据库层按类型过滤，确保 total 准确
-	sessionList, total, err := s.sessionRepo.FindBySendIdAndTypePaged(ctx, ownerId, "G", page, pageSize)
+	sessionList, total, err := s.sessionStore.FindBySendIdAndTypePaged(ctx, ownerId, "G", page, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -427,7 +427,7 @@ func (s *SessionService) GetUserSessionListCursor(ctx context.Context, ownerId, 
 	}
 
 	// 游标分页查询
-	result, err := s.sessionRepo.FindBySendIdAndTypeCursor(ctx, ownerId, "U", cursor, pageSize)
+	result, err := s.sessionStore.FindBySendIdAndTypeCursor(ctx, ownerId, "U", cursor, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, "", false, errorx.ErrServerBusy
@@ -464,7 +464,7 @@ func (s *SessionService) GetGroupSessionListCursor(ctx context.Context, ownerId,
 	}
 
 	// 游标分页查询
-	result, err := s.sessionRepo.FindBySendIdAndTypeCursor(ctx, ownerId, "G", cursor, pageSize)
+	result, err := s.sessionStore.FindBySendIdAndTypeCursor(ctx, ownerId, "G", cursor, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return nil, "", false, errorx.ErrServerBusy
@@ -495,7 +495,7 @@ func (s *SessionService) GetGroupSessionListCursor(ctx context.Context, ownerId,
 // DeleteSession 删除会话
 func (s *SessionService) DeleteSession(ctx context.Context, ownerId, sessionId string) error {
 	// 1. 权限校验: 直接按 UUID 查询会话，验证归属关系
-	session, err := s.sessionRepo.FindByUuid(ctx, sessionId)
+	session, err := s.sessionStore.FindByUuid(ctx, sessionId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeNotFound, "会话不存在")
@@ -508,7 +508,7 @@ func (s *SessionService) DeleteSession(ctx context.Context, ownerId, sessionId s
 	}
 
 	// 2. 软删除会话
-	if err := s.sessionRepo.SoftDeleteByUuids(ctx, []string{sessionId}); err != nil {
+	if err := s.sessionStore.SoftDeleteByUuids(ctx, []string{sessionId}); err != nil {
 		zap.L().Error("删除会话失败",
 			zap.String("owner_id", ownerId),
 			zap.String("session_id", sessionId),
@@ -523,7 +523,7 @@ func (s *SessionService) DeleteSession(ctx context.Context, ownerId, sessionId s
 // PinSession 置顶/取消置顶会话
 func (s *SessionService) PinSession(ctx context.Context, userId, sessionId string, isPinned bool) error {
 	// 权限校验: 只能操作自己的会话
-	session, err := s.sessionRepo.FindByUuid(ctx, sessionId)
+	session, err := s.sessionStore.FindByUuid(ctx, sessionId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeNotFound, "会话不存在")
@@ -535,7 +535,7 @@ func (s *SessionService) PinSession(ctx context.Context, userId, sessionId strin
 		return errorx.New(errorx.CodeForbidden, "无权操作该会话")
 	}
 
-	if err := s.sessionRepo.UpdatePinStatus(ctx, sessionId, isPinned); err != nil {
+	if err := s.sessionStore.UpdatePinStatus(ctx, sessionId, isPinned); err != nil {
 		zap.L().Error("更新会话置顶状态失败",
 			zap.String("session_id", sessionId),
 			zap.Bool("is_pinned", isPinned),

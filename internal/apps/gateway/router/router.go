@@ -3,7 +3,7 @@
 package router
 
 import (
-	"kama_chat_server/internal/common/domain/repository"
+	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/apps/gateway/handler"
 	"kama_chat_server/internal/common/infrastructure/middleware"
 
@@ -13,20 +13,17 @@ import (
 // Router 路由管理器
 // 封装所有路由注册逻辑，通过依赖注入接收 handlers
 type Router struct {
-	handlers     *handler.Handlers
-	adminChecker middleware.AdminAuthChecker // 管理员权限实时校验回调
-	cache        repository.CacheService     // Redis 缓存服务（限流等中间件使用）
+	handlers *handler.Handlers
+	cache    store.CacheService // Redis 缓存服务（限流等中间件使用）
 }
 
 // NewRouter 创建路由管理器
 // handlers: 通过依赖注入传入的 handler 聚合对象
-// adminChecker: 可选的管理员权限实时校验回调（查库验证权限未被撤销）
 // cache: Redis 缓存服务，供限流等中间件使用
-func NewRouter(handlers *handler.Handlers, adminChecker middleware.AdminAuthChecker, cache repository.CacheService) *Router {
+func NewRouter(handlers *handler.Handlers, cache store.CacheService) *Router {
 	return &Router{
-		handlers:     handlers,
-		adminChecker: adminChecker,
-		cache:        cache,
+		handlers: handlers,
+		cache:    cache,
 	}
 }
 
@@ -46,7 +43,6 @@ func (rt *Router) RegisterRoutes(r *gin.Engine) {
 	private := r.Group("")
 	private.Use(middleware.JWTAuthWithCache(rt.cache))
 	{
-		// rt.RegisterAdminRoutes(private)       // 管理员路由（额外校验管理员权限）- 暂不迁移微服务
 		rt.RegisterUserRoutes(private)        // 用户路由
 		rt.RegisterFriendRoutes(private)      // 好友路由
 		rt.RegisterGroupRoutes(private)       // 群组路由
