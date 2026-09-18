@@ -2,6 +2,7 @@ package grpc_client
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 
@@ -9,11 +10,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/resolver"
 
-	authpb "kama_chat_server/api/gen/auth"
-	messagepb "kama_chat_server/api/gen/message"
 	applypb "kama_chat_server/api/gen/apply"
+	authpb "kama_chat_server/api/gen/auth"
 	friendshippb "kama_chat_server/api/gen/friendship"
+	gatewaypb "kama_chat_server/api/gen/gateway"
 	grouppb "kama_chat_server/api/gen/group"
+	messagepb "kama_chat_server/api/gen/message"
 	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/pkg/discovery"
 	"kama_chat_server/pkg/errorx"
@@ -34,11 +36,15 @@ var (
 func Init(etcdEndpoints []string) {
 	once.Do(func() {
 		// 注册 Etcd Resolver
-		r := discovery.NewResolver(etcdEndpoints)
+		r, err := discovery.NewResolver(etcdEndpoints)
+		if err != nil {
+			log.Fatalf("failed to init etcd resolver: %v", err)
+		}
 		resolver.Register(r)
 
 		opts := []grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithResolvers(r),
 			// 先注入用户身份，再注入 trace context（顺序：auth → trace）
 			grpc.WithChainUnaryInterceptor(
 				interceptor.ClientAuthInterceptor(),
@@ -210,3 +216,128 @@ func GetPublicUserInfo(ctx context.Context, userId string) (*userpb.PublicUserIn
 		Signature: rsp.Signature,
 	}, nil
 }
+
+// SendMessage 跨服务发送消息（上行同步落库 + 下行单管道广播）
+func SendMessage(ctx context.Context, req *messagepb.SendMessageRequest) (*messagepb.SendMessageResponse, error) {
+	if MessageClient == nil {
+		return nil, errorx.New(errorx.CodeServerBusy, "message grpc client not initialized")
+	}
+	return MessageClient.SendMessage(ctx, req)
+}
+
+var (
+	gatewayClients sync.Map // map[string]gatewaypb.GatewayServiceClient
+	gatewayMu      sync.Mutex
+)
+
+// GetGatewayClient 获取指定网关地址的 gRPC 客户端（连接复用池）
+func GetGatewayClient(addr string) (gatewaypb.GatewayServiceClient, error) {
+	if val, ok := gatewayClients.Load(addr); ok {
+		return val.(gatewaypb.GatewayServiceClient), nil
+	}
+	gatewayMu.Lock()
+	defer gatewayMu.Unlock()
+	if val, ok := gatewayClients.Load(addr); ok {
+		return val.(gatewaypb.GatewayServiceClient), nil
+	}
+
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(
+			interceptor.ClientAuthInterceptor(),
+			otelinit.ClientTraceInterceptor(),
+		),
+	}
+	conn, err := grpc.NewClient(addr, opts...)
+	if err != nil {
+		return nil, err
+	}
+	client := gatewaypb.NewGatewayServiceClient(conn)
+	gatewayClients.Store(addr, client)
+	return client, nil
+}
+
+// PushToGateway 向指定网关实例直推消息
+func PushToGateway(ctx context.Context, gatewayAddr string, targetUserId string, messageUuid string, payload []byte) error {
+	client, err := GetGatewayClient(gatewayAddr)
+	if err != nil {
+		return err
+	}
+	rsp, err := client.PushMessage(ctx, &gatewaypb.PushMessageRequest{
+		TargetUserId: targetUserId,
+		MessageUuid:  messageUuid,
+		Payload:      payload,
+	})
+	if err != nil {
+		return err
+	}
+	if !rsp.Success {
+		return fmt.Errorf("gateway push failed: %s", rsp.ErrorMsg)
+	}
+	return nil
+}
+
+// DeleteGroupMemberSessions 跨服务通知 message_service 批量软删指定群成员的会话
+func DeleteGroupMemberSessions(ctx context.Context, groupId string, userIds []string) error {
+	if MessageClient == nil {
+		return errorx.New(errorx.CodeServerBusy, "message grpc client not initialized")
+	}
+	_, err := MessageClient.DeleteGroupMemberSessions(ctx, &messagepb.DeleteGroupMemberSessionsRequest{
+		GroupId: groupId,
+		UserIds: userIds,
+	})
+	return err
+}
+
+// AddGroupMember 跨服务通知 group_service 添加群成员
+func AddGroupMember(ctx context.Context, groupId, userId string, role int8) error {
+	if GroupClient == nil {
+		return errorx.New(errorx.CodeServerBusy, "group grpc client not initialized")
+	}
+	_, err := GroupClient.AddGroupMember(ctx, &grouppb.AddGroupMemberRequest{
+		GroupId: groupId,
+		UserId:  userId,
+		Role:    int32(role),
+	})
+	return err
+}
+
+// CreateGroupSession 跨服务通知 message_service 创建群会话
+func CreateGroupSession(ctx context.Context, groupId, userId, groupName, groupAvatar string) error {
+	if MessageClient == nil {
+		return errorx.New(errorx.CodeServerBusy, "message grpc client not initialized")
+	}
+	_, err := MessageClient.CreateGroupSession(ctx, &messagepb.CreateGroupSessionRequest{
+		GroupId:     groupId,
+		UserId:      userId,
+		GroupName:   groupName,
+		GroupAvatar: groupAvatar,
+	})
+	return err
+}
+
+// DeleteFriendSessions 跨服务通知 message_service 软删双方私聊会话
+func DeleteFriendSessions(ctx context.Context, userOneId, userTwoId string) error {
+	if MessageClient == nil {
+		return errorx.New(errorx.CodeServerBusy, "message grpc client not initialized")
+	}
+	_, err := MessageClient.DeleteFriendSessions(ctx, &messagepb.DeleteFriendSessionsRequest{
+		UserOneId: userOneId,
+		UserTwoId: userTwoId,
+	})
+	return err
+}
+
+// EstablishFriendship 跨服务通知 friendship_service 建立双向好友关系
+func EstablishFriendship(ctx context.Context, userId, friendId string) error {
+	if FriendshipClient == nil {
+		return errorx.New(errorx.CodeServerBusy, "friendship grpc client not initialized")
+	}
+	_, err := FriendshipClient.EstablishFriendship(ctx, &friendshippb.EstablishFriendshipRequest{
+		UserId:   userId,
+		FriendId: friendId,
+	})
+	return err
+}
+
+

@@ -6,6 +6,7 @@ option go_package = "kama_chat_server/api/gen/message";
 
 service MessageService {
     // Message
+    rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
     rpc GetMessageList (GetMessageListRequest) returns (GetMessageListResponse);
     rpc GetGroupMessageList (GetGroupMessageListRequest) returns (GetGroupMessageListResponse);
     rpc GetMessageListCursor (GetMessageListCursorRequest) returns (GetMessageListCursorResponse);
@@ -22,9 +23,33 @@ service MessageService {
     rpc GetGroupSessionListCursor (GetGroupSessionListCursorRequest) returns (GetGroupSessionListCursorResponse);
     rpc DeleteSession (DeleteSessionRequest) returns (DeleteSessionResponse);
     rpc PinSession (PinSessionRequest) returns (PinSessionResponse);
+    rpc DeleteGroupMemberSessions (DeleteGroupMemberSessionsRequest) returns (DeleteGroupMemberSessionsResponse);
+    rpc CreateGroupSession (CreateGroupSessionRequest) returns (CreateGroupSessionResponse);
+    rpc DeleteFriendSessions (DeleteFriendSessionsRequest) returns (DeleteFriendSessionsResponse);
 }
 
 // Message Requests/Responses
+message SendMessageRequest {
+    string session_id = 1;
+    int32 type = 2;
+    string content = 3;
+    string url = 4;
+    string send_id = 5;
+    string send_name = 6;
+    string send_avatar = 7;
+    string receive_id = 8;
+    string file_size = 9;
+    string file_type = 10;
+    string file_name = 11;
+    string av_data = 12;
+    string client_msg_id = 13;
+}
+
+message SendMessageResponse {
+    string message_uuid = 1;
+    string created_at = 2;
+}
+
 message GetMessageListRequest {
     string requester_id = 1;
     string partner_id = 2;
@@ -189,3 +214,25 @@ message PinSessionRequest {
     bool is_pinned = 3;
 }
 message PinSessionResponse {}
+
+message DeleteGroupMemberSessionsRequest {
+    string group_id = 1;
+    repeated string user_ids = 2;
+}
+message DeleteGroupMemberSessionsResponse {}
+
+message CreateGroupSessionRequest {
+    string group_id = 1;
+    string user_id = 2;
+    string group_name = 3;
+    string group_avatar = 4;
+}
+message CreateGroupSessionResponse {
+    string session_id = 1;
+}
+
+message DeleteFriendSessionsRequest {
+    string user_one_id = 1;
+    string user_two_id = 2;
+}
+message DeleteFriendSessionsResponse {}

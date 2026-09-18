@@ -13,6 +13,8 @@ service FriendshipService {
     rpc UpdateRemark (UpdateRemarkRequest) returns (UpdateRemarkResponse);
     // 检查好友关系状态：0=非好友 1=正常 2=已拉黑对方 3=被对方拉黑
     rpc CheckFriendship (CheckFriendshipRequest) returns (CheckFriendshipResponse);
+    // 跨服务建立双向好友关系（供 apply 审批通过后直调）
+    rpc EstablishFriendship (EstablishFriendshipRequest) returns (EstablishFriendshipResponse);
 }
 
 message GetFriendListRequest {
@@ -78,3 +80,9 @@ message CheckFriendshipRequest {
 message CheckFriendshipResponse {
     int32 status = 1;
 }
+
+message EstablishFriendshipRequest {
+    string user_id = 1;
+    string friend_id = 2;
+}
+message EstablishFriendshipResponse {}

@@ -61,6 +61,7 @@ type MessageStore interface {
 	FindByUserIdsCursor(ctx context.Context, userOneId, userTwoId, cursor string, pageSize int) (*model.CursorPageMessageResult, error)
 	FindByGroupIdPaged(ctx context.Context, groupId string, page, pageSize int) ([]model.Message, int64, error)
 	FindByGroupIdCursor(ctx context.Context, groupId, cursor string, pageSize int) (*model.CursorPageMessageResult, error)
+	FindBySessionIdCursor(ctx context.Context, sessionId, cursor string, pageSize int) (*model.CursorPageMessageResult, error)
 	FindByUuid(ctx context.Context, uuid string) (*model.Message, error)
 	UpdateStatus(ctx context.Context, uuid string, status int8) error
 	UpdateContent(ctx context.Context, uuid, content string, msgType int8) error

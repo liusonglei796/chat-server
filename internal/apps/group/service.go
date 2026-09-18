@@ -75,19 +75,15 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
-		// 事务内写 outbox 事件，message_service 消费后创建群会话
+
+		// 写入 outbox 表 (group_created 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
 		payload, _ := json.Marshal(event.GroupCreatedEvent{
 			GroupId:     group.Uuid,
 			OwnerId:     ownerId,
 			GroupName:   group.Name,
 			GroupAvatar: group.Avatar,
 		})
-		if err := tx.RecordEvent(ctx, event.EventGroupCreated, payload); err != nil {
-			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
-
-		return nil
+		return tx.RecordEvent(ctx, event.EventGroupCreated, payload)
 	})
 
 	if err != nil {
@@ -237,13 +233,22 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 			return errorx.ErrServerBusy
 		}
 
-		return nil
+		// 写入 outbox 表 (group_member_left 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
+		payload, _ := json.Marshal(event.GroupMemberLeftEvent{
+			GroupId: groupId,
+			UserId:  userId,
+		})
+		return tx.RecordEvent(ctx, event.EventGroupMemberLeft, payload)
 	})
 
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
+
+	// 先同步清理核心群信息与群成员缓存，确保即刻生效防止脏读
+	_ = g.cacheHelper.InvalidateWithNull(ctx, constants.CacheKeyGroupInfo+groupId)
+	_ = g.cache.Delete(ctx, constants.CacheKeyGroupMembers+groupId)
 
 	g.cache.SubmitTask(func() {
 		if err := g.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+groupId); err != nil {
@@ -271,38 +276,24 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 		return errorx.New(errorx.CodeForbidden, "只有群主才能解散群聊")
 	}
 
-	var memberIds []string
-
 	err = store.WithTx(g.uow, func(tx groupUoW) error {
-		// 1. 获取涉及的成员ID
-		members, err := tx.GroupMemberStore().FindByGroupUuid(ctx, groupId)
-		if err != nil {
-			zap.L().Error("Find members by group id error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
-		for _, m := range members {
-			memberIds = append(memberIds, m.UserUuid)
-		}
-
-		// 2. 删除所有群成员
+		// 1. 删除所有群成员
 		if err := tx.GroupMemberStore().DeleteByGroupUuid(ctx, groupId); err != nil {
 			zap.L().Error("Delete members error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		// 3. 软删除群组
+		// 2. 软删除群组
 		if err := tx.GroupStore().SoftDeleteByUuids(ctx, []string{groupId}); err != nil {
 			zap.L().Error("Soft delete group error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		// 4. 写 outbox：message_service 消费后软删群会话（session 表归 message 库，跨库写走事件）
-		payload, _ := json.Marshal(event.GroupDismissedEvent{GroupId: groupId})
-		if err := tx.RecordEvent(ctx, event.EventGroupDismissed, payload); err != nil {
-			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
-		return nil
+		// 3. 写入 outbox 表 (group_dismissed 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
+		payload, _ := json.Marshal(event.GroupDismissedEvent{
+			GroupId: groupId,
+		})
+		return tx.RecordEvent(ctx, event.EventGroupDismissed, payload)
 	})
 
 	if err != nil {
@@ -310,7 +301,10 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 		return errorx.ErrServerBusy
 	}
 
-	// 7. 精确清理 Redis 缓存 (事务外)
+	// 精确清理 Redis 缓存
+	_ = g.cacheHelper.InvalidateWithNull(ctx, constants.CacheKeyGroupInfo+groupId)
+	_ = g.cache.Delete(ctx, constants.CacheKeyGroupMembers+groupId)
+
 	g.cache.SubmitTask(func() {
 		// 清理群公共信息（含空值标记）
 		if err := g.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+groupId); err != nil {
@@ -360,24 +354,7 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 	}
 
 	if err := store.WithTx(g.uow, func(tx groupUoW) error {
-		if err := tx.GroupStore().Update(ctx, group); err != nil {
-			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
-
-		// 仅当名称/头像变更时发 outbox 事件，message_service 消费后同步会话冗余字段
-		if req.Name != nil || req.Avatar != nil {
-			payload, _ := json.Marshal(event.GroupUpdatedEvent{
-				GroupId: req.Uuid,
-				Name:    req.Name,
-				Avatar:  req.Avatar,
-			})
-			if err := tx.RecordEvent(ctx, event.EventGroupUpdated, payload); err != nil {
-				zap.L().Error("service error", zap.Error(err))
-				return errorx.ErrServerBusy
-			}
-		}
-		return nil
+		return tx.GroupStore().Update(ctx, group)
 	}); err != nil {
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -472,13 +449,24 @@ func (g *GroupService) GetGroupMemberList(ctx context.Context, userId, groupId s
 	return rspList, total, nil
 }
 
-// RemoveGroupMembers 移除群聊成员 (operatorId 必须是群主或管理员)
+// RemoveGroupMembers 移除群聊成员 (高危操作：需群主或管理员权限)
+//
+// 业务与架构流程：
+//  1. RBAC 鉴权校验：operatorId 必须是群内成员且具备管理权限 (Role >= 2)，防御非法调用
+//  2. 保护性约束：遍历待踢名单，严格禁止踢出群主 (Owner)
+//  3. 本地事务原子化 (Transactional Outbox 模式)：
+//     - 在同一 DB 事务内执行：物理/逻辑删除成员、原子递减群成员总数
+//     - 在事务内写入 EventGroupMemberRemoved 领域事件到 outbox 表，杜绝“先改DB再发MQ失败”造成的分布式双写不一致
+//  4. 缓存强淘汰与防越权 (Defense-in-Depth)：
+//     - 事务提交后，立即同步淘汰 Redis 群信息与群成员列表缓存 (耗时 < 1ms)，消除并发发信时的权限脏读时间窗
+//     - 异步协程池兜底清理，确保服务高可用与容错
 func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string, req group.RemoveGroupMembersRequest) error {
+	// 参数边界检查：空列表直接返回
 	if len(req.UuidList) == 0 {
 		return nil
 	}
 
-	// 1. 权限校验: 必须是群主或管理员 (Role >= 2)
+	// 1. RBAC 权限校验: 检查操作者是否在群内且角色是否为群主或管理员 (Role >= 2)
 	member, err := g.uow.GroupMemberStore().FindByGroupAndUser(ctx, req.GroupId, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
@@ -491,7 +479,7 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 		return errorx.New(errorx.CodeForbidden, "你没有移除成员的权限")
 	}
 
-	// 2. 获取群主 ID（不允许移除群主）
+	// 2. 核心保护约束: 获取群元信息，禁止任何操作者移除群主
 	group, err := g.uow.GroupStore().FindByUuid(ctx, req.GroupId)
 	if err != nil {
 		zap.L().Error("Find group error", zap.Error(err))
@@ -503,23 +491,27 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 		}
 	}
 
-	// 3. 事务执行删除操作
+	// 3. 本地事务执行原子操作 (Transactional Outbox 模式)
 	err = store.WithTx(g.uow, func(tx groupUoW) error {
-		// 删除群成员
+		// 3.1 批量删除群成员关系记录
 		if err := tx.GroupMemberStore().DeleteByUserUuids(ctx, req.GroupId, req.UuidList); err != nil {
 			zap.L().Error("Delete group members error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		// 批量减少成员数
+		// 3.2 批量扣减群元数据中的成员总数
 		if err := tx.GroupStore().DecrementMemberCountBy(ctx, req.GroupId, len(req.UuidList)); err != nil {
 			zap.L().Error("Decrement member count error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		// 保留会话历史，不软删 Session（跨库写走事件，此处无需处理）
-
-		return nil
+		// 3.3 写入 outbox 表 (group_member_removed 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
+		payload, _ := json.Marshal(event.GroupMemberRemovedEvent{
+			GroupId:     req.GroupId,
+			OperatorId:  operatorId,
+			MemberUuids: req.UuidList,
+		})
+		return tx.RecordEvent(ctx, event.EventGroupMemberRemoved, payload)
 	})
 
 	if err != nil {
@@ -527,9 +519,14 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 		return errorx.ErrServerBusy
 	}
 
-	// 4. 异步精确清理缓存
+	// 4. 多级缓存一致性与越权防御：
+	// 先在主流程同步执行 Redis 淘汰，确保下一毫秒的群聊分发查不到已踢人员，杜绝机密消息泄露
+	_ = g.cacheHelper.InvalidateWithNull(ctx, constants.CacheKeyGroupInfo+req.GroupId)
+	_ = g.cache.Delete(ctx, constants.CacheKeyGroupMembers+req.GroupId)
+
+	// 异步协程池兜底再次清理，防止网络抖动并兼顾系统高可用
 	g.cache.SubmitTask(func() {
-		// 清理群本身的缓存（含空值标记）
+		// 清理群本身的缓存（含防击穿空值标记）
 		if err := g.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+req.GroupId); err != nil {
 			zap.L().Error("清理群信息缓存失败", zap.Error(err))
 		}
@@ -706,3 +703,33 @@ func (g *GroupService) ListGroupMemberIds(ctx context.Context, groupId string) (
 	}
 	return ids, nil
 }
+
+// AddGroupMember 跨服务向群组中添加成员（供 apply 审批通过后直调）
+func (g *GroupService) AddGroupMember(ctx context.Context, groupId, userId string, role int8) error {
+	err := store.WithTx(g.uow, func(tx groupUoW) error {
+		newMember := model.GroupMember{
+			GroupUuid: groupId,
+			UserUuid:  userId,
+			Role:      role,
+		}
+		if err := tx.GroupMemberStore().CreateGroupMember(ctx, &newMember); err != nil {
+			zap.L().Error("CreateGroupMember error", zap.Error(err))
+			return errorx.ErrServerBusy
+		}
+		if err := tx.GroupStore().IncrementMemberCount(ctx, groupId); err != nil {
+			zap.L().Error("IncrementMemberCount error", zap.Error(err))
+			return errorx.ErrServerBusy
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// 同步淘汰群成员与群信息缓存
+	_ = g.cacheHelper.InvalidateWithNull(ctx, constants.CacheKeyGroupInfo+groupId)
+	_ = g.cache.Delete(ctx, constants.CacheKeyGroupMembers+groupId)
+
+	return nil
+}
+

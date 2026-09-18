@@ -6,26 +6,36 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/dto/event"
+	"kama_chat_server/internal/common/grpc_client"
 	kafkainfra "kama_chat_server/internal/common/infrastructure/kafka"
 	"kama_chat_server/internal/common/infrastructure/outbox"
+	"kama_chat_server/internal/common/infrastructure/snowflake"
 	"kama_chat_server/internal/common/model"
+	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
 )
 
 type DomainEventConsumer struct {
-	reader *kafka.Reader
+	reader *kafkainfra.Consumer
 	uow    friendshipUoW
+	cache  store.AsyncCacheService
 	quit   chan os.Signal
 }
 
-func NewDomainEventConsumer(uow friendshipUoW) *DomainEventConsumer {
-	reader := kafkainfra.NewConsumer(kafkainfra.TopicDomainEvents, "friendship_domain_events")
-	return &DomainEventConsumer{reader: reader, uow: uow, quit: make(chan os.Signal, 1)}
+func NewDomainEventConsumer(uow friendshipUoW, cache ...store.AsyncCacheService) *DomainEventConsumer {
+	reader, err := kafkainfra.NewConsumer(kafkainfra.TopicDomainEvents, "friendship_domain_events")
+	if err != nil {
+		zap.L().Fatal("failed to init friendship kafka consumer", zap.Error(err))
+	}
+	var c store.AsyncCacheService
+	if len(cache) > 0 {
+		c = cache[0]
+	}
+	return &DomainEventConsumer{reader: reader, uow: uow, cache: c, quit: make(chan os.Signal, 1)}
 }
 
 func (c *DomainEventConsumer) Start() {
@@ -36,8 +46,11 @@ func (c *DomainEventConsumer) Start() {
 			}
 		}()
 		for {
-			msg, err := c.reader.ReadMessage(context.Background())
+			msg, err := c.reader.ReadRecord(context.Background())
 			if err != nil {
+				if kafkainfra.IsClosed(err) {
+					return
+				}
 				zap.L().Error("read domain event error", zap.Error(err))
 				continue
 			}
@@ -67,7 +80,7 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 		return err
 	}
 
-	return store.WithTx(c.uow, func(tx friendshipUoW) error {
+	err := store.WithTx(c.uow, func(tx friendshipUoW) error {
 		newFriendship := model.Friendship{
 			UserId:   e.UserId,
 			FriendId: e.FriendId,
@@ -84,4 +97,24 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 		}
 		return tx.FriendshipStore().CreateFriendship(ctx, &anotherFriendship)
 	})
+	if err != nil {
+		return err
+	}
+
+	if c.cache != nil {
+		_ = c.cache.DeleteByPattern(ctx, constants.CacheKeyFriendRelUser+e.UserId+"*")
+		_ = c.cache.DeleteByPattern(ctx, constants.CacheKeyFriendRelUser+e.FriendId+"*")
+
+		if gatewayAddr, err := c.cache.Get(ctx, constants.CacheKeyUserGateway+e.FriendId); err == nil && gatewayAddr != "" {
+			notice, _ := json.Marshal(map[string]interface{}{
+				"type":      "system",
+				"event":     "friend_apply_passed",
+				"user_id":   e.UserId,
+				"friend_id": e.FriendId,
+			})
+			msgUuid := "FRND_PASS_" + snowflake.GenerateIDString()
+			_ = grpc_client.PushToGateway(ctx, gatewayAddr, e.FriendId, msgUuid, notice)
+		}
+	}
+	return nil
 }

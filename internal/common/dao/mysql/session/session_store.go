@@ -4,7 +4,9 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"kama_chat_server/internal/common/dao/mysql/dberr"
@@ -73,9 +75,50 @@ func (r *sessionStore) FindBySendIdAndTypePaged(ctx context.Context, sendId stri
 	return sessions, total, nil
 }
 
+// encodeSessionCursor 生成置顶感知的下一页游标格式: <is_pinned>_<unix_time>
+func encodeSessionCursor(s model.Session) string {
+	pinVal := 0
+	if s.IsPinned {
+		pinVal = 1
+	}
+	var ts int64
+	if s.LastMessageAt.Valid {
+		ts = s.LastMessageAt.Time.Unix()
+	} else {
+		ts = s.CreatedAt.Unix()
+	}
+	return fmt.Sprintf("%d_%d", pinVal, ts)
+}
+
+// parseSessionCursor 解析游标字符串，返回 (isPinned, timestamp, ok)
+// 支持新格式 "<is_pinned>_<timestamp>"，同时兼容历史纯时间戳数字 "<timestamp>"
+func parseSessionCursor(cursor string) (isPinned bool, timestamp int64, ok bool) {
+	if cursor == "" {
+		return false, 0, false
+	}
+	if idx := strings.IndexByte(cursor, '_'); idx != -1 {
+		pinVal, err1 := strconv.Atoi(cursor[:idx])
+		ts, err2 := strconv.ParseInt(cursor[idx+1:], 10, 64)
+		if err1 == nil && err2 == nil {
+			return pinVal == 1, ts, true
+		}
+	} else if idx := strings.IndexByte(cursor, ':'); idx != -1 {
+		pinVal, err1 := strconv.Atoi(cursor[:idx])
+		ts, err2 := strconv.ParseInt(cursor[idx+1:], 10, 64)
+		if err1 == nil && err2 == nil {
+			return pinVal == 1, ts, true
+		}
+	}
+	// 兼容旧格式：纯时间戳数字（视为未置顶会话时间戳）
+	if ts, err := strconv.ParseInt(cursor, 10, 64); err == nil {
+		return false, ts, true
+	}
+	return false, 0, false
+}
+
 // FindBySendIdAndTypeCursor 根据发送者ID和接收者类型前缀游标分页查找会话
 // receiveIdPrefix: "U" 表示私聊会话，"G" 表示群聊会话
-// cursor: 游标时间戳（上一页最后一条会话的 last_message_at Unix 时间戳）
+// cursor: 游标（格式: "<is_pinned>_<unix_time>" 或纯时间戳字符串）
 //
 // 排序规则：
 //  1. 置顶会话优先显示（is_pinned = true 排在前面）
@@ -89,26 +132,32 @@ func (r *sessionStore) FindBySendIdAndTypeCursor(ctx context.Context, sendId str
 		pageSize = 20
 	}
 
-	// 构建查询
+	// 构建基础查询
 	query := r.db.WithContext(ctx).Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%")
 
-	// 如果有游标，基于游标时间戳查询
-	// 游标逻辑：查询 last_message_at < cursor 的数据
+	// 如果有游标，基于置顶状态与时间戳进行双维度下钻，避免跨页丢弃普通会话
 	if cursor != "" {
-		timestamp, err := strconv.ParseInt(cursor, 10, 64)
-		if err != nil {
-			// 解析失败则忽略游标，从最新开始查询
-			zap.L().Warn("parse cursor failed, ignore cursor", zap.String("cursor", cursor), zap.Error(err))
+		isPinned, ts, ok := parseSessionCursor(cursor)
+		if !ok {
+			zap.L().Warn("parse session cursor failed, ignore cursor", zap.String("cursor", cursor))
 		} else {
-			cursorTime := time.Unix(timestamp, 0)
-			query = query.Where("last_message_at < ?", cursorTime)
+			cursorTime := time.Unix(ts, 0)
+			if isPinned {
+				// 游标仍在置顶会话段：后续包含比当前置顶会话更早的置顶会话，或者进入未置顶会话段
+				query = query.Where("(is_pinned = ? AND (last_message_at < ? OR (last_message_at IS NULL AND created_at < ?))) OR is_pinned = ?",
+					true, cursorTime, cursorTime, false)
+			} else {
+				// 游标已进入未置顶会话段：仅查询比当前未置顶会话更早的未置顶会话
+				query = query.Where("is_pinned = ? AND (last_message_at < ? OR (last_message_at IS NULL AND created_at < ?))",
+					false, cursorTime, cursorTime)
+			}
 		}
 	}
 
-	// 先按置顶状态倒序，再按最后消息时间倒序
+	// 先按置顶状态倒序，再按最后消息时间倒序，最后按创建时间倒序消除不确定性
 	// 多查一条用于判断是否有更多
 	if err := query.
-		Order("is_pinned DESC, last_message_at DESC").
+		Order("is_pinned DESC, last_message_at DESC, created_at DESC").
 		Limit(pageSize + 1).
 		Find(&sessions).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "游标分页查询会话 send_id=%s type=%s", sendId, receiveIdPrefix)
@@ -124,9 +173,7 @@ func (r *sessionStore) FindBySendIdAndTypeCursor(ctx context.Context, sendId str
 	var nextCursor string
 	if len(sessions) > 0 && hasMore {
 		lastSession := sessions[len(sessions)-1]
-		if lastSession.LastMessageAt.Valid {
-			nextCursor = strconv.FormatInt(lastSession.LastMessageAt.Time.Unix(), 10)
-		}
+		nextCursor = encodeSessionCursor(lastSession)
 	}
 
 	return &model.CursorPageSessionResult{

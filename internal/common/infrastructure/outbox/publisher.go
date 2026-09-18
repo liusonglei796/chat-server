@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/common/domain/store"
@@ -15,7 +15,7 @@ import (
 const EventTypeHeader = "event_type"
 
 // ExtractEventType 从消息头中读取事件类型，供各服务领域事件消费者解析
-func ExtractEventType(headers []kafka.Header) string {
+func ExtractEventType(headers []kgo.RecordHeader) string {
 	for _, h := range headers {
 		if h.Key == EventTypeHeader {
 			return string(h.Value)
@@ -30,21 +30,21 @@ type PublishFunc func(ctx context.Context, eventType string, uuid string, payloa
 // Publisher 轮询 outbox 表，将待发布事件发送到 Kafka domain_events
 type Publisher struct {
 	outboxStore store.OutboxStore
-	producer   *kafka.Writer
-	interval   time.Duration
-	batchSize  int
-	publishFn  PublishFunc
+	producer    *kgo.Client
+	interval    time.Duration
+	batchSize   int
+	publishFn   PublishFunc
 }
 
 // NewPublisher 创建发布器，默认 1s 轮询、每批 100 条
-func NewPublisher(store store.OutboxStore, producer *kafka.Writer) *Publisher {
+func NewPublisher(store store.OutboxStore, producer *kgo.Client) *Publisher {
 	return &Publisher{
 		outboxStore: store,
-		producer:   producer,
-		interval:   1 * time.Second,
-		batchSize:  100,
+		producer:    producer,
+		interval:    1 * time.Second,
+		batchSize:   100,
 		publishFn: func(ctx context.Context, eventType string, uuid string, payload []byte) error {
-			headers := []kafka.Header{{Key: EventTypeHeader, Value: []byte(eventType)}}
+			headers := []kgo.RecordHeader{{Key: EventTypeHeader, Value: []byte(eventType)}}
 			return kafkainfra.Publish(ctx, producer, []byte(uuid), payload, headers)
 		},
 	}

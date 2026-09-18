@@ -11,7 +11,6 @@ import (
 
 	"kama_chat_server/internal/common/dao/mysql/dberr"
 	"kama_chat_server/internal/common/domain/store"
-	"kama_chat_server/internal/common/dto/event"
 	userreq "kama_chat_server/internal/common/dto/request/user"
 	"kama_chat_server/internal/common/model"
 	"kama_chat_server/pkg/errorx"
@@ -206,13 +205,14 @@ type fakeCache struct {
 
 func (f *fakeCache) SubmitTask(action func()) {}
 
-func TestUpdateUserInfo_EmitsUserUpdatedEvent(t *testing.T) {
+func TestUpdateUserInfo_Success(t *testing.T) {
 	ctx := context.Background()
 	ob := &fakeOutbox{}
+	store := &fakeUserStore{users: map[string]model.UserInfo{
+		"U1": {Uuid: "U1", Nickname: "old", Avatar: "old_av"},
+	}}
 	svc := NewUserService(&fakeUOW{
-		userStore: &fakeUserStore{users: map[string]model.UserInfo{
-			"U1": {Uuid: "U1", Nickname: "old", Avatar: "old_av"},
-		}},
+		userStore:   store,
 		outboxStore: ob,
 	}, &fakeCache{})
 
@@ -224,8 +224,11 @@ func TestUpdateUserInfo_EmitsUserUpdatedEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if ob.lastType != event.EventUserUpdated {
-		t.Errorf("expected outbox event %q, got %q", event.EventUserUpdated, ob.lastType)
+	if ob.lastType != "" {
+		t.Errorf("expected no outbox event, got %q", ob.lastType)
+	}
+	if store.users["U1"].Nickname != "new" || store.users["U1"].Avatar != "new_av" {
+		t.Errorf("user info not updated correctly: %+v", store.users["U1"])
 	}
 }
 

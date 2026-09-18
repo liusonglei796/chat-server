@@ -15,6 +15,7 @@ CREATE USER IF NOT EXISTS 'svc_apply'@'%' IDENTIFIED BY 'svc_apply_pwd';
 CREATE USER IF NOT EXISTS 'svc_friendship'@'%' IDENTIFIED BY 'svc_friendship_pwd';
 CREATE USER IF NOT EXISTS 'svc_group'@'%' IDENTIFIED BY 'svc_group_pwd';
 CREATE USER IF NOT EXISTS 'svc_message'@'%' IDENTIFIED BY 'svc_message_pwd';
+CREATE USER IF NOT EXISTS 'svc_cdc'@'%' IDENTIFIED BY 'svc_cdc_pwd';
 
 -- 最小权限原则：各服务只能访问自己的库
 GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP ON chat_user.* TO 'svc_user'@'%';
@@ -22,5 +23,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP ON chat_apply.*
 GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP ON chat_friendship.* TO 'svc_friendship'@'%';
 GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP ON chat_group.* TO 'svc_group'@'%';
 GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP ON chat_message.* TO 'svc_message'@'%';
+
+-- CDC 服务账号：需要监听 binlog 复制流及元数据读取
+GRANT REPLICATION SLAVE, REPLICATION CLIENT, SELECT ON *.* TO 'svc_cdc'@'%';
 
 FLUSH PRIVILEGES;

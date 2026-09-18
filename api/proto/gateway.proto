@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package gateway;
+
+option go_package = "kama_chat_server/api/gen/gateway";
+
+// GatewayService 网关内部服务，供后端微服务向目标客户端直推消息
+service GatewayService {
+    // 单用户精准下推
+    rpc PushMessage (PushMessageRequest) returns (PushMessageResponse);
+    // 批量推送
+    rpc BatchPushMessage (BatchPushMessageRequest) returns (BatchPushMessageResponse);
+}
+
+message PushMessageRequest {
+    string target_user_id = 1;
+    string message_uuid = 2;
+    bytes payload = 3;
+}
+
+message PushMessageResponse {
+    bool success = 1;
+    string error_msg = 2;
+}
+
+message BatchPushMessageRequest {
+    repeated string target_user_ids = 1;
+    string message_uuid = 2;
+    bytes payload = 3;
+}
+
+message BatchPushMessageResponse {
+    repeated string failed_user_ids = 1;
+}

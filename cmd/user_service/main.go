@@ -23,9 +23,7 @@ import (
 	myredis "kama_chat_server/internal/common/dao/redis"
 	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/infrastructure/jwt"
-	"kama_chat_server/internal/common/infrastructure/kafka"
 	"kama_chat_server/internal/common/infrastructure/logger"
-	outbox "kama_chat_server/internal/common/infrastructure/outbox"
 	"kama_chat_server/pkg/discovery"
 	"kama_chat_server/pkg/interceptor"
 	otelinit "kama_chat_server/pkg/otel"
@@ -70,8 +68,6 @@ func main() {
 	authSvc := auth.NewAuthService(cachePort, stores.User)
 	authGrpcServer := auth.NewGrpcServer(authSvc, userSvc)
 
-	// 启动 outbox 发布器，将本地事务中的领域事件投递到 Kafka
-	outbox.NewPublisher(stores.Outbox, kafka.NewProducer(kafka.TopicDomainEvents)).Start()
 
 	// 6. 启动 gRPC 服务
 	port := 50051

@@ -14,12 +14,12 @@ import (
 
 // WsHandler WebSocket 请求处理器
 type WsHandler struct {
-	broker *chat.MsgConsumer
+	hub *chat.ClientHub
 }
 
 // NewWsHandler 创建 WebSocket 处理器实例
-func NewWsHandler(broker *chat.MsgConsumer) *WsHandler {
-	return &WsHandler{broker: broker}
+func NewWsHandler(hub *chat.ClientHub) *WsHandler {
+	return &WsHandler{hub: hub}
 }
 
 // WsLoginHandler WebSocket 登录（升级 HTTP 连接为 WebSocket）
@@ -43,7 +43,7 @@ func (h *WsHandler) WsLoginHandler(c *gin.Context) {
 
 	clientId := userId.(string)
 	// 初始化 WebSocket 客户端连接
-	chat.NewClientInit(c, clientId, h.broker)
+	chat.NewClientInit(c, clientId, h.hub)
 }
 
 // WsLogoutHandler WebSocket 登出
@@ -61,7 +61,7 @@ func (h *WsHandler) WsLogoutHandler(c *gin.Context) {
 	}
 
 	// 登出当前用户的客户端
-	if err := chat.ClientLogout(userId.(string), h.broker); err != nil {
+	if err := chat.ClientLogout(userId.(string), h.hub); err != nil {
 		HandleError(c, err)
 		return
 	}

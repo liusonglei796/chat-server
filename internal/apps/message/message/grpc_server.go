@@ -24,6 +24,32 @@ func NewGrpcServer(msgSvc *MessageService, sessionSvc *session.SessionService) *
 }
 
 // Message
+func (s *GrpcServer) SendMessage(ctx context.Context, req *messagepb.SendMessageRequest) (*messagepb.SendMessageResponse, error) {
+	chatReq := messagereq.ChatMessageRequest{
+		SessionId:   req.SessionId,
+		Type:        int8(req.Type),
+		Content:     req.Content,
+		Url:         req.Url,
+		SendId:      req.SendId,
+		SendName:    req.SendName,
+		SendAvatar:  req.SendAvatar,
+		ReceiveId:   req.ReceiveId,
+		FileSize:    req.FileSize,
+		FileType:    req.FileType,
+		FileName:    req.FileName,
+		AVdata:      req.AvData,
+		ClientMsgId: req.ClientMsgId,
+	}
+	rsp, err := s.msgSvc.SendMessage(ctx, chatReq)
+	if err != nil {
+		return nil, err
+	}
+	return &messagepb.SendMessageResponse{
+		MessageUuid: rsp.MessageUuid,
+		CreatedAt:   rsp.CreatedAt,
+	}, nil
+}
+
 func (s *GrpcServer) GetMessageList(ctx context.Context, req *messagepb.GetMessageListRequest) (*messagepb.GetMessageListResponse, error) {
 	list, total, err := s.msgSvc.GetMessageList(ctx, req.RequesterId, req.PartnerId, int(req.Page), int(req.PageSize))
 	if err != nil {
@@ -234,3 +260,22 @@ func (s *GrpcServer) PinSession(ctx context.Context, req *messagepb.PinSessionRe
 	err := s.sessionSvc.PinSession(ctx, req.UserId, req.SessionId, req.IsPinned)
 	return &messagepb.PinSessionResponse{}, err
 }
+
+func (s *GrpcServer) DeleteGroupMemberSessions(ctx context.Context, req *messagepb.DeleteGroupMemberSessionsRequest) (*messagepb.DeleteGroupMemberSessionsResponse, error) {
+	err := s.sessionSvc.DeleteGroupMemberSessions(ctx, req.GroupId, req.UserIds)
+	return &messagepb.DeleteGroupMemberSessionsResponse{}, err
+}
+
+func (s *GrpcServer) CreateGroupSession(ctx context.Context, req *messagepb.CreateGroupSessionRequest) (*messagepb.CreateGroupSessionResponse, error) {
+	sid, err := s.sessionSvc.CreateGroupSession(ctx, req.GroupId, req.UserId, req.GroupName, req.GroupAvatar)
+	if err != nil {
+		return nil, err
+	}
+	return &messagepb.CreateGroupSessionResponse{SessionId: sid}, nil
+}
+
+func (s *GrpcServer) DeleteFriendSessions(ctx context.Context, req *messagepb.DeleteFriendSessionsRequest) (*messagepb.DeleteFriendSessionsResponse, error) {
+	err := s.sessionSvc.DeleteFriendSessions(ctx, req.UserOneId, req.UserTwoId)
+	return &messagepb.DeleteFriendSessionsResponse{}, err
+}
+

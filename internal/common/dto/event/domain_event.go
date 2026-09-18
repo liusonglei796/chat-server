@@ -11,6 +11,8 @@ const (
 	EventGroupApplyPassed = "group_apply_passed"
 	EventFriendApplyPassed = "friend_apply_passed"
 	EventFriendBlacked   = "friend_blacked"
+	EventGroupMemberRemoved = "group_member_removed"
+	EventGroupMemberLeft    = "group_member_left"
 )
 
 // GroupCreatedEvent 建群事件（relation → message）
@@ -64,4 +66,17 @@ type FriendApplyPassedEvent struct {
 type FriendBlackedEvent struct {
 	UserId   string `json:"user_id"`
 	FriendId string `json:"friend_id"`
+}
+
+// GroupMemberRemovedEvent 移出群成员事件（group → message/gateway）
+type GroupMemberRemovedEvent struct {
+	GroupId     string   `json:"group_id"`
+	OperatorId  string   `json:"operator_id"`
+	MemberUuids []string `json:"member_uuids"`
+}
+
+// GroupMemberLeftEvent 主动退群事件（group → message/gateway）
+type GroupMemberLeftEvent struct {
+	GroupId string `json:"group_id"`
+	UserId  string `json:"user_id"`
 }

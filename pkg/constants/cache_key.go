@@ -17,10 +17,14 @@ const (
 	// 消息相关
 	CacheKeyMessageList      = "message:list:"       // 私聊消息列表
 	CacheKeyGroupMessageList = "message:group_list:" // 群聊消息列表
+	CacheKeyMessageZSet      = "msg:zset:"           // 消息有序集合（游标分页热点缓存）
 
 	// 会话相关
 	CacheKeySessionOpen = "session:open:" // 单个会话缓存（OpenSession）
 
 	// 好友关系（Redis Set）
 	CacheKeyFriendRelUser = "friend_relation:user:" // 用户好友关系集合
+
+	// 网关路由相关
+	CacheKeyUserGateway = "user:gateway:" // 用户所在网关实例地址 (Value: gateway_grpc_addr)
 )

@@ -7,14 +7,13 @@
 // 3. **读写分离**: 每个连接启动两个协程 (ReadLoop/WriteLoop) 处理收发数据。
 //
 // 关键协作：
-// - **收消息**: 收到用户消息后，调用 `broker.Publish` 将消息发送到 Kafka。
-// - **发消息**: Kafka 消费者最终会调用这里的 `WriteMessage` 把消息推给用户。
+// - **收消息**: 收到用户消息后，通过 gRPC 直接调用 message_service 的 SendMessage（同步鉴权、幂等、落库）。
+// - **发消息**: 后端微服务通过 gRPC 直推网关 GatewayGrpcServer，将消息放入此连接的 SendBack channel。
 package chat
 
 import (
 	"context"
-	"kama_chat_server/internal/common/infrastructure/metrics"
-	"kama_chat_server/pkg/constants"
+	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
@@ -22,6 +21,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
+
+	messagepb "kama_chat_server/api/gen/message"
+	"kama_chat_server/internal/common/grpc_client"
+	"kama_chat_server/internal/common/infrastructure/metrics"
+	"kama_chat_server/pkg/constants"
 )
 
 const (
@@ -35,9 +39,7 @@ const (
 
 // MessageBack 待推送给浏览器的消息载体
 // 面向对象：一条聊天消息（1 条消息 = 1 个 MessageBack 实例）
-// 生命周期：由 Kafka 消费者在 dispatchToUser/dispatchToGroup 中创建，
-//
-//	写入 UserConn.SendBack channel，由 Write goroutine 取出后推送到浏览器
+// 生命周期：由后端微服务通过 gRPC 直推到网关，写入 UserConn.SendBack channel，由 Write goroutine 取出后推送到浏览器
 //
 // 字段说明：internal/service/chat/ws_gateway.go
 //   - Message: 序列化后的 JSON 响应体（即前端最终收到的完整 JSON）
@@ -53,9 +55,22 @@ type MessageBack struct {
 type UserConn struct {
 	Conn        *websocket.Conn   // 底层 WebSocket 连接（通往用户浏览器的 TCP 管道）
 	Uuid        string            // 用户 ID（来自 JWT，可信）
-	SendBack    chan *MessageBack // 待推送消息队列：Kafka 消费者写入 → Write goroutine 读取并推送到浏览器
-	broker      *MsgConsumer      // Kafka 消费者实例，用于发送消息到 Kafka、注销连接等
+	SendBack    chan *MessageBack // 待推送消息队列：gRPC 直推写入 → Write goroutine 读取并推送到浏览器
+	hub         *ClientHub        // 网关长连接生命周期中心，用于心跳续期、注销连接等
 	cleanupOnce sync.Once         // 确保 cleanup 只执行一次（Read 退出和 ClientLogout 可能并发触发）
+}
+
+// SafeSend 向该用户的 WebSocket 下行队列写入消息（由 Write goroutine 统一执行网络写，防并发写冲突）
+func (c *UserConn) SafeSend(payload []byte, uuid string) {
+	defer func() {
+		if r := recover(); r != nil {
+			zap.L().Warn("send to closed user conn recovered", zap.String("userId", c.Uuid))
+		}
+	}()
+	c.SendBack <- &MessageBack{
+		Message: payload,
+		Uuid:    uuid,
+	}
 }
 
 //  gorilla/websocket 默认的安全机制会拦截跨域请求。
@@ -82,8 +97,9 @@ func (c *UserConn) Read() {
 	// 如果客户端在 60 秒内未响应 ping，连接将被断开
 	_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait)) // [第三方库: github.com/gorilla/websocket] Conn.SetReadDeadline 设置读超时
 	c.Conn.SetPongHandler(func(string) error {           // [第三方库: github.com/gorilla/websocket] Conn.SetPongHandler 设置 pong 回调
-		// 收到 pong 后重置读超时，保持连接活跃
+		// 收到 pong 后重置读超时，保持连接活跃并续期 Redis 路由
 		_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		c.hub.RenewUserLocation(c.Uuid)
 		return nil
 	})
 
@@ -100,12 +116,38 @@ func (c *UserConn) Read() {
 			return
 		}
 		zap.L().Debug("ws received message", zap.String("userId", c.Uuid), zap.String("message", string(jsonMessage)))
+		c.hub.RenewUserLocation(c.Uuid)
 
-		// 将消息发送到 Kafka
-		if err := c.broker.Publish(context.Background(), jsonMessage); err != nil {
-			zap.L().Error("publish message error", zap.String("userId", c.Uuid), zap.Error(err))
-			metrics.KafkaProduceErrors.Inc()
+		// 单管道架构：上行直调 message_service gRPC（同步鉴权、幂等、落库），失败立即报错回执
+		var req messagepb.SendMessageRequest
+		if err := json.Unmarshal(jsonMessage, &req); err != nil {
+			zap.L().Error("unmarshal ws message error", zap.String("userId", c.Uuid), zap.Error(err))
+			continue
 		}
+		// 强制覆盖 send_id 为当前 JWT 连接身份，防止越权伪造
+		req.SendId = c.Uuid
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := grpc_client.SendMessage(ctx, &req)
+		cancel()
+		if err != nil {
+			zap.L().Warn("send message failed", zap.String("userId", c.Uuid), zap.Error(err))
+			errMsg, _ := json.Marshal(map[string]interface{}{
+				"type":    "error",
+				"message": err.Error(),
+			})
+			c.SafeSend(errMsg, "")
+			continue
+		}
+
+		// 发送成功：通过安全队列返回即时 ACK 确认
+		ackMsg, _ := json.Marshal(map[string]interface{}{
+			"type":          "ack",
+			"message_uuid":  resp.MessageUuid,
+			"created_at":    resp.CreatedAt,
+			"client_msg_id": req.ClientMsgId,
+		})
+		c.SafeSend(ackMsg, resp.MessageUuid)
 	}
 }
 
@@ -119,8 +161,8 @@ func (c *UserConn) cleanup() {
 		metrics.OnlineConnections.Dec()
 		metrics.TotalDisconnections.Inc()
 
-		// 1. 从 broker 注销，防止新消息写入 SendBack
-		c.broker.UnregisterClient(c)
+		// 1. 从 Hub 注销，防止新消息写入 SendBack
+		c.hub.UnregisterClient(c)
 
 		// 2. 安全关闭 SendBack 通道（让 Write goroutine 退出 range 循环）
 		// 因为 cleanup() 被 sync.Once 包裹，它本身就保证了只执行一次，
@@ -163,19 +205,20 @@ func (c *UserConn) Write() {
 
 
 		case <-ticker.C:
-			// 定期发送 Ping 帧，检测客户端是否还在线
+			// 定期发送 Ping 帧，检测客户端是否还在线，并续期 Redis 路由
 			_ = c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil { // [第三方库: github.com/gorilla/websocket] 发送 Ping 心跳帧
 				zap.L().Info("ws ping failed, closing", zap.String("userId", c.Uuid), zap.Error(err))
 				return
 			}
+			c.hub.RenewUserLocation(c.Uuid)
 		}
 	}
 }
 
 // NewClientInit 当接受到前端有登录消息时，会调用该函数
-// broker: 消息代理实例，通过依赖注入传入
-func NewClientInit(c *gin.Context, clientId string, broker *MsgConsumer) { // [第三方库: github.com/gin-gonic/gin] gin.Context 为 HTTP 请求上下文
+// hub: 网关长连接生命周期中心，通过依赖注入传入
+func NewClientInit(c *gin.Context, clientId string, hub *ClientHub) { // [第三方库: github.com/gin-gonic/gin] gin.Context 为 HTTP 请求上下文
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil) // [第三方库: github.com/gorilla/websocket] Upgrader.Upgrade 将 HTTP 升级为 WebSocket
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
@@ -185,10 +228,10 @@ func NewClientInit(c *gin.Context, clientId string, broker *MsgConsumer) { // [�
 		Conn:     conn,
 		Uuid:     clientId,
 		SendBack: make(chan *MessageBack, constants.CHANNEL_SIZE),
-		broker:   broker,
+		hub:      hub,
 	}
-	// 注册到 Kafka 消费者的在线列表
-	broker.RegisterClient(client)
+	// 注册到网关在线连接池并登记 Redis 路由
+	hub.RegisterClient(client)
 
 	// 指标埋点：新连接
 	metrics.OnlineConnections.Inc()
@@ -201,8 +244,8 @@ func NewClientInit(c *gin.Context, clientId string, broker *MsgConsumer) { // [�
 
 // ClientLogout 当接受到前端有登出消息时，会调用该函数
 // 通过 cleanup 统一释放资源（sync.Once 保证幂等）
-func ClientLogout(clientId string, broker *MsgConsumer) error {
-	client := broker.GetClient(clientId)
+func ClientLogout(clientId string, hub *ClientHub) error {
+	client := hub.GetClient(clientId)
 	if client != nil {
 		client.cleanup()
 	}

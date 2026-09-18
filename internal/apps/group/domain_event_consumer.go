@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/common/domain/store"
@@ -14,17 +13,22 @@ import (
 	kafkainfra "kama_chat_server/internal/common/infrastructure/kafka"
 	"kama_chat_server/internal/common/infrastructure/outbox"
 	"kama_chat_server/internal/common/model"
+	"kama_chat_server/pkg/constants"
 )
 
 type DomainEventConsumer struct {
-	reader *kafka.Reader
+	reader *kafkainfra.Consumer
 	uow    groupUoW
+	cache  store.AsyncCacheService
 	quit   chan os.Signal
 }
 
-func NewDomainEventConsumer(uow groupUoW) *DomainEventConsumer {
-	reader := kafkainfra.NewConsumer(kafkainfra.TopicDomainEvents, "group_domain_events")
-	return &DomainEventConsumer{reader: reader, uow: uow, quit: make(chan os.Signal, 1)}
+func NewDomainEventConsumer(uow groupUoW, cache store.AsyncCacheService) *DomainEventConsumer {
+	reader, err := kafkainfra.NewConsumer(kafkainfra.TopicDomainEvents, "group_domain_events")
+	if err != nil {
+		zap.L().Fatal("failed to init group kafka consumer", zap.Error(err))
+	}
+	return &DomainEventConsumer{reader: reader, uow: uow, cache: cache, quit: make(chan os.Signal, 1)}
 }
 
 func (c *DomainEventConsumer) Start() {
@@ -35,8 +39,11 @@ func (c *DomainEventConsumer) Start() {
 			}
 		}()
 		for {
-			msg, err := c.reader.ReadMessage(context.Background())
+			msg, err := c.reader.ReadRecord(context.Background())
 			if err != nil {
+				if kafkainfra.IsClosed(err) {
+					return
+				}
 				zap.L().Error("read domain event error", zap.Error(err))
 				continue
 			}
@@ -66,7 +73,7 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 		return err
 	}
 
-	return store.WithTx(c.uow, func(tx groupUoW) error {
+	err := store.WithTx(c.uow, func(tx groupUoW) error {
 		newMember := model.GroupMember{
 			GroupUuid: e.GroupId,
 			UserUuid:  e.UserId,
@@ -92,4 +99,13 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 		})
 		return tx.RecordEvent(ctx, event.EventGroupJoined, joinedPayload)
 	})
+	if err != nil {
+		return err
+	}
+
+	if c.cache != nil {
+		_ = c.cache.Delete(ctx, constants.CacheKeyGroupMembers+e.GroupId)
+		_ = c.cache.Delete(ctx, constants.CacheKeyGroupInfo+e.GroupId)
+	}
+	return nil
 }

@@ -21,7 +21,7 @@ type Handlers struct {
 }
 
 // NewHandlers 创建并注入所有 Handler 实例
-func NewHandlers(broker *chat.MsgConsumer) *Handlers {
+func NewHandlers(hub *chat.ClientHub) *Handlers {
 	return &Handlers{
 		User:       NewUserHandler(),
 		Auth:       NewAuthHandler(),
@@ -30,6 +30,6 @@ func NewHandlers(broker *chat.MsgConsumer) *Handlers {
 		Group:      NewGroupHandler(),
 		Session:    NewSessionHandler(),
 		Message:    NewMessageHandler(),
-		Ws:         NewWsHandler(broker),
+		Ws:         NewWsHandler(hub),
 	}
 }

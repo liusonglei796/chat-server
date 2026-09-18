@@ -3,6 +3,8 @@
 package handler
 
 import (
+	"strings"
+
 	"kama_chat_server/internal/common/dto/request/message"
 	"kama_chat_server/internal/common/grpc_client"
 	messagepb "kama_chat_server/api/gen/message"
@@ -20,7 +22,7 @@ func NewMessageHandler() *MessageHandler {
 	return &MessageHandler{}
 }
 
-// GetMessageList 获取两人的聊天记录（游标分页）
+// GetMessageList 获取聊天记录（私聊/群聊统一游标分页）
 func (h *MessageHandler) GetMessageList(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -41,6 +43,27 @@ func (h *MessageHandler) GetMessageList(c *gin.Context) {
 		pageSize = 20
 	}
 
+	// 目标ID为群组（G开头）时，调用群聊消息游标接口
+	if strings.HasPrefix(req.TargetId, "G") {
+		rsp, err := grpc_client.MessageClient.GetGroupMessageListCursor(ctx, &messagepb.GetGroupMessageListCursorRequest{
+			UserId:   userId.(string),
+			GroupId:  req.TargetId,
+			Cursor:   req.Cursor,
+			PageSize: int32(pageSize),
+		})
+		if err != nil {
+			HandleError(c, err)
+			return
+		}
+		HandleSuccess(c, gin.H{
+			"list":        rsp.List,
+			"next_cursor": rsp.NextCursor,
+			"has_more":    rsp.HasMore,
+		})
+		return
+	}
+
+	// 私聊消息游标查询
 	rsp, err := grpc_client.MessageClient.GetMessageListCursor(ctx, &messagepb.GetMessageListCursorRequest{
 		RequesterId: userId.(string),
 		PartnerId:   req.TargetId,

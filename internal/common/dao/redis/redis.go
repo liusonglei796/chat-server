@@ -45,6 +45,17 @@ func Init() store.AsyncCacheService {
 	return NewRedisCache(client, 15)
 }
 
+// NewClient 创建并返回基础 Redis 客户端实例
+func NewClient() *redis.Client {
+	conf := config.GetConfig()
+	addr := conf.RedisConfig.Host + ":" + strconv.Itoa(conf.RedisConfig.Port)
+	return redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: conf.RedisConfig.Password,
+		DB:       conf.RedisConfig.Db,
+	})
+}
+
 // RedisCache Redis 缓存实现
 // 该结构体同时实现了 CacheService（基础同步读写）和 AsyncCacheService（异步任务）两个接口。
 type RedisCache struct {
@@ -133,6 +144,37 @@ func (r *RedisCache) GetSetMembers(ctx context.Context, key string) ([]string, e
 func (r *RedisCache) RemoveFromSet(ctx context.Context, key string, members ...interface{}) error {
 	return ops.RemoveFromSet(r.client, ctx, key, members...)
 }
+
+// ZAdd 向有序集合添加成员
+func (r *RedisCache) ZAdd(ctx context.Context, key string, score float64, member string) error {
+	return ops.ZAdd(r.client, ctx, key, score, member)
+}
+
+// ZRevRangeByScore 按分数从大到小获取有序集合成员
+func (r *RedisCache) ZRevRangeByScore(ctx context.Context, key string, max, min string, offset, count int64) ([]string, error) {
+	return ops.ZRevRangeByScore(r.client, ctx, key, max, min, offset, count)
+}
+
+// ZRemRangeByRank 移除指定排名区间的成员
+func (r *RedisCache) ZRemRangeByRank(ctx context.Context, key string, start, stop int64) error {
+	return ops.ZRemRangeByRank(r.client, ctx, key, start, stop)
+}
+
+// ZRem 移除有序集合中的指定成员
+func (r *RedisCache) ZRem(ctx context.Context, key string, members ...interface{}) error {
+	return ops.ZRem(r.client, ctx, key, members...)
+}
+
+// ZCard 获取有序集合基数
+func (r *RedisCache) ZCard(ctx context.Context, key string) (int64, error) {
+	return ops.ZCard(r.client, ctx, key)
+}
+
+// ZScore 获取有序集合指定成员的分数
+func (r *RedisCache) ZScore(ctx context.Context, key string, member string) (float64, error) {
+	return ops.ZScore(r.client, ctx, key, member)
+}
+
 
 // SubmitTask 提交异步缓存任务
 func (r *RedisCache) SubmitTask(action func()) {

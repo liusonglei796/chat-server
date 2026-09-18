@@ -2,7 +2,6 @@ package user
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/common/domain/store"
-	"kama_chat_server/internal/common/dto/event"
 	"kama_chat_server/internal/common/dto/request/auth"
 	userreq "kama_chat_server/internal/common/dto/request/user"
 	userrsp "kama_chat_server/internal/common/dto/respond/user"
@@ -243,22 +241,8 @@ func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateR
 	// 事务内的操作：1.更新用户信息 2.更新会话冗余字段
 	// 任一操作失败都会回滚，保证数据一致性
 	if err := store.WithTx(u.uow, func(tx userUoW) error {
-		// 1. 在事务内更新用户信息
-		if err := tx.UserStore().UpdateUserInfo(ctx, user); err != nil {
-			return err
-		}
-
-		// 2. 事务内写 outbox 事件，message_service 消费后更新 session 冗余字段
-		nick := updateReq.Nickname
-		av := updateReq.Avatar
-		if nick != nil || av != nil {
-			payload, _ := json.Marshal(event.UserUpdatedEvent{UserId: userId, Nickname: nick, Avatar: av})
-			if err := tx.RecordEvent(ctx, event.EventUserUpdated, payload); err != nil {
-				return err
-			}
-		}
-
-		return nil
+		// 在事务内更新用户信息
+		return tx.UserStore().UpdateUserInfo(ctx, user)
 	}); err != nil {
 		zap.L().Error("更新用户信息事务失败", zap.String("userId", userId), zap.Error(err))
 		return errorx.ErrServerBusy

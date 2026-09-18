@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 
 	kafkainfra "kama_chat_server/internal/common/infrastructure/kafka"
@@ -14,14 +13,17 @@ import (
 
 // DomainEventConsumer 消费 domain_events topic，处理跨服务会话变更
 type DomainEventConsumer struct {
-	reader  *kafka.Reader
+	reader  *kafkainfra.Consumer
 	handler *SessionEventHandler
 	quit    chan os.Signal
 }
 
 // NewDomainEventConsumer 创建领域事件消费者
 func NewDomainEventConsumer(handler *SessionEventHandler) *DomainEventConsumer {
-	reader := kafkainfra.NewConsumer(kafkainfra.TopicDomainEvents, "message_domain_events")
+	reader, err := kafkainfra.NewConsumer(kafkainfra.TopicDomainEvents, "message_domain_events")
+	if err != nil {
+		zap.L().Fatal("failed to init message kafka consumer", zap.Error(err))
+	}
 	return &DomainEventConsumer{reader: reader, handler: handler, quit: make(chan os.Signal, 1)}
 }
 
@@ -34,8 +36,11 @@ func (c *DomainEventConsumer) Start() {
 			}
 		}()
 		for {
-			msg, err := c.reader.ReadMessage(context.Background())
+			msg, err := c.reader.ReadRecord(context.Background())
 			if err != nil {
+				if kafkainfra.IsClosed(err) {
+					return
+				}
 				zap.L().Error("read domain event error", zap.Error(err))
 				continue
 			}

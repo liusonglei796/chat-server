@@ -6,41 +6,53 @@ import (
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/naming/endpoints"
 	"go.uber.org/zap"
 )
 
-// Register for etcd
+// ServerInfo 服务实例元数据
+type ServerInfo struct {
+	Name   string
+	Addr   string
+	Weight int
+}
+
+// Register etcd 官方服务注册管理器
 type Register struct {
 	cli         *clientv3.Client
+	manager     endpoints.Manager
 	leaseID     clientv3.LeaseID
-	keepAliveCh <-chan *clientv3.LeaseKeepAliveResponse
-	info        ServerInfo
+	endpointKey string
 	closeCh     chan struct{}
+	info        ServerInfo
 }
 
-type ServerInfo struct {
-	Name    string
-	Addr    string
-	Weight  int
-}
-
-// NewRegister create a register based on etcd
-func NewRegister(endpoints []string, info ServerInfo, ttl int64) (*Register, error) {
+// NewRegister 基于 etcd 官方 endpoints.Manager 创建服务注册器
+func NewRegister(endpointsList []string, info ServerInfo, ttl int64) (*Register, error) {
 	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   endpoints,
+		Endpoints:   endpointsList,
 		DialTimeout: 5 * time.Second,
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	em, err := endpoints.NewManager(cli, info.Name)
+	if err != nil {
+		_ = cli.Close()
+		return nil, err
+	}
+
 	reg := &Register{
-		cli:     cli,
-		info:    info,
-		closeCh: make(chan struct{}),
+		cli:         cli,
+		manager:     em,
+		info:        info,
+		endpointKey: fmt.Sprintf("%s/%s", info.Name, info.Addr),
+		closeCh:     make(chan struct{}),
 	}
 
 	if err := reg.register(ttl); err != nil {
+		_ = cli.Close()
 		return nil, err
 	}
 
@@ -48,7 +60,7 @@ func NewRegister(endpoints []string, info ServerInfo, ttl int64) (*Register, err
 }
 
 func (r *Register) register(ttl int64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	leaseResp, err := r.cli.Grant(ctx, ttl)
@@ -57,42 +69,60 @@ func (r *Register) register(ttl int64) error {
 	}
 	r.leaseID = leaseResp.ID
 
-	if r.keepAliveCh, err = r.cli.KeepAlive(context.Background(), r.leaseID); err != nil {
-		return err
-	}
-
-	data := fmt.Sprintf(`{"Addr":"%s","Weight":%d}`, r.info.Addr, r.info.Weight)
-	_, err = r.cli.Put(ctx, r.BuildRegPath(r.info), data, clientv3.WithLease(r.leaseID))
+	keepAliveCh, err := r.cli.KeepAlive(context.Background(), r.leaseID)
 	if err != nil {
 		return err
 	}
 
-	go r.listenLeaseResp()
+	ep := endpoints.Endpoint{
+		Addr:     r.info.Addr,
+		Metadata: r.info.Weight,
+	}
+
+	if err := r.manager.AddEndpoint(ctx, r.endpointKey, ep, clientv3.WithLease(r.leaseID)); err != nil {
+		return err
+	}
+
+	go r.listenLeaseResp(keepAliveCh)
 	return nil
 }
 
-func (r *Register) listenLeaseResp() {
+func (r *Register) listenLeaseResp(keepAliveCh <-chan *clientv3.LeaseKeepAliveResponse) {
 	for {
 		select {
 		case <-r.closeCh:
 			return
-		case leaseKeepResp := <-r.keepAliveCh:
-			if leaseKeepResp == nil {
-				zap.L().Warn("lease closed")
+		case leaseKeepResp, ok := <-keepAliveCh:
+			if !ok || leaseKeepResp == nil {
+				zap.L().Warn("etcd lease keepalive closed", zap.String("service", r.info.Name), zap.String("addr", r.info.Addr))
 				return
 			}
 		}
 	}
 }
 
+// Stop 优雅下线服务：先从官方 endpoints 移除该实例，再销毁租约与连接
 func (r *Register) Stop() {
 	close(r.closeCh)
-	if _, err := r.cli.Revoke(context.Background(), r.leaseID); err != nil {
-		zap.L().Error("revoke lease failed", zap.Error(err))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if r.manager != nil && r.endpointKey != "" {
+		if err := r.manager.DeleteEndpoint(ctx, r.endpointKey); err != nil {
+			zap.L().Error("delete endpoint failed", zap.String("key", r.endpointKey), zap.Error(err))
+		}
 	}
-	r.cli.Close()
+
+	if r.leaseID != 0 {
+		if _, err := r.cli.Revoke(ctx, r.leaseID); err != nil {
+			zap.L().Error("revoke lease failed", zap.Error(err))
+		}
+	}
+	_ = r.cli.Close()
 }
 
+// BuildRegPath 保留辅助方法兼容性
 func (r *Register) BuildRegPath(info ServerInfo) string {
 	return fmt.Sprintf("/%s/%s", info.Name, info.Addr)
 }

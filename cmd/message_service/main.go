@@ -62,33 +62,19 @@ func main() {
 	// 5. 初始化 gRPC 客户端（跨服务调用 user_service/relation_service 等）
 	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
 
-	// 6. 初始化 Service
-	// 此时暂时传入 nil 给 pushRecallNotify，如果是真实微服务，需要通过 Kafka 给 ChatServer 发送撤回消息通知
-	// 或者稍后我们再修改此处
-	msgSvc := message.NewMessageService(stores.Message, stores.Session, cachePort, nil)
+	// 6. 初始化 MessageService 与 SessionService
+	msgSvc := message.NewMessageService(stores.Message, stores.Session, cachePort)
 	sessionSvc := session.NewSessionService(stores.Session, stores.Message, cachePort)
-
-	// 初始化 KafkaProcessor
-	kafkaProcessor := message.NewKafkaProcessor(
-		stores.Message,
-		stores.Session,
-		cachePort,
-	)
-	kafkaProcessor.Start()
-	defer kafkaProcessor.Close()
 
 	// 初始化领域事件消费者（消费 outbox 发布的事件，维护本地 session 冗余字段）
 	// 先确保 domain_events 主题存在，避免消费者在主题创建前加入消费组而被分配 0 个分区
 	if err := kafka.EnsureTopic(context.Background(), kafka.TopicDomainEvents); err != nil {
 		zap.L().Fatal("failed to ensure domain_events topic", zap.Error(err))
 	}
-	eventHandler := message.NewSessionEventHandler(stores.Session)
+	eventHandler := message.NewSessionEventHandler(stores.Session, cachePort)
 	eventConsumer := message.NewDomainEventConsumer(eventHandler)
 	eventConsumer.Start()
 	defer eventConsumer.Close()
-
-	// 注入 recall notify (通过 KafkaProcessor 发送撤回通知)
-	msgSvc.SetPushRecallNotify(kafkaProcessor.PushRecallNotify)
 
 	grpcServer := message.NewGrpcServer(msgSvc, sessionSvc)
 

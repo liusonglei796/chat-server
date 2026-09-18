@@ -21,9 +21,7 @@ import (
 	myredis "kama_chat_server/internal/common/dao/redis"
 	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/grpc_client"
-	"kama_chat_server/internal/common/infrastructure/kafka"
 	"kama_chat_server/internal/common/infrastructure/logger"
-	outbox "kama_chat_server/internal/common/infrastructure/outbox"
 	"kama_chat_server/pkg/discovery"
 	"kama_chat_server/pkg/interceptor"
 	otelinit "kama_chat_server/pkg/otel"
@@ -52,8 +50,6 @@ func main() {
 	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
 
 	applySvc := apply.NewApplyService(stores, cachePort)
-
-	outbox.NewPublisher(stores.Outbox, kafka.NewProducer(kafka.TopicDomainEvents)).Start()
 
 	port := 50053
 	addr := fmt.Sprintf("0.0.0.0:%d", port)

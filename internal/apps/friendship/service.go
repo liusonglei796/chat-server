@@ -14,6 +14,7 @@ import (
 	friendshiprsp "kama_chat_server/internal/common/dto/respond/friendship"
 	userrsp "kama_chat_server/internal/common/dto/respond/user"
 	"kama_chat_server/internal/common/grpc_client"
+	"kama_chat_server/internal/common/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
 	"kama_chat_server/pkg/enum/user/user_status"
@@ -176,7 +177,12 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 			return errorx.ErrServerBusy
 		}
 
-		return nil
+		// 写入 outbox 表 (friend_blacked 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
+		payload, _ := json.Marshal(event.FriendBlackedEvent{
+			UserId:   userId,
+			FriendId: friendId,
+		})
+		return tx.RecordEvent(ctx, event.EventFriendBlacked, payload)
 	})
 
 	if err != nil {
@@ -185,7 +191,6 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 	}
 
 	s.clearFriendRelationCache(userId, friendId)
-
 	return nil
 }
 
@@ -218,14 +223,12 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			return errorx.ErrServerBusy
 		}
 
-		// 写 outbox：message_service 消费后软删双方私聊会话（session 表归 message 库，跨库写走事件）
-		payload, _ := json.Marshal(event.FriendBlackedEvent{UserId: userId, FriendId: friendId})
-		if err := tx.RecordEvent(ctx, event.EventFriendBlacked, payload); err != nil {
-			zap.L().Error("Record friend blacked event error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
-
-		return nil
+		// 写入 outbox 表 (friend_blacked 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
+		payload, _ := json.Marshal(event.FriendBlackedEvent{
+			UserId:   userId,
+			FriendId: friendId,
+		})
+		return tx.RecordEvent(ctx, event.EventFriendBlacked, payload)
 	})
 
 	if err != nil {
@@ -237,7 +240,6 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 	}
 
 	s.clearFriendRelationCache(userId, friendId)
-
 	return nil
 }
 
@@ -347,4 +349,41 @@ func (s *FriendshipService) GetFriendshipStatus(ctx context.Context, userId, fri
 	default: // NORMAL
 		return 1, nil
 	}
+}
+
+// EstablishFriendship 跨服务建立双向好友关系（供加好友审批通过后同步 RPC 调用）
+func (s *FriendshipService) EstablishFriendship(ctx context.Context, userId, friendId string) error {
+	if userId == "" || friendId == "" || userId == friendId {
+		return errorx.New(errorx.CodeInvalidParam, "参数错误")
+	}
+
+	err := store.WithTx(s.uow, func(tx friendshipUoW) error {
+		newFriendship := model.Friendship{
+			UserId:   userId,
+			FriendId: friendId,
+			Status:   friendship_status.NORMAL,
+		}
+		if err := tx.FriendshipStore().CreateFriendship(ctx, &newFriendship); err != nil {
+			return err
+		}
+
+		anotherFriendship := model.Friendship{
+			UserId:   friendId,
+			FriendId: userId,
+			Status:   friendship_status.NORMAL,
+		}
+		return tx.FriendshipStore().CreateFriendship(ctx, &anotherFriendship)
+	})
+
+	if err != nil {
+		zap.L().Error("EstablishFriendship transaction failed",
+			zap.String("userId", userId),
+			zap.String("friendId", friendId),
+			zap.Error(err),
+		)
+		return errorx.ErrServerBusy
+	}
+
+	s.clearFriendRelationCache(userId, friendId)
+	return nil
 }

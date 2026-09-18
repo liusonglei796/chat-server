@@ -10,11 +10,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	grouppb "kama_chat_server/api/gen/group"
+	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/common/domain/store"
+	grouprsp "kama_chat_server/internal/common/dto/respond/group"
 	sessionreq "kama_chat_server/internal/common/dto/request/session"
-	"kama_chat_server/internal/common/dto/respond/group"
 	sessionrsp "kama_chat_server/internal/common/dto/respond/session"
-	"kama_chat_server/internal/common/dto/respond/user"
+	userrsp "kama_chat_server/internal/common/dto/respond/user"
 	"kama_chat_server/internal/common/grpc_client"
 	cacheutil "kama_chat_server/internal/common/infrastructure/cache"
 	"kama_chat_server/internal/common/infrastructure/snowflake"
@@ -140,23 +142,13 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 		if isFriend != 1 {
 			return "", errorx.New(errorx.CodeForbidden, "你们还不是好友")
 		}
-
-		nickname, avatar, err := grpc_client.GetUserNicknameAvatar(ctx, receiveId)
-		if err != nil {
-			zap.L().Error("get receiver info via grpc error", zap.Error(err))
-			return "", errorx.ErrServerBusy
-		}
-		session.ReceiveName = nickname
-		session.Avatar = avatar
 	} else {
 		// 用户对群组会话
-		group, err := grpc_client.GetGroupDetail(ctx, sendId, receiveId)
+		_, err := grpc_client.GetGroupDetail(ctx, sendId, receiveId)
 		if err != nil {
 			zap.L().Error("query group via grpc error", zap.Error(err))
 			return "", err
 		}
-		session.ReceiveName = group.GroupName
-		session.Avatar = group.GroupAvatar
 	}
 
 	// 5. 创建会话
@@ -244,7 +236,7 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, sendId,
 	// 处理用户
 	if targetId[0] == 'U' {
 		key := constants.CacheKeyUserInfo + targetId
-		var userRsp user.GetUserInfoRespond
+		var userRsp userrsp.GetUserInfoRespond
 
 		err := s.cacheHelper.GetOrLoad(
 			ctx,
@@ -257,7 +249,7 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, sendId,
 					}
 					return nil, errorx.ErrServerBusy
 				}
-				return user.GetUserInfoRespond{
+				return userrsp.GetUserInfoRespond{
 					Uuid:   targetId,
 					Status: userStatus,
 				}, nil
@@ -278,7 +270,7 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, sendId,
 	// 处理群组
 	if targetId[0] == 'G' {
 		key := constants.CacheKeyGroupInfo + targetId
-		var groupRsp group.GetGroupInfoRespond
+		var groupRsp grouprsp.GetGroupInfoRespond
 
 		err := s.cacheHelper.GetOrLoad(
 			ctx,
@@ -287,7 +279,7 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, sendId,
 				if _, err := grpc_client.GetGroupDetail(loaderCtx, sendId, targetId); err != nil {
 					return nil, err
 				}
-				return group.GetGroupInfoRespond{Uuid: targetId, Status: group_status.NORMAL}, nil
+				return grouprsp.GetGroupInfoRespond{Uuid: targetId, Status: group_status.NORMAL}, nil
 			},
 			cacheutil.RandomizedTTL(30*time.Minute), // 数据 TTL
 			5*time.Minute, // 空值 TTL
@@ -357,26 +349,7 @@ func (s *SessionService) GetUserSessionList(ctx context.Context, ownerId string,
 		return nil, 0, errorx.ErrServerBusy
 	}
 
-	sessionListRsp := make([]sessionrsp.UserSessionListRespond, 0, len(sessionList))
-	for i := 0; i < len(sessionList); i++ {
-		var lastMessageTime string
-		if sessionList[i].LastMessageAt.Valid {
-			lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
-		}
-
-		sessionListRsp = append(sessionListRsp, sessionrsp.UserSessionListRespond{
-			SessionId:       sessionList[i].Uuid,
-			Avatar:          sessionList[i].Avatar,
-			UserId:          sessionList[i].ReceiveId,
-			Username:        sessionList[i].ReceiveName,
-			LastMessage:     sessionList[i].LastMessage,
-			LastMessageTime: lastMessageTime,
-			LastMessageType: sessionList[i].LastMessageType,
-			IsPinned:        sessionList[i].IsPinned,
-		})
-	}
-
-	return sessionListRsp, total, nil
+	return s.hydrateUserSessions(ctx, sessionList), total, nil
 }
 
 // GetGroupSessionList 获取群聊会话列表（分页）
@@ -396,26 +369,7 @@ func (s *SessionService) GetGroupSessionList(ctx context.Context, ownerId string
 		return nil, 0, errorx.ErrServerBusy
 	}
 
-	sessionListRsp := make([]sessionrsp.GroupSessionListRespond, 0, len(sessionList))
-	for i := 0; i < len(sessionList); i++ {
-		var lastMessageTime string
-		if sessionList[i].LastMessageAt.Valid {
-			lastMessageTime = sessionList[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
-		}
-
-		sessionListRsp = append(sessionListRsp, sessionrsp.GroupSessionListRespond{
-			SessionId:       sessionList[i].Uuid,
-			Avatar:          sessionList[i].Avatar,
-			GroupId:         sessionList[i].ReceiveId,
-			GroupName:       sessionList[i].ReceiveName,
-			LastMessage:     sessionList[i].LastMessage,
-			LastMessageTime: lastMessageTime,
-			LastMessageType: sessionList[i].LastMessageType,
-			IsPinned:        sessionList[i].IsPinned,
-		})
-	}
-
-	return sessionListRsp, total, nil
+	return s.hydrateGroupSessions(ctx, ownerId, sessionList), total, nil
 }
 
 // GetUserSessionListCursor 获取用户单聊会话列表（游标分页）
@@ -433,26 +387,7 @@ func (s *SessionService) GetUserSessionListCursor(ctx context.Context, ownerId, 
 		return nil, "", false, errorx.ErrServerBusy
 	}
 
-	sessionListRsp := make([]sessionrsp.UserSessionListRespond, 0, len(result.Sessions))
-	for i := 0; i < len(result.Sessions); i++ {
-		var lastMessageTime string
-		if result.Sessions[i].LastMessageAt.Valid {
-			lastMessageTime = result.Sessions[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
-		}
-
-		sessionListRsp = append(sessionListRsp, sessionrsp.UserSessionListRespond{
-			SessionId:       result.Sessions[i].Uuid,
-			Avatar:          result.Sessions[i].Avatar,
-			UserId:          result.Sessions[i].ReceiveId,
-			Username:        result.Sessions[i].ReceiveName,
-			LastMessage:     result.Sessions[i].LastMessage,
-			LastMessageTime: lastMessageTime,
-			LastMessageType: result.Sessions[i].LastMessageType,
-			IsPinned:        result.Sessions[i].IsPinned,
-		})
-	}
-
-	return sessionListRsp, result.NextCursor, result.HasMore, nil
+	return s.hydrateUserSessions(ctx, result.Sessions), result.NextCursor, result.HasMore, nil
 }
 
 // GetGroupSessionListCursor 获取群聊会话列表（游标分页）
@@ -470,26 +405,92 @@ func (s *SessionService) GetGroupSessionListCursor(ctx context.Context, ownerId,
 		return nil, "", false, errorx.ErrServerBusy
 	}
 
-	sessionListRsp := make([]sessionrsp.GroupSessionListRespond, 0, len(result.Sessions))
-	for i := 0; i < len(result.Sessions); i++ {
-		var lastMessageTime string
-		if result.Sessions[i].LastMessageAt.Valid {
-			lastMessageTime = result.Sessions[i].LastMessageAt.Time.Format("2006-01-02 15:04:05")
-		}
+	return s.hydrateGroupSessions(ctx, ownerId, result.Sessions), result.NextCursor, result.HasMore, nil
+}
 
-		sessionListRsp = append(sessionListRsp, sessionrsp.GroupSessionListRespond{
-			SessionId:       result.Sessions[i].Uuid,
-			Avatar:          result.Sessions[i].Avatar,
-			GroupId:         result.Sessions[i].ReceiveId,
-			GroupName:       result.Sessions[i].ReceiveName,
-			LastMessage:     result.Sessions[i].LastMessage,
-			LastMessageTime: lastMessageTime,
-			LastMessageType: result.Sessions[i].LastMessageType,
-			IsPinned:        result.Sessions[i].IsPinned,
-		})
+// hydrateUserSessions 动态通过 RPC 批量聚合用户信息，消除 session 表冗余字段
+func (s *SessionService) hydrateUserSessions(ctx context.Context, sessions []model.Session) []sessionrsp.UserSessionListRespond {
+	userIds := make([]string, 0, len(sessions))
+	for _, sess := range sessions {
+		userIds = append(userIds, sess.ReceiveId)
 	}
 
-	return sessionListRsp, result.NextCursor, result.HasMore, nil
+	userMap := make(map[string]*userpb.PublicUserInfo)
+	if len(userIds) > 0 {
+		if users, err := grpc_client.BatchGetPublicUserInfo(ctx, userIds); err == nil {
+			for _, u := range users {
+				userMap[u.Uuid] = u
+			}
+		} else {
+			zap.L().Warn("hydrateUserSessions: BatchGetPublicUserInfo failed", zap.Error(err))
+		}
+	}
+
+	rsp := make([]sessionrsp.UserSessionListRespond, 0, len(sessions))
+	for _, sess := range sessions {
+		var lastMessageTime string
+		if sess.LastMessageAt.Valid {
+			lastMessageTime = sess.LastMessageAt.Time.Format("2006-01-02 15:04:05")
+		}
+
+		var username, avatar string
+		if u, ok := userMap[sess.ReceiveId]; ok {
+			username = u.Nickname
+			avatar = u.Avatar
+		}
+
+		rsp = append(rsp, sessionrsp.UserSessionListRespond{
+			SessionId:       sess.Uuid,
+			Avatar:          avatar,
+			UserId:          sess.ReceiveId,
+			Username:        username,
+			LastMessage:     sess.LastMessage,
+			LastMessageTime: lastMessageTime,
+			LastMessageType: sess.LastMessageType,
+			IsPinned:        sess.IsPinned,
+		})
+	}
+	return rsp
+}
+
+// hydrateGroupSessions 动态通过 RPC 批量聚合群组信息，消除 session 表冗余字段
+func (s *SessionService) hydrateGroupSessions(ctx context.Context, ownerId string, sessions []model.Session) []sessionrsp.GroupSessionListRespond {
+	groupMap := make(map[string]*grouppb.GetGroupDetailResponse)
+	for _, sess := range sessions {
+		if _, exists := groupMap[sess.ReceiveId]; !exists {
+			if gDetail, err := grpc_client.GetGroupDetail(ctx, ownerId, sess.ReceiveId); err == nil && gDetail != nil {
+				groupMap[sess.ReceiveId] = gDetail
+			} else {
+				zap.L().Warn("hydrateGroupSessions: GetGroupDetail failed", zap.String("groupId", sess.ReceiveId), zap.Error(err))
+			}
+		}
+	}
+
+	rsp := make([]sessionrsp.GroupSessionListRespond, 0, len(sessions))
+	for _, sess := range sessions {
+		var lastMessageTime string
+		if sess.LastMessageAt.Valid {
+			lastMessageTime = sess.LastMessageAt.Time.Format("2006-01-02 15:04:05")
+		}
+
+		var groupName, avatar string
+		if g, ok := groupMap[sess.ReceiveId]; ok {
+			groupName = g.GroupName
+			avatar = g.GroupAvatar
+		}
+
+		rsp = append(rsp, sessionrsp.GroupSessionListRespond{
+			SessionId:       sess.Uuid,
+			Avatar:          avatar,
+			GroupId:         sess.ReceiveId,
+			GroupName:       groupName,
+			LastMessage:     sess.LastMessage,
+			LastMessageTime: lastMessageTime,
+			LastMessageType: sess.LastMessageType,
+			IsPinned:        sess.IsPinned,
+		})
+	}
+	return rsp
 }
 
 // DeleteSession 删除会话
@@ -546,3 +547,53 @@ func (s *SessionService) PinSession(ctx context.Context, userId, sessionId strin
 
 	return nil
 }
+
+// DeleteGroupMemberSessions 批量软删除指定群成员在该群的会话（供跨服务 RPC 调用）
+func (s *SessionService) DeleteGroupMemberSessions(ctx context.Context, groupId string, userIds []string) error {
+	if len(userIds) == 0 {
+		return nil
+	}
+	uuids := make([]string, 0, len(userIds))
+	for _, uid := range userIds {
+		if sess, err := s.sessionStore.FindBySendIdAndReceiveId(ctx, uid, groupId); err == nil && sess != nil {
+			uuids = append(uuids, sess.Uuid)
+		}
+	}
+	if len(uuids) == 0 {
+		return nil
+	}
+	return s.sessionStore.SoftDeleteByUuids(ctx, uuids)
+}
+
+// CreateGroupSession 为指定用户创建该群的会话（幂等）
+func (s *SessionService) CreateGroupSession(ctx context.Context, groupId, userId, groupName, groupAvatar string) (string, error) {
+	existing, err := s.sessionStore.FindBySendIdAndReceiveId(ctx, userId, groupId)
+	if err == nil && existing != nil {
+		return existing.Uuid, nil
+	}
+	sess := model.Session{
+		Uuid:      "S" + snowflake.GenerateIDString(),
+		SendId:    userId,
+		ReceiveId: groupId,
+	}
+	if err := s.sessionStore.CreateSession(ctx, &sess); err != nil {
+		return "", err
+	}
+	return sess.Uuid, nil
+}
+
+// DeleteFriendSessions 软删除双方的好友私聊会话（拉黑/删好友）
+func (s *SessionService) DeleteFriendSessions(ctx context.Context, userOneId, userTwoId string) error {
+	uuids := make([]string, 0, 2)
+	if sess, err := s.sessionStore.FindBySendIdAndReceiveId(ctx, userOneId, userTwoId); err == nil && sess != nil {
+		uuids = append(uuids, sess.Uuid)
+	}
+	if sess, err := s.sessionStore.FindBySendIdAndReceiveId(ctx, userTwoId, userOneId); err == nil && sess != nil {
+		uuids = append(uuids, sess.Uuid)
+	}
+	if len(uuids) == 0 {
+		return nil
+	}
+	return s.sessionStore.SoftDeleteByUuids(ctx, uuids)
+}
+

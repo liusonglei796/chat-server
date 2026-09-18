@@ -10,7 +10,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./migrations/split_db.sql:/docker-entrypoint-initdb.d/split_db.sql:ro
-    command: --default-authentication-plugin=mysql_native_password --slow_query_log=ON --long_query_time=1 --slow_query_log_file=/var/lib/mysql/slow-query.log
+    command: --default-authentication-plugin=mysql_native_password --server-id=1 --log-bin=mysql-bin --binlog-format=ROW --binlog-row-image=FULL --slow_query_log=ON --long_query_time=1 --slow_query_log_file=/var/lib/mysql/slow-query.log
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
@@ -89,6 +89,7 @@ services:
     container_name: chat-server
     ports:
       - "8081:8000"
+      - "8001:8001"
     volumes:
       - ./configs/config.toml:/app/configs/config.toml:ro
       - static_data:/app/static
@@ -215,6 +216,27 @@ services:
         condition: service_healthy
       etcd:
         condition: service_started
+    restart: unless-stopped
+
+  cdc-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_PATH: ./cmd/cdc_service
+    container_name: cdc-service
+    environment:
+      MYSQL_USER: svc_cdc
+      MYSQL_PASSWORD: svc_cdc_pwd
+    volumes:
+      - ./configs/config.toml:/app/configs/config.toml:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

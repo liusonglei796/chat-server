@@ -5,13 +5,13 @@ package message
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"kama_chat_server/internal/common/dao/mysql/dberr"
 	"kama_chat_server/internal/common/model"
 	"kama_chat_server/pkg/errorx"
 
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -159,55 +159,63 @@ func (r *messageStore) UpdateContent(ctx context.Context, uuid, content string, 
 	return nil
 }
 
+// applyMessageCursor 统一解析游标并拼装过滤及排序条件
+// 优先使用单调自增的雪花算法 Uuid，同时兼容历史时间戳游标
+func applyMessageCursor(query *gorm.DB, cursor string) *gorm.DB {
+	if cursor == "" {
+		return query.Order("uuid DESC")
+	}
+	if strings.HasPrefix(cursor, "M") {
+		return query.Where("uuid < ?", cursor).Order("uuid DESC")
+	}
+	if timestamp, err := strconv.ParseInt(cursor, 10, 64); err == nil {
+		cursorTime := time.Unix(timestamp, 0)
+		return query.Where("created_at < ?", cursorTime).Order("created_at DESC, uuid DESC")
+	}
+	return query.Where("uuid < ?", cursor).Order("uuid DESC")
+}
+
+// resolveNextCursor 获取下一页游标，优先返回雪花 ID 杜绝秒级精度碰撞
+func resolveNextCursor(messages []model.Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	lastMsg := messages[len(messages)-1]
+	if lastMsg.Uuid != "" {
+		return lastMsg.Uuid
+	}
+	return strconv.FormatInt(lastMsg.CreatedAt.Unix(), 10)
+}
+
 // FindByUserIdsCursor 根据两个用户ID查找私聊消息（游标分页）
 // userOneId, userTwoId: 两个用户的 UUID
-// cursor: 游标时间戳（上一页最后一条消息的 created_at Unix 时间戳）
+// cursor: 游标（雪花ID或Unix时间戳字符串）
 // pageSize: 每页数量
 // 返回: 消息列表、下一页游标、是否有更多数据、错误
 func (r *messageStore) FindByUserIdsCursor(ctx context.Context, userOneId, userTwoId, cursor string, pageSize int) (*model.CursorPageMessageResult, error) {
 	var messages []model.Message
 
-	// 校验分页参数
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
 
 	condition := "(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)"
-
-	// 构建查询
 	query := r.db.WithContext(ctx).Where(condition, userOneId, userTwoId, userTwoId, userOneId)
+	query = applyMessageCursor(query, cursor)
 
-	// 如果有游标，基于游标时间戳查询
-	if cursor != "" {
-		timestamp, err := strconv.ParseInt(cursor, 10, 64)
-		if err != nil {
-			// 解析失败则忽略游标，从最新开始查询
-			zap.L().Warn("parse cursor failed, ignore cursor", zap.String("cursor", cursor), zap.Error(err))
-		} else {
-			cursorTime := time.Unix(timestamp, 0)
-			query = query.Where("created_at < ?", cursorTime)
-		}
-	}
-
-	// 使用 OR 条件查找双向消息，按时间倒序排列（最新的在前）
 	// 多查一条用于判断是否有更多
-	if err := query.
-		Order("created_at DESC").
-		Limit(pageSize + 1).
-		Find(&messages).Error; err != nil {
+	if err := query.Limit(pageSize + 1).Find(&messages).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "游标分页查询私聊消息 user1=%s user2=%s", userOneId, userTwoId)
 	}
 
-	// 判断是否有更多
 	hasMore := len(messages) > pageSize
 	if hasMore {
-		messages = messages[:pageSize] // 截取实际需要的数据
+		messages = messages[:pageSize]
 	}
 
-	// 生成下一页游标
 	var nextCursor string
-	if len(messages) > 0 && hasMore {
-		nextCursor = strconv.FormatInt(messages[len(messages)-1].CreatedAt.Unix(), 10)
+	if hasMore {
+		nextCursor = resolveNextCursor(messages)
 	}
 
 	return &model.CursorPageMessageResult{
@@ -218,52 +226,70 @@ func (r *messageStore) FindByUserIdsCursor(ctx context.Context, userOneId, userT
 }
 
 // FindByGroupIdCursor 根据群组ID分页查找群聊消息（游标分页）
+// 命中 idx_receive_uuid (receive_id, uuid DESC) 联合索引，消除 filesort
 // receiveId: 群组 UUID
-// cursor: 游标时间戳（上一页最后一条消息的 created_at Unix 时间戳）
+// cursor: 游标（雪花ID或Unix时间戳字符串）
 // pageSize: 每页数量
 // 返回: 消息列表、下一页游标、是否有更多数据、错误
 func (r *messageStore) FindByGroupIdCursor(ctx context.Context, receiveId, cursor string, pageSize int) (*model.CursorPageMessageResult, error) {
 	var messages []model.Message
 
-	// 校验分页参数
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
 
-	// 构建查询
 	query := r.db.WithContext(ctx).Where("receive_id = ?", receiveId)
+	query = applyMessageCursor(query, cursor)
 
-	// 如果有游标，基于游标时间戳查询
-	if cursor != "" {
-		timestamp, err := strconv.ParseInt(cursor, 10, 64)
-		if err != nil {
-			// 解析失败则忽略游标，从最新开始查询
-			zap.L().Warn("parse cursor failed, ignore cursor", zap.String("cursor", cursor), zap.Error(err))
-		} else {
-			cursorTime := time.Unix(timestamp, 0)
-			query = query.Where("created_at < ?", cursorTime)
-		}
-	}
-
-	// 按时间倒序（最新的在前）
-	// 多查一条用于判断是否有更多
-	if err := query.
-		Order("created_at DESC").
-		Limit(pageSize + 1).
-		Find(&messages).Error; err != nil {
+	if err := query.Limit(pageSize + 1).Find(&messages).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "游标分页查询群消息 receive_id=%s", receiveId)
 	}
 
-	// 判断是否有更多
 	hasMore := len(messages) > pageSize
 	if hasMore {
-		messages = messages[:pageSize] // 截取实际需要的数据
+		messages = messages[:pageSize]
 	}
 
-	// 生成下一页游标
 	var nextCursor string
-	if len(messages) > 0 && hasMore {
-		nextCursor = strconv.FormatInt(messages[len(messages)-1].CreatedAt.Unix(), 10)
+	if hasMore {
+		nextCursor = resolveNextCursor(messages)
+	}
+
+	return &model.CursorPageMessageResult{
+		Messages:   messages,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
+	}, nil
+}
+
+// FindBySessionIdCursor 根据会话ID分页查找聊天消息（游标分页）
+// 命中 idx_session_uuid (session_id, uuid DESC) 联合索引，消除 filesort
+// sessionId: 会话 UUID
+// cursor: 游标（雪花ID或Unix时间戳字符串）
+// pageSize: 每页数量
+// 返回: 消息列表、下一页游标、是否有更多数据、错误
+func (r *messageStore) FindBySessionIdCursor(ctx context.Context, sessionId, cursor string, pageSize int) (*model.CursorPageMessageResult, error) {
+	var messages []model.Message
+
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	query := r.db.WithContext(ctx).Where("session_id = ?", sessionId)
+	query = applyMessageCursor(query, cursor)
+
+	if err := query.Limit(pageSize + 1).Find(&messages).Error; err != nil {
+		return nil, dberr.WrapDBErrorf(err, "游标分页查询会话消息 session_id=%s", sessionId)
+	}
+
+	hasMore := len(messages) > pageSize
+	if hasMore {
+		messages = messages[:pageSize]
+	}
+
+	var nextCursor string
+	if hasMore {
+		nextCursor = resolveNextCursor(messages)
 	}
 
 	return &model.CursorPageMessageResult{

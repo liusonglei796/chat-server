@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -14,9 +15,11 @@ import (
 
 // MainConfig 主配置，包含应用基本信息
 type MainConfig struct {
-	AppName string `toml:"appName"` // 应用名称，用于日志标识等
-	Host    string `toml:"host"`    // 服务器监听地址，如 "0.0.0.0"
-	Port    int    `toml:"port"`    // 服务器监听端口，如 8000
+	AppName  string `toml:"appName"`  // 应用名称，用于日志标识等
+	Host     string `toml:"host"`     // 服务器监听地址，如 "0.0.0.0"
+	Port     int    `toml:"port"`     // 服务器监听端口，如 8000
+	GrpcPort int    `toml:"grpcPort"` // 网关内部 gRPC 服务端口，默认 8001
+	GrpcAddr string `toml:"grpcAddr"` // 网关向 Redis 注册的自身 gRPC 地址（如 127.0.0.1:8001 或 chat-server:8001）
 }
 
 // MysqlConfig MySQL 数据库连接配置
@@ -118,6 +121,12 @@ func LoadConfig() (*Config, error) {
 		"/app/config.toml",
 		"../../configs/config_local.toml",
 		"../../configs/config.toml",
+		"../../../configs/config_local.toml",
+		"../../../configs/config.toml",
+		"../../../../configs/config_local.toml",
+		"../../../../configs/config.toml",
+		"../../../../../configs/config_local.toml",
+		"../../../../../configs/config.toml",
 	}
 
 	found := false
@@ -165,6 +174,14 @@ func overlayEnvVars(c *Config) {
 	}
 	if v := os.Getenv("KAFKA_HOST_PORT"); v != "" {
 		c.KafkaConfig.HostPort = v
+	}
+	if v := os.Getenv("GATEWAY_GRPC_ADDR"); v != "" {
+		c.MainConfig.GrpcAddr = v
+	}
+	if v := os.Getenv("GATEWAY_GRPC_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			c.MainConfig.GrpcPort = port
+		}
 	}
 }
 

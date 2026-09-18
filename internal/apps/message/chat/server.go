@@ -1,34 +1,32 @@
 package chat
 
-// ChatServer 聊天服务器聚合结构
+import "kama_chat_server/internal/common/domain/store"
+
+// ChatServer 聊天网关长连接服务聚合结构
 type ChatServer struct {
-	Broker      *MsgConsumer
-	KafkaClient *KafkaClient
+	Hub *ClientHub
 }
 
-// NewChatServer 创建聊天服务器实例
-func NewChatServer() *ChatServer {
-	cs := &ChatServer{}
-	cs.KafkaClient = NewKafkaClient()
-	cs.Broker = NewMsgConsumer(cs.KafkaClient)
-	return cs
-}
-
-func (cs *ChatServer) InitKafka() {
-	cs.KafkaClient.KafkaInit()
-}
-
-func (cs *ChatServer) Run() {
-	cs.Broker.Start()
-}
-
-func (cs *ChatServer) Shutdown() {
-	cs.Broker.Close()
-	if cs.KafkaClient != nil {
-		cs.KafkaClient.KafkaClose()
+// NewChatServer 创建聊天网关实例
+func NewChatServer(cache store.AsyncCacheService, gatewayGrpcAddr string) *ChatServer {
+	return &ChatServer{
+		Hub: NewClientHub(cache, gatewayGrpcAddr),
 	}
 }
 
-func (cs *ChatServer) GetBroker() *MsgConsumer {
-	return cs.Broker
+func (cs *ChatServer) Run() {
+	cs.Hub.Start()
+}
+
+func (cs *ChatServer) Shutdown() {
+	cs.Hub.Close()
+}
+
+func (cs *ChatServer) GetHub() *ClientHub {
+	return cs.Hub
+}
+
+// Deprecated: 使用 GetHub 代替
+func (cs *ChatServer) GetBroker() *ClientHub {
+	return cs.Hub
 }

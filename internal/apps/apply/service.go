@@ -207,24 +207,17 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req applyr
 	// 如果群组设置了免审核模式 (DIRECT)，则直接处理入群逻辑
 	if groupRsp.AddMode == int32(add_mode.DIRECT) {
 		// 使用事务保证入群操作的原子性：
-		// 1. 创建群成员记录
-		// 2. 增加群成员计数
-		// 3. 清理旧的申请记录（如果有）
+		// 1. 清理旧的申请记录（如果有）
+		// 2. 写入 outbox 表 (group_apply_passed 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
 		err := store.WithTx(u.uow, func(tx applyUoW) error {
-			// 直接发送加群审批通过事件给 GroupService
+			if apply != nil {
+				_ = tx.ApplyStore().SoftDelete(ctx, userId, req.GroupId)
+			}
 			payload, _ := json.Marshal(event.GroupApplyPassedEvent{
 				GroupId: req.GroupId,
 				UserId:  userId,
 			})
-			if err := tx.RecordEvent(ctx, event.EventGroupApplyPassed, payload); err != nil {
-				zap.L().Error("service error", zap.Error(err))
-				return errorx.ErrServerBusy
-			}
-
-			if apply != nil {
-				_ = tx.ApplyStore().SoftDelete(ctx, userId, req.GroupId)
-			}
-			return nil
+			return tx.RecordEvent(ctx, event.EventGroupApplyPassed, payload)
 		})
 
 		// 如果事务执行失败，返回服务器繁忙
@@ -482,8 +475,8 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 	}
 
 	// 3. 开启事务
-	// 建立好友关系涉及多张表的更新（更新申请状态、双方各创建一条联系记录）
-	// 使用事务保证操作的原子性，要么全部成功，要么全部回滚
+	// 本地事务更新申请状态为 AGREE，同时写入 outbox 表 (friend_apply_passed)
+	// 由 Canal CDC 监听到 INSERT 后推入 Kafka，下游 friendship_service 异步建立双向好友并推送信令
 	err = store.WithTx(u.uow, func(tx applyUoW) error {
 		// 4. 更新申请状态
 		// 将申请状态更新为已同意（AGREE）
@@ -493,16 +486,11 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 			return errorx.ErrServerBusy
 		}
 
-		// 5. 发送同意加好友事件 (让 FriendshipService 消费并落库)
 		payload, _ := json.Marshal(event.FriendApplyPassedEvent{
 			UserId:   userId,
 			FriendId: applicantId,
 		})
-		if err := tx.RecordEvent(ctx, event.EventFriendApplyPassed, payload); err != nil {
-			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
-		return nil
+		return tx.RecordEvent(ctx, event.EventFriendApplyPassed, payload)
 	})
 
 	if err != nil {
@@ -510,7 +498,7 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 		return errorx.ErrServerBusy
 	}
 
-	// 6. 异步清除缓存
+	// 5. 异步清除缓存
 	// 异步清除双方的联系列表缓存，确保双方下次请求联系列表时能获取到最新的好友关系
 	u.cache.SubmitTask(func() {
 		_ = u.cache.DeleteByPattern(context.Background(), constants.CacheKeyFriendRelUser+userId+"*")
@@ -558,16 +546,11 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 			return errorx.ErrServerBusy
 		}
 
-		// 3.5 事务内写 outbox 事件，交由 GroupService 真正加入群
 		payload, _ := json.Marshal(event.GroupApplyPassedEvent{
-			GroupId:     groupId,
-			UserId:      applicantId,
+			GroupId: groupId,
+			UserId:  applicantId,
 		})
-		if err := tx.RecordEvent(ctx, event.EventGroupApplyPassed, payload); err != nil {
-			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
-		return nil
+		return tx.RecordEvent(ctx, event.EventGroupApplyPassed, payload)
 	})
 
 	if err != nil {

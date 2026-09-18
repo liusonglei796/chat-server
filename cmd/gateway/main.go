@@ -4,24 +4,28 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"kama_chat_server/internal/common/config"
+	"google.golang.org/grpc"
+	"go.uber.org/zap"
 
+	gatewaypb "kama_chat_server/api/gen/gateway"
+	gatewaygrpc "kama_chat_server/internal/apps/gateway/grpc_server"
 	"kama_chat_server/internal/apps/gateway/handler"
 	"kama_chat_server/internal/apps/gateway/https_server"
 	"kama_chat_server/internal/apps/message/chat"
+	"kama_chat_server/internal/common/config"
 	myredis "kama_chat_server/internal/common/dao/redis"
 	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/grpc_client"
 	"kama_chat_server/internal/common/infrastructure/jwt"
 	"kama_chat_server/internal/common/infrastructure/logger"
+	"kama_chat_server/pkg/interceptor"
 	otelinit "kama_chat_server/pkg/otel"
-
-	"go.uber.org/zap"
 )
 
 func main() {
@@ -68,23 +72,53 @@ func main() {
 	}
 	zap.L().Info("Validator 国际化初始化成功")
 
-	chatServer := chat.NewChatServer()
-	chatServer.InitKafka()
-	zap.L().Info("ChatServer 初始化成功")
+	// 7. 解析网关 gRPC 监听与注册地址
+	grpcPort := conf.MainConfig.GrpcPort
+	if grpcPort == 0 {
+		grpcPort = 8001
+	}
+	grpcAddr := conf.MainConfig.GrpcAddr
+	if grpcAddr == "" {
+		grpcAddr = fmt.Sprintf("127.0.0.1:%d", grpcPort)
+	}
 
-	// 8. 初始化 gRPC Client (新增)
+	chatServer := chat.NewChatServer(cachePort, grpcAddr)
+	zap.L().Info("ChatServer 初始化成功", zap.String("grpcAddr", grpcAddr))
+
+	// 8. 初始化 gRPC Client
 	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
 	zap.L().Info("gRPC 客户端初始化成功")
 
-	// 9. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 broker)
-	handlers := handler.NewHandlers(chatServer.GetBroker())
+	// 9. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 ClientHub)
+	handlers := handler.NewHandlers(chatServer.GetHub())
 	zap.L().Info("Handler 层初始化成功")
 
 	// 10. 初始化 HTTPS 服务器
 	engine := https_server.Init(handlers, cachePort)
 	zap.L().Info("HTTPS 服务器初始化成功")
 
-	// 11. 启动服务
+	// 11. 启动网关内部 gRPC 服务（供后端微服务直推下行消息）
+	grpcLis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", grpcPort))
+	if err != nil {
+		zap.L().Fatal("failed to listen on gateway grpc port", zap.Error(err))
+	}
+	gatewayGrpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(
+			interceptor.ServerAuthInterceptor(),
+			otelinit.ServerTraceInterceptor(),
+		),
+	)
+	gatewayServerImpl := gatewaygrpc.NewGatewayGrpcServer(chatServer.GetHub())
+	gatewaypb.RegisterGatewayServiceServer(gatewayGrpcServer, gatewayServerImpl)
+
+	go func() {
+		zap.L().Info("Gateway gRPC Server started", zap.Int("port", grpcPort), zap.String("regAddr", grpcAddr))
+		if err := gatewayGrpcServer.Serve(grpcLis); err != nil {
+			zap.L().Fatal("gateway grpc serve error", zap.Error(err))
+		}
+	}()
+
+	// 12. 启动服务
 	host := conf.MainConfig.Host
 	port := conf.MainConfig.Port
 
@@ -107,15 +141,18 @@ func main() {
 	// 等待信号
 	<-quit
 
-	// 关闭聊天服务器（包括 Kafka 客户端）
+	zap.L().Info("关闭服务器...")
+
+	// 优雅停机网关 gRPC 服务
+	gatewayGrpcServer.GracefulStop()
+
+	// 关闭聊天服务器
 	chatServer.Shutdown()
 
 	// 关闭 Redis 异步任务池，等待已提交任务完成
 	if rc, ok := cacheService.(*myredis.RedisCache); ok {
 		rc.Release()
 	}
-
-	zap.L().Info("关闭服务器...")
 
 	// 关闭 OpenTelemetry TracerProvider，确保未导出的 span 被刷新
 	if otelShutdown != nil {

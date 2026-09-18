@@ -166,3 +166,9 @@ func (s *GrpcServer) GetGroupMemberRole(ctx context.Context, req *grouppb.GetGro
 	}
 	return &grouppb.GetGroupMemberRoleResponse{Role: int32(role)}, nil
 }
+
+func (s *GrpcServer) AddGroupMember(ctx context.Context, req *grouppb.AddGroupMemberRequest) (*grouppb.AddGroupMemberResponse, error) {
+	err := s.groupSvc.AddGroupMember(ctx, req.GroupId, req.UserId, int8(req.Role))
+	return &grouppb.AddGroupMemberResponse{}, err
+}
+

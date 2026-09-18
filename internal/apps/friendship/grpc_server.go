@@ -76,3 +76,8 @@ func (s *GrpcServer) CheckFriendship(ctx context.Context, req *friendshippb.Chec
 	}
 	return &friendshippb.CheckFriendshipResponse{Status: int32(fs)}, nil
 }
+
+func (s *GrpcServer) EstablishFriendship(ctx context.Context, req *friendshippb.EstablishFriendshipRequest) (*friendshippb.EstablishFriendshipResponse, error) {
+	err := s.friendshipSvc.EstablishFriendship(ctx, req.UserId, req.FriendId)
+	return &friendshippb.EstablishFriendshipResponse{}, err
+}

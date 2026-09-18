@@ -26,15 +26,6 @@ type Session struct {
 	// 可以是用户 UUID（U开头）或群组 UUID（G开头）
 	ReceiveId string `gorm:"column:receive_id;index;type:char(20);not null;comment:接受会话人id"`
 
-	// ReceiveName 接收方名称
-	// 冗余存储，用于会话列表显示
-	// 如果是用户则为昵称，如果是群组则为群名
-	ReceiveName string `gorm:"column:receive_name;type:varchar(20);not null;comment:名称"`
-
-	// Avatar 接收方头像
-	// 冗余存储，用于会话列表显示
-	Avatar string `gorm:"column:avatar;type:char(255);default:default_avatar.png;not null;comment:头像"`
-
 	// LastMessage 最新消息内容
 	// 用于在会话列表中显示最后一条消息摘要
 	LastMessage string `gorm:"column:last_message;type:TEXT;comment:最新的消息"`

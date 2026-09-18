@@ -24,9 +24,7 @@ import (
 	myredis "kama_chat_server/internal/common/dao/redis"   // Redis 缓存实现
 	"kama_chat_server/internal/common/domain/store"        // 领域层接口（AsyncCacheService 等）
 	"kama_chat_server/internal/common/grpc_client"         // 跨服务 gRPC 客户端（查 user 昵称/头像等）
-	"kama_chat_server/internal/common/infrastructure/kafka"
 	"kama_chat_server/internal/common/infrastructure/logger"        // zap logger 初始化
-	outbox "kama_chat_server/internal/common/infrastructure/outbox" // Outbox 模式的事件发布器
 	"kama_chat_server/pkg/discovery"                                // etcd 服务发现注册
 	"kama_chat_server/pkg/interceptor"                              // gRPC 拦截器（JWT 鉴权）
 	otelinit "kama_chat_server/pkg/otel"                            // OpenTelemetry 链路追踪初始化
@@ -66,13 +64,10 @@ func main() {
 	// 创建 group 业务服务；stores 以 groupUoW 子接口传入——编译期保证只访问 Group/GroupMember 仓库
 	groupSvc := group.NewGroupService(stores, cachePort)
 	// 创建并启动 Kafka 领域事件消费者（消费 group 关心的事件，如群申请通过后真正加人进群）
-	consumer := group.NewDomainEventConsumer(stores)
+	consumer := group.NewDomainEventConsumer(stores, cachePort)
 	consumer.Start()
 	// 进程退出时关闭 reader
 	defer consumer.Close()
-
-	// 启动 Outbox 发布器：轮询 outbox 表把待发事件投递到 Kafka（本地事务+事件模式的后半段）
-	outbox.NewPublisher(stores.Outbox, kafka.NewProducer(kafka.TopicDomainEvents)).Start()
 
 	// group 服务监听端口 50055（约定：apply 50053 / friendship 50054 / group 50055）
 	port := 50055

@@ -16,8 +16,8 @@ type Message struct {
 
 	// Uuid 消息唯一标识
 	// 使用雪花算法生成的 string 类型 ID (M + SnowflakeID)
-	// char(20) 类型支持
-	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);not null;comment:消息雪花ID"`
+	// char(20) 类型支持，作为联合索引的第二列用于排序下钻
+	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);not null;index:idx_session_uuid,priority:2;index:idx_receive_uuid,priority:2;comment:消息雪花ID"`
 
 	// ClientMsgId 客户端生成的消息唯一标识
 	// 用于幂等去重，防止 Redis 宕机时重复插入
@@ -26,7 +26,7 @@ type Message struct {
 
 	// SessionId 会话 UUID
 	// 关联到 Session 表，标识消息属于哪个会话
-	SessionId string `gorm:"column:session_id;index;type:char(20);not null;comment:会话uuid"`
+	SessionId string `gorm:"column:session_id;type:varchar(64);not null;index:idx_session_uuid,priority:1;comment:会话uuid"`
 
 	// Type 消息类型
 	// 0=文本消息, 1=语音消息, 2=文件消息, 3=音视频通话信令
@@ -47,17 +47,9 @@ type Message struct {
 	// 关联到 UserInfo 表
 	SendId string `gorm:"column:send_id;index;type:char(20);not null;comment:发送者uuid"`
 
-	// SendName 发送者昵称
-	// 冗余存储，避免每次查询消息时都要关联用户表
-	SendName string `gorm:"column:send_name;type:varchar(20);not null;comment:发送者昵称"`
-
-	// SendAvatar 发送者头像
-	// 冗余存储，存储相对路径如 "/static/avatars/xxx.jpg"
-	SendAvatar string `gorm:"column:send_avatar;type:varchar(255);not null;comment:发送者头像"`
-
 	// ReceiveId 接收者 UUID
 	// 单聊时为用户 UUID（U开头），群聊时为群组 UUID（G开头）
-	ReceiveId string `gorm:"column:receive_id;index;type:char(20);not null;comment:接受者uuid"`
+	ReceiveId string `gorm:"column:receive_id;index;type:char(20);not null;index:idx_receive_uuid,priority:1;comment:接受者uuid"`
 
 	// FileType 文件 MIME 类型
 	// 如 "image/jpeg", "application/pdf"

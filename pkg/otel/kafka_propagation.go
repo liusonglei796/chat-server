@@ -9,15 +9,15 @@ package otel
 import (
 	"context"
 
-	"github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"go.opentelemetry.io/otel"
 )
 
 // KafkaHeaderCarrier implements propagation.TextMapCarrier for Kafka message headers.
-// It wraps a pointer to a slice of kafka.Header so that the Inject operation
+// It wraps a pointer to a slice of kgo.RecordHeader so that the Inject operation
 // can append new headers to the original slice.
 type KafkaHeaderCarrier struct {
-	Headers *[]kafka.Header
+	Headers *[]kgo.RecordHeader
 }
 
 // Get returns the value for a given header key.
@@ -40,7 +40,7 @@ func (c KafkaHeaderCarrier) Set(key string, value string) {
 	if c.Headers == nil {
 		return
 	}
-	*c.Headers = append(*c.Headers, kafka.Header{
+	*c.Headers = append(*c.Headers, kgo.RecordHeader{
 		Key:   key,
 		Value: []byte(value),
 	})
@@ -63,14 +63,10 @@ func (c KafkaHeaderCarrier) Keys() []string {
 //
 // Usage:
 //
-//	var headers []kafka.Header
+//	var headers []kgo.RecordHeader
 //	otel.InjectTraceContext(ctx, &headers)
-//	err := producer.WriteMessages(ctx, kafka.Message{
-//	    Key:     key,
-//	    Value:   value,
-//	    Headers: headers,
-//	})
-func InjectTraceContext(ctx context.Context, headers *[]kafka.Header) {
+//	err := kafkainfra.Publish(ctx, producer, key, value, headers)
+func InjectTraceContext(ctx context.Context, headers *[]kgo.RecordHeader) {
 	otel.GetTextMapPropagator().Inject(ctx, KafkaHeaderCarrier{Headers: headers})
 }
 
@@ -78,8 +74,8 @@ func InjectTraceContext(ctx context.Context, headers *[]kafka.Header) {
 //
 // Usage:
 //
-//	ctx := otel.ExtractTraceContext(context.Background(), kafkaMessage.Headers)
+//	ctx := otel.ExtractTraceContext(context.Background(), kafkaRecord.Headers)
 //	// use ctx for downstream processing with propagated trace context
-func ExtractTraceContext(ctx context.Context, headers []kafka.Header) context.Context {
+func ExtractTraceContext(ctx context.Context, headers []kgo.RecordHeader) context.Context {
 	return otel.GetTextMapPropagator().Extract(ctx, KafkaHeaderCarrier{Headers: &headers})
 }

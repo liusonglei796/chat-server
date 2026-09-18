@@ -22,6 +22,8 @@ service GroupService {
     rpc ListGroupMemberIds (ListGroupMemberIdsRequest) returns (ListGroupMemberIdsResponse);
     // 获取用户在某群的角色（供 apply 服务跨库校验管理员权限）
     rpc GetGroupMemberRole (GetGroupMemberRoleRequest) returns (GetGroupMemberRoleResponse);
+    // 跨服务添加群成员（供 apply 审批加群成功后直调）
+    rpc AddGroupMember (AddGroupMemberRequest) returns (AddGroupMemberResponse);
 }
 
 message CreateGroupRequest {
@@ -154,3 +156,10 @@ message GetGroupMemberRoleRequest {
 message GetGroupMemberRoleResponse {
     int32 role = 1;
 }
+
+message AddGroupMemberRequest {
+    string group_id = 1;
+    string user_id = 2;
+    int32 role = 3;
+}
+message AddGroupMemberResponse {}
