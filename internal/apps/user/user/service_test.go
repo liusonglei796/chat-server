@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 
 	"kama_chat_server/internal/common/dao/mysql/dberr"
 	"kama_chat_server/internal/common/domain/store"
+	"kama_chat_server/internal/common/dto/request/auth"
 	userreq "kama_chat_server/internal/common/dto/request/user"
 	"kama_chat_server/internal/common/model"
 	"kama_chat_server/pkg/errorx"
@@ -75,6 +77,31 @@ func (f *fakeUserStore) FindByUuid(_ context.Context, uuid string) (*model.UserI
 func (f *fakeUserStore) UpdateUserInfo(_ context.Context, user *model.UserInfo) error {
 	if _, ok := f.users[user.Uuid]; !ok {
 		return dberr.WrapDBError(gorm.ErrRecordNotFound, "更新用户")
+	}
+	f.users[user.Uuid] = *user
+	return nil
+}
+
+// FindByNickname 根据昵称查询用户
+func (f *fakeUserStore) FindByNickname(_ context.Context, nickname string) (*model.UserInfo, error) {
+	for _, u := range f.users {
+		if u.Nickname == nickname {
+			cpy := u
+			return &cpy, nil
+		}
+	}
+	return nil, dberr.WrapDBError(gorm.ErrRecordNotFound, "查询用户")
+}
+
+// CreateUser 模拟创建用户，若昵称重复模拟返回 MySQL 1062
+func (f *fakeUserStore) CreateUser(_ context.Context, user *model.UserInfo) error {
+	for _, u := range f.users {
+		if u.Nickname == user.Nickname {
+			return &mysql.MySQLError{Number: 1062, Message: "Duplicate entry for key 'nickname'"}
+		}
+	}
+	if f.users == nil {
+		f.users = make(map[string]model.UserInfo)
 	}
 	f.users[user.Uuid] = *user
 	return nil
@@ -253,3 +280,26 @@ func TestUpdateUserInfo_NoEventWhenOnlyEmailChanged(t *testing.T) {
 		t.Errorf("expected no outbox event when only email changed, got %q", ob.lastType)
 	}
 }
+
+func TestRegister_DuplicateNickname(t *testing.T) {
+	ctx := context.Background()
+	store := &fakeUserStore{users: map[string]model.UserInfo{
+		"U1": {Uuid: "U1", Nickname: "existing_user"},
+	}}
+	svc := NewUserService(&fakeUOW{
+		userStore: store,
+	}, &fakeCache{})
+
+	_, err := svc.Register(ctx, auth.RegisterRequest{
+		Username: "existing_user",
+		Password: "password123",
+	}, "127.0.0.1")
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errorx.IsCode(err, errorx.CodeUserExist) {
+		t.Fatalf("expected CodeUserExist, got %v", err)
+	}
+}
+

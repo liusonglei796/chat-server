@@ -3,6 +3,8 @@
 package router
 
 import (
+	"time"
+
 	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/apps/gateway/handler"
 	"kama_chat_server/internal/common/infrastructure/middleware"
@@ -35,6 +37,7 @@ func NewRouter(handlers *handler.Handlers, cache store.CacheService) *Router {
 func (rt *Router) RegisterRoutes(r *gin.Engine) {
 	// ==================== 公开路由 (无需认证) ====================
 	public := r.Group("")
+	public.Use(middleware.Idempotency(rt.cache, 24*time.Hour))
 	{
 		rt.RegisterAuthRoutes(public) // 认证路由（登录、刷新Token）
 	}
@@ -42,6 +45,7 @@ func (rt *Router) RegisterRoutes(r *gin.Engine) {
 	// ==================== 私有路由 (需要认证) ====================
 	private := r.Group("")
 	private.Use(middleware.JWTAuthWithCache(rt.cache))
+	private.Use(middleware.Idempotency(rt.cache, 24*time.Hour))
 	{
 		rt.RegisterUserRoutes(private)        // 用户路由
 		rt.RegisterFriendRoutes(private)      // 好友路由

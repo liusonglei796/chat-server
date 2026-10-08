@@ -213,13 +213,21 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			return errorx.New(errorx.CodeInvalidParam, "当前状态不允许拉黑")
 		}
 
-		if err := tx.FriendshipStore().UpdateStatus(ctx, userId, friendId, friendship_status.BLACK); err != nil {
-			zap.L().Error("Update status to BLACK error", zap.Error(err))
+		// 全局资源排序法：按 userId 字典序固定加锁更新顺序，杜绝 AB-BA 交叉死锁
+		firstUser, secondUser := userId, friendId
+		var firstStatus, secondStatus int8 = friendship_status.BLACK, friendship_status.BE_BLACK
+		if firstUser > secondUser {
+			firstUser, secondUser = friendId, userId
+			firstStatus, secondStatus = friendship_status.BE_BLACK, friendship_status.BLACK
+		}
+
+		if err := tx.FriendshipStore().UpdateStatus(ctx, firstUser, secondUser, firstStatus); err != nil {
+			zap.L().Error("Update status to first error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		if err := tx.FriendshipStore().UpdateStatus(ctx, friendId, userId, friendship_status.BE_BLACK); err != nil {
-			zap.L().Error("Update status to BE_BLACK error", zap.Error(err))
+		if err := tx.FriendshipStore().UpdateStatus(ctx, secondUser, firstUser, secondStatus); err != nil {
+			zap.L().Error("Update status to second error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
@@ -274,11 +282,17 @@ func (s *FriendshipService) UnblackFriend(ctx context.Context, userId string, fr
 			return errorx.New(errorx.CodeInvalidParam, "数据状态异常，请联系管理员")
 		}
 
-		if err := tx.FriendshipStore().UpdateStatus(ctx, userId, friendId, friendship_status.NORMAL); err != nil {
+		// 全局资源排序法：按 userId 字典序固定加锁更新顺序，杜绝 AB-BA 交叉死锁
+		firstUser, secondUser := userId, friendId
+		if firstUser > secondUser {
+			firstUser, secondUser = friendId, userId
+		}
+
+		if err := tx.FriendshipStore().UpdateStatus(ctx, firstUser, secondUser, friendship_status.NORMAL); err != nil {
 			zap.L().Error("Update friendship status error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
-		if err := tx.FriendshipStore().UpdateStatus(ctx, friendId, userId, friendship_status.NORMAL); err != nil {
+		if err := tx.FriendshipStore().UpdateStatus(ctx, secondUser, firstUser, friendship_status.NORMAL); err != nil {
 			zap.L().Error("Update reverse friendship status error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}

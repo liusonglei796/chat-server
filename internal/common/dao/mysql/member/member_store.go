@@ -97,12 +97,16 @@ func (r *groupMemberStore) DeleteByGroupUuid(ctx context.Context, groupUuid stri
 	return nil
 }
 
-// DeleteByUserUuids 批量删除指定用户（踢人）
-func (r *groupMemberStore) DeleteByUserUuids(ctx context.Context, groupUuid string, userUuids []string) error {
-	if err := r.db.WithContext(ctx).Where("group_uuid = ? AND user_uuid IN ?", groupUuid, userUuids).Delete(&model.GroupMember{}).Error; err != nil {
-		return dberr.WrapDBErrorf(err, "批量删除群成员 group_uuid=%s", groupUuid)
+// DeleteByUserUuids 批量删除指定用户（踢人），返回实际删除的记录数
+func (r *groupMemberStore) DeleteByUserUuids(ctx context.Context, groupUuid string, userUuids []string) (int64, error) {
+	if len(userUuids) == 0 {
+		return 0, nil
 	}
-	return nil
+	res := r.db.WithContext(ctx).Where("group_uuid = ? AND user_uuid IN ?", groupUuid, userUuids).Delete(&model.GroupMember{})
+	if err := res.Error; err != nil {
+		return 0, dberr.WrapDBErrorf(err, "批量删除群成员 group_uuid=%s", groupUuid)
+	}
+	return res.RowsAffected, nil
 }
 
 // DeleteByGroupUuids [管理员] 批量删除多个群组的所有成员

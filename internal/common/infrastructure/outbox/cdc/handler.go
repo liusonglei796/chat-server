@@ -21,14 +21,14 @@ type PublishFunc func(ctx context.Context, key []byte, payload []byte, headers [
 // OutboxEventHandler 监听 outbox 表的 INSERT binlog 并投递至 Kafka
 type OutboxEventHandler struct {
 	canal.DummyEventHandler
-	posStore  PositionStore
+	gtidStore GTIDStore
 	publishFn PublishFunc
 }
 
 // NewOutboxEventHandler 创建事件处理器
-func NewOutboxEventHandler(posStore PositionStore, publishFn PublishFunc) *OutboxEventHandler {
+func NewOutboxEventHandler(gtidStore GTIDStore, publishFn PublishFunc) *OutboxEventHandler {
 	return &OutboxEventHandler{
-		posStore:  posStore,
+		gtidStore: gtidStore,
 		publishFn: publishFn,
 	}
 }
@@ -108,12 +108,12 @@ func (h *OutboxEventHandler) OnRow(e *canal.RowsEvent) error {
 
 // OnPosSynced 当位点推进时触发持久化
 func (h *OutboxEventHandler) OnPosSynced(header *replication.EventHeader, pos mysql.Position, set mysql.GTIDSet, force bool) error {
-	if h.posStore == nil {
+	if h.gtidStore == nil || set == nil || set.IsEmpty() {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	return h.posStore.Save(ctx, pos)
+	return h.gtidStore.Save(ctx, set)
 }
 
 // String 返回处理器标识

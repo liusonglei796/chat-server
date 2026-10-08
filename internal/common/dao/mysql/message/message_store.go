@@ -143,20 +143,23 @@ func (r *messageStore) FindByUuid(ctx context.Context, uuid string) (*model.Mess
 	return &msg, nil
 }
 
-// UpdateContent 更新消息内容和类型（用于撤回）
+// UpdateContent 原子更新消息内容和类型（用于撤回）
 // uuid: 消息唯一标识
 // content: 新内容
 // msgType: 新消息类型
-// 返回: 操作错误
-func (r *messageStore) UpdateContent(ctx context.Context, uuid, content string, msgType int8) error {
-	if err := r.db.WithContext(ctx).Model(&model.Message{}).Where("uuid = ?", uuid).
+// 返回: 是否实际更新成功(RowsAffected > 0), 操作错误
+// 采用原子条件更新：仅当当前消息类型不为 msgType（即尚未撤回）时才更新，防止并发重复撤回
+func (r *messageStore) UpdateContent(ctx context.Context, uuid, content string, msgType int8) (bool, error) {
+	result := r.db.WithContext(ctx).Model(&model.Message{}).
+		Where("uuid = ? AND type != ?", uuid, msgType).
 		Updates(map[string]interface{}{
 			"content": content,
 			"type":    msgType,
-		}).Error; err != nil {
-		return dberr.WrapDBErrorf(err, "更新消息内容 uuid=%s", uuid)
+		})
+	if result.Error != nil {
+		return false, dberr.WrapDBErrorf(result.Error, "更新消息内容 uuid=%s", uuid)
 	}
-	return nil
+	return result.RowsAffected > 0, nil
 }
 
 // applyMessageCursor 统一解析游标并拼装过滤及排序条件

@@ -21,18 +21,22 @@ function Register() {
     }
 
     setLoading(true);
-    // Default nickname to username
-    const res = await request('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ username, password, nickname: username })
-    });
-    setLoading(false);
-
-    if (res && res.code === 1000) {
-      setSuccess('注册成功！即将跳转到登录页...');
-      setTimeout(() => navigate('/login'), 1500);
-    } else {
-      setError(res?.msg || '注册失败，请稍后重试');
+    try {
+      // Default nickname to username
+      const res = await request('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ username, password, nickname: username })
+      });
+      if (res && res.code === 1000) {
+        setSuccess('注册成功！即将跳转到登录页...');
+        setTimeout(() => navigate('/login'), 1500);
+      } else {
+        setError(res?.msg || '注册失败，请稍后重试');
+      }
+    } catch (err) {
+      setError(err.message || '注册失败，请稍后重试');
+    } finally {
+      setLoading(false);
     }
   };
 

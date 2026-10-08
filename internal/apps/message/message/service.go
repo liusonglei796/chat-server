@@ -511,13 +511,18 @@ func (m *MessageService) RecallMessage(ctx context.Context, userId string, req m
 		return errorx.New(errorx.CodeForbidden, "消息发送超过2分钟，无法撤回")
 	}
 
-	// 5. 更新消息类型为撤回，清空内容
-	if err := m.messageStore.UpdateContent(ctx, req.MessageUuid, "", int8(msgtype.Recall)); err != nil {
+	// 5. 更新消息类型为撤回，清空内容（原子状态更新：仅当尚未撤回时更新成功）
+	ok, err := m.messageStore.UpdateContent(ctx, req.MessageUuid, "", int8(msgtype.Recall))
+	if err != nil {
 		zap.L().Error("撤回消息失败", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
+	if !ok {
+		// 并发请求已被前序操作撤回，杜绝重复撤回与重复广播
+		return errorx.New(errorx.CodeInvalidParam, "该消息已被撤回")
+	}
 
-	// 6. 通过 WebSocket 通知（群聊广播所有群成员，私聊通知双方）
+	// 6. 仅当实际成功撤回 (RowsAffected > 0) 时，才通过 WebSocket 通知（群聊广播所有群成员，私聊通知双方）
 	if m.pushRecallNotify != nil {
 		m.pushRecallNotify(req.MessageUuid, msg.ReceiveId)
 		if len(msg.ReceiveId) > 0 && msg.ReceiveId[0] == 'U' && msg.SendId != "" {
@@ -560,21 +565,68 @@ func normalizePath(path string) string {
 	return path[idx:]
 }
 
-func (m *MessageService) isDuplicateMessage(ctx context.Context, clientMsgId string) (isDuplicate bool, isDegraded bool) {
+const (
+	msgDedupInProgress = "IN_PROGRESS"
+	msgDedupLockTTL    = 1 * time.Minute
+	msgDedupSuccessTTL = 24 * time.Hour
+)
+
+// acquireDedupLock 尝试获取消息防重锁
+// 返回:
+//   - cachedRsp: 若前序相同 clientMsgId 的消息已成功落库，返回历史真实响应（用于幂等回放）
+//   - dedupKey: 本次成功获取处理中锁的 Redis key（用于业务失败时删除、成功时更新响应缓存）
+//   - err: 若前序相同请求正在处理中，返回 429 CodeTooManyRequests 错误；若为其他错误则返回
+func (m *MessageService) acquireDedupLock(ctx context.Context, clientMsgId string) (cachedRsp *messagersp.SendMessageRespond, dedupKey string, err error) {
 	if clientMsgId == "" || m.cache == nil {
-		return false, false
+		return nil, "", nil
 	}
-	dedupKey := "msg:dedup:" + clientMsgId
-	ok, err := m.cache.SetNX(ctx, dedupKey, "1", 24*time.Hour)
-	if err != nil {
-		zap.L().Error("幂等检查失败，降级放行", zap.String("client_msg_id", clientMsgId), zap.Error(err))
+	key := "msg:dedup:" + clientMsgId
+
+	// 1. 尝试原子抢占短锁（IN_PROGRESS，1 分钟超时兜底防 crash 死锁）
+	ok, setErr := m.cache.SetNX(ctx, key, msgDedupInProgress, msgDedupLockTTL)
+	if setErr != nil {
+		zap.L().Error("幂等检查失败，降级放行", zap.String("client_msg_id", clientMsgId), zap.Error(setErr))
 		metrics.MessagesDegrade.Inc()
-		return false, true
+		return nil, "", nil
 	}
+
 	if !ok {
+		// 抢占失败：说明已有相同 clientMsgId 的请求
 		metrics.MessagesDuplicated.Inc()
+		val, getErr := m.cache.Get(ctx, key)
+		if getErr != nil || val == "" {
+			// 获取异常降级放行
+			return nil, "", nil
+		}
+
+		// 2. 检查状态：若是 IN_PROGRESS，说明前序相同请求仍在处理中，拦截并发重复提交
+		if val == msgDedupInProgress {
+			return nil, "", errorx.New(errorx.CodeTooManyRequests, "消息正在发送中，请勿重复提交")
+		}
+
+		// 3. 若不是 IN_PROGRESS，说明前序请求已成功完成，回放真实历史响应结果
+		var cached messagersp.SendMessageRespond
+		if jsonErr := json.Unmarshal([]byte(val), &cached); jsonErr == nil {
+			return &cached, "", nil
+		}
+
+		// 反序列化失败（兼容历史纯文本 "1"），降级返回兜底响应
+		return &messagersp.SendMessageRespond{
+			MessageUuid: clientMsgId,
+			CreatedAt:   time.Now().Format("2006-01-02 15:04:05"),
+		}, "", nil
 	}
-	return !ok, false
+
+	// 抢占成功，返回 dedupKey 供后置处理（失败删 Key，成功写回结果）
+	return nil, key, nil
+}
+
+func (m *MessageService) isDuplicateMessage(ctx context.Context, clientMsgId string) (isDuplicate bool, isDegraded bool) {
+	cachedRsp, dedupKey, err := m.acquireDedupLock(ctx, clientMsgId)
+	if err != nil || cachedRsp != nil {
+		return true, false
+	}
+	return false, dedupKey == "" && clientMsgId != "" && m.cache != nil
 }
 
 func (m *MessageService) checkSendPermission(ctx context.Context, sendId, receiveId string) error {
@@ -855,18 +907,33 @@ func (m *MessageService) dispatchAVToUser(message model.Message, sendName, sendA
 }
 
 // SendMessage 上行消息发送（同步鉴权、幂等、落库，并向单管道 downstream 投递广播）
-func (m *MessageService) SendMessage(ctx context.Context, req messagereq.ChatMessageRequest) (*messagersp.SendMessageRespond, error) {
-	// 1. 幂等检查
-	isDup, _ := m.isDuplicateMessage(ctx, req.ClientMsgId)
-	if isDup {
-		return &messagersp.SendMessageRespond{
-			MessageUuid: req.ClientMsgId,
-			CreatedAt:   time.Now().Format("2006-01-02 15:04:05"),
-		}, nil
+func (m *MessageService) SendMessage(ctx context.Context, req messagereq.ChatMessageRequest) (rsp *messagersp.SendMessageRespond, err error) {
+	// 1. 幂等检查（抢占处理中锁 / 成功回放）
+	cachedRsp, dedupKey, lockErr := m.acquireDedupLock(ctx, req.ClientMsgId)
+	if lockErr != nil {
+		return nil, lockErr
+	}
+	if cachedRsp != nil {
+		// 命中幂等且前序请求已成功：直接回放历史真实响应结果
+		return cachedRsp, nil
+	}
+	if dedupKey != "" {
+		// 2. 失败删 Key（防重锁模式）/ 成功持久化真实响应（成功回放）
+		defer func() {
+			if err != nil {
+				// 业务处理失败（鉴权失败、落库失败等），必须删除防重 Key 允许客户端重试
+				_ = m.cache.Delete(context.Background(), dedupKey)
+			} else if rsp != nil {
+				// 业务确定性成功，将真实落库结果持久化缓存 24h，供后续重试时幂等回放
+				if data, jsonErr := json.Marshal(rsp); jsonErr == nil {
+					_ = m.cache.Set(context.Background(), dedupKey, string(data), msgDedupSuccessTTL)
+				}
+			}
+		}()
 	}
 
-	// 2. 权限校验（发送者状态、好友关系或群成员关系）
-	if err := m.checkSendPermission(ctx, req.SendId, req.ReceiveId); err != nil {
+	// 3. 权限校验（发送者状态、好友关系或群成员关系）
+	if err = m.checkSendPermission(ctx, req.SendId, req.ReceiveId); err != nil {
 		return nil, err
 	}
 
@@ -935,9 +1002,10 @@ func (m *MessageService) SendMessage(ctx context.Context, req messagereq.ChatMes
 		return nil, errorx.New(errorx.CodeInvalidParam, "不支持的消息类型")
 	}
 
-	return &messagersp.SendMessageRespond{
+	rsp = &messagersp.SendMessageRespond{
 		MessageUuid: message.Uuid,
 		CreatedAt:   message.CreatedAt.Format("2006-01-02 15:04:05"),
-	}, nil
+	}
+	return rsp, nil
 }
 

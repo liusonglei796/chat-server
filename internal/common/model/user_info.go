@@ -19,7 +19,7 @@ type UserInfo struct {
 	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);comment:用户唯一id"`
 
 	// Nickname 用户昵称
-	Nickname string `gorm:"column:nickname;type:varchar(20);not null;comment:昵称"`
+	Nickname string `gorm:"column:nickname;uniqueIndex;type:varchar(20);not null;comment:昵称"`
 
 	// Telephone 手机号码
 	// 用于登录验证，建立索引加速查询

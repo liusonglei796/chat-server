@@ -87,6 +87,17 @@ func (r *applyStore) Update(ctx context.Context, apply *model.Apply) error {
 	return nil
 }
 
+// UpdateStatusIfPending 仅在申请状态为 PENDING 时原子更新为目标状态（状态机乐观锁）
+func (r *applyStore) UpdateStatusIfPending(ctx context.Context, uuid string, toStatus int8) (bool, error) {
+	result := r.db.WithContext(ctx).Model(&model.Apply{}).
+		Where("uuid = ? AND status = ?", uuid, apply_status.PENDING).
+		Update("status", toStatus)
+	if result.Error != nil {
+		return false, dberr.WrapDBErrorf(result.Error, "状态机更新申请状态 uuid=%s", uuid)
+	}
+	return result.RowsAffected > 0, nil
+}
+
 // SoftDelete 软删除申请记录
 func (r *applyStore) SoftDelete(ctx context.Context, applicantId, targetId string) error {
 	if err := r.db.WithContext(ctx).Where("applicant_id = ? AND target_id = ?", applicantId, targetId).Delete(&model.Apply{}).Error; err != nil {

@@ -20,17 +20,23 @@ const (
 )
 
 // NewProducer 创建写入指定主题的生产者。
-// 默认开启原生生产者幂等机制（Idempotent Producer）：
-//   - 内部自动维护 Producer ID (PID)、Epoch 与 Sequence Number
-//   - RequiredAcks 默认为 RequireAll (acks=-1 / all)，确保消息写入所有 ISR 副本才返回成功
-//   - 网络重试时由 Kafka Broker 端依据 PID+Seq 自动去重，杜绝重复消息
-// 保证有序：使用 kgo.StickyKeyPartitioner(nil)，相同业务 Key 的消息严格路由到同一 Partition
+// 配置防乱序与幂等生产（Idempotent Producer）：
+//   1. 启用幂等发送（enable.idempotence = true）：
+//      - franz-go 客户端默认启用原生幂等机制（未配置 DisableIdempotentWrite），自动分配 PID、Epoch 与 Sequence Number；
+//      - 网络重试时由 Kafka Broker 端依据 PID+Seq 自动去重，杜绝重复消息。
+//   2. 单分区重试防乱序（max.in.flight.requests.per.connection <= 5）：
+//      - 在开启幂等时，franz-go 内部严格将并发请求上限设为 5（符合 Kafka v1+ 协议规范）；
+//      - Kafka Broker 端针对每个 PID+Partition 缓存最近 5 个批次的元数据。若收到序号不连续的批次，Broker 会拒绝写入并等待前序批次，从而杜绝重试导致的乱序；
+//      - 若未开启幂等，该参数必须设为 1 才能避免并发重试乱序。
+//   3. RequiredAcks 显式设为 RequireAllISRAcks (acks=-1 / all)：确保消息写入所有 ISR 副本才返回成功，这也是开启幂等的必要前置条件。
+//   4. 分区有序保证：使用 kgo.StickyKeyPartitioner(nil)，相同业务 Key 的消息严格哈希路由到同一 Partition。
 func NewProducer(topic string) (*kgo.Client, error) {
 	cfg := config.GetConfig().KafkaConfig
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.HostPort),
 		kgo.DefaultProduceTopic(topic),
-		kgo.RecordPartitioner(kgo.StickyKeyPartitioner(nil)),
+		kgo.RequiredAcks(kgo.AllISRAcks()),                   // acks = all (-1)，开启幂等生产的前置条件
+		kgo.RecordPartitioner(kgo.StickyKeyPartitioner(nil)), // 相同 Key 严格落入同一分区保证有序
 	}
 	if cfg.Timeout > 0 {
 		opts = append(opts, kgo.RecordDeliveryTimeout(cfg.Timeout*time.Second))
@@ -77,12 +83,23 @@ func (c *Consumer) Close() {
 	}
 }
 
+// CommitRecord 手动同步提交单条消息的位点（commitSync，后置提交）
+func (c *Consumer) CommitRecord(ctx context.Context, record *kgo.Record) error {
+	return c.client.CommitRecords(ctx, record)
+}
+
+// CommitRecords 手动批量同步提交消息的位点
+func (c *Consumer) CommitRecords(ctx context.Context, records ...*kgo.Record) error {
+	return c.client.CommitRecords(ctx, records...)
+}
+
 // IsClosed 判断错误是否由 Kafka 客户端关闭引起
 func IsClosed(err error) bool {
 	return errors.Is(err, kgo.ErrClientClosed)
 }
 
 // NewConsumer 创建消费指定主题的消费者（按消费组负载均衡）
+// 默认禁用自动提交（enable.auto.commit = false），要求消费端在下游存储写入成功后手动后置提交（commitSync）
 func NewConsumer(topic, groupID string) (*Consumer, error) {
 	cfg := config.GetConfig().KafkaConfig
 	opts := []kgo.Opt{
@@ -90,9 +107,7 @@ func NewConsumer(topic, groupID string) (*Consumer, error) {
 		kgo.ConsumerGroup(groupID),
 		kgo.ConsumeTopics(topic),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()),
-	}
-	if cfg.Timeout > 0 {
-		opts = append(opts, kgo.AutoCommitInterval(cfg.Timeout*time.Second))
+		kgo.DisableAutoCommit(), // 禁用自动提交 (enable.auto.commit = false)
 	}
 	client, err := kgo.NewClient(opts...)
 	if err != nil {

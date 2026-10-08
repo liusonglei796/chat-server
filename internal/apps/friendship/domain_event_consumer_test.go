@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/go-sql-driver/mysql"
+
 	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/dto/event"
 	"kama_chat_server/internal/common/model"
@@ -120,3 +122,14 @@ func TestHandle_UnrelatedEvent_Noop(t *testing.T) {
 		t.Fatalf("expected no rows for unrelated event, got %d", len(store.created))
 	}
 }
+
+func TestHandleFriendApplyPassed_DuplicateKey_TreatedAsSuccess(t *testing.T) {
+	store := &fakeFriendshipStore{err: &mysql.MySQLError{Number: 1062, Message: "Duplicate entry"}}
+	c := NewDomainEventConsumer(&fakeUOW{friendshipStore: store})
+
+	payload, _ := json.Marshal(event.FriendApplyPassedEvent{UserId: "U1", FriendId: "U2"})
+	if err := c.handleEvent(context.Background(), event.EventFriendApplyPassed, payload); err != nil {
+		t.Fatalf("expected nil error on duplicate key, got %v", err)
+	}
+}
+

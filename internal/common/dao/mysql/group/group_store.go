@@ -4,10 +4,12 @@ package group
 
 import (
 	"context"
-	"kama_chat_server/internal/common/dao/mysql/dberr"
-	"kama_chat_server/internal/common/model"
 
 	"gorm.io/gorm"
+
+	"kama_chat_server/internal/common/dao/mysql/dberr"
+	"kama_chat_server/internal/common/model"
+	"kama_chat_server/pkg/errorx"
 )
 
 // groupStore GroupStore 接口的实现
@@ -121,6 +123,24 @@ func (r *groupStore) Update(ctx context.Context, group *model.GroupInfo) error {
 	return nil
 }
 
+// UpdateWithVersion 基于乐观锁版本号更新群组信息（仅更新传入的非空字段）
+func (r *groupStore) UpdateWithVersion(ctx context.Context, uuid string, expectedVersion int32, updates map[string]interface{}) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	updates["version"] = gorm.Expr("version + ?", 1)
+	result := r.db.WithContext(ctx).Model(&model.GroupInfo{}).
+		Where("uuid = ? AND version = ?", uuid, expectedVersion).
+		Updates(updates)
+	if result.Error != nil {
+		return dberr.WrapDBErrorf(result.Error, "乐观锁更新群组 uuid=%s version=%d", uuid, expectedVersion)
+	}
+	if result.RowsAffected == 0 {
+		return errorx.New(errorx.CodeConflict, "群资料已被他人修改，请刷新后重试")
+	}
+	return nil
+}
+
 // UpdateStatusByUuids [管理员] 批量更新群组状态
 // status: 0=正常, 1=禁用, 2=解散
 func (r *groupStore) UpdateStatusByUuids(ctx context.Context, uuids []string, status int8) error {
@@ -148,7 +168,7 @@ func (r *groupStore) DecrementMemberCountBy(ctx context.Context, uuid string, co
 	if count <= 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Model(&model.GroupInfo{}).Where("uuid = ?", uuid).UpdateColumn("member_cnt", gorm.Expr("member_cnt - ?", count)).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&model.GroupInfo{}).Where("uuid = ?", uuid).UpdateColumn("member_cnt", gorm.Expr("GREATEST(0, member_cnt - ?)", count)).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "减少群成员数 uuid=%s count=%d", uuid, count)
 	}
 	return nil

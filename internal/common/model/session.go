@@ -20,11 +20,11 @@ type Session struct {
 
 	// SendId 创建会话的用户 UUID
 	// 即主动发起聊天的一方
-	SendId string `gorm:"column:send_id;index;type:char(20);not null;comment:创建会话人id"`
+	SendId string `gorm:"column:send_id;index;type:char(20);not null;uniqueIndex:idx_send_receive;comment:创建会话人id"`
 
 	// ReceiveId 接收会话的实体 UUID
 	// 可以是用户 UUID（U开头）或群组 UUID（G开头）
-	ReceiveId string `gorm:"column:receive_id;index;type:char(20);not null;comment:接受会话人id"`
+	ReceiveId string `gorm:"column:receive_id;index;type:char(20);not null;uniqueIndex:idx_send_receive;comment:接受会话人id"`
 
 	// LastMessage 最新消息内容
 	// 用于在会话列表中显示最后一条消息摘要

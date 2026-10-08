@@ -20,16 +20,16 @@ type Apply struct {
 
 	// ApplicantId 申请人 UUID
 	// 发起申请的用户
-	ApplicantId string `gorm:"column:applicant_id;index;type:char(20);not null;comment:申请人ID"`
+	ApplicantId string `gorm:"column:applicant_id;index;uniqueIndex:idx_applicant_target_type;type:char(20);not null;comment:申请人ID"`
 
 	// TargetId 目标 UUID
 	// 如果 ContactType=0，则为被申请添加好友的用户 UUID
 	// 如果 ContactType=1，则为被申请加入的群组 UUID
-	TargetId string `gorm:"column:target_id;index;type:char(20);not null;comment:目标ID(用户/群组)"`
+	TargetId string `gorm:"column:target_id;index;uniqueIndex:idx_applicant_target_type;type:char(20);not null;comment:目标ID(用户/群组)"`
 
 	// ContactType 申请类型
 	// 0=申请添加好友, 1=申请加入群聊
-	ContactType int8 `gorm:"column:contact_type;not null;comment:被申请类型，0.用户，1.群聊"`
+	ContactType int8 `gorm:"column:contact_type;uniqueIndex:idx_applicant_target_type;not null;comment:被申请类型，0.用户，1.群聊"`
 
 	// Status 申请状态
 	// 0=申请中（待处理）

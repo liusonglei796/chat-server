@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"kama_chat_server/internal/common/dao/mysql/dberr"
 	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/dto/event"
 	"kama_chat_server/internal/common/grpc_client"
@@ -57,6 +58,11 @@ func (c *DomainEventConsumer) Start() {
 			eventType := outbox.ExtractEventType(msg.Headers)
 			if err := c.handleEvent(context.Background(), eventType, msg.Value); err != nil {
 				zap.L().Error("handle domain event error", zap.String("type", eventType), zap.Error(err))
+				continue // 下游处理失败，不提交位点，等待重试
+			}
+			// 下游存储写入成功后，后置手动同步提交位点 (commitSync)
+			if err := c.reader.CommitRecord(context.Background(), msg); err != nil {
+				zap.L().Error("commit kafka offset error", zap.String("type", eventType), zap.Error(err))
 			}
 		}
 	}()
@@ -87,6 +93,9 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 			Status:   friendship_status.NORMAL,
 		}
 		if err := tx.FriendshipStore().CreateFriendship(ctx, &newFriendship); err != nil {
+			if dberr.IsDuplicateKey(err) {
+				return nil
+			}
 			return err
 		}
 
@@ -95,9 +104,19 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 			FriendId: e.UserId,
 			Status:   friendship_status.NORMAL,
 		}
-		return tx.FriendshipStore().CreateFriendship(ctx, &anotherFriendship)
+		if err := tx.FriendshipStore().CreateFriendship(ctx, &anotherFriendship); err != nil {
+			if dberr.IsDuplicateKey(err) {
+				return nil
+			}
+			return err
+		}
+		return nil
 	})
 	if err != nil {
+		if dberr.IsDuplicateKey(err) {
+			zap.L().Info("好友关系已存在，幂等处理成功", zap.String("userId", e.UserId), zap.String("friendId", e.FriendId))
+			return nil
+		}
 		return err
 	}
 

@@ -13,4 +13,5 @@ type GetGroupInfoRespond struct {
 	Status    int8   `json:"status"`
 	Avatar    string `json:"avatar"`
 	IsDeleted bool   `json:"is_deleted"`
+	Version   int32  `json:"version"`
 }

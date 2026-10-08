@@ -30,8 +30,8 @@ func TestOutboxEventHandler_OnRow(t *testing.T) {
 		return nil
 	}
 
-	posStore := NewMemoryPositionStore()
-	handler := NewOutboxEventHandler(posStore, mockPublish)
+	gtidStore := NewMemoryGTIDStore()
+	handler := NewOutboxEventHandler(gtidStore, mockPublish)
 
 	testTable := &schema.Table{
 		Schema: "chat_group",
@@ -129,19 +129,23 @@ func TestOutboxEventHandler_OnRow(t *testing.T) {
 	})
 }
 
-func TestMemoryPositionStore(t *testing.T) {
-	store := NewMemoryPositionStore()
+func TestMemoryGTIDStore(t *testing.T) {
+	store := NewMemoryGTIDStore()
 	ctx := context.Background()
 
-	pos, err := store.Get(ctx)
+	set, err := store.Get(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if pos.Name != "" || pos.Pos != 0 {
-		t.Fatalf("expected empty position initially, got %+v", pos)
+	if set != nil {
+		t.Fatalf("expected nil GTIDSet initially, got %+v", set)
 	}
 
-	expected := mysql.Position{Name: "mysql-bin.000001", Pos: 12345}
+	expected, err := mysql.ParseMysqlGTIDSet("3E11FA47-71CA-11E1-9E33-C80AA9429562:1-5")
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
 	if err := store.Save(ctx, expected); err != nil {
 		t.Fatalf("save error: %v", err)
 	}
@@ -150,7 +154,30 @@ func TestMemoryPositionStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get error: %v", err)
 	}
-	if actual != expected {
-		t.Fatalf("expected position %+v, got %+v", expected, actual)
+	if !actual.Equal(expected) {
+		t.Fatalf("expected GTID set %+v, got %+v", expected, actual)
+	}
+}
+
+func TestOutboxEventHandler_OnPosSynced(t *testing.T) {
+	store := NewMemoryGTIDStore()
+	handler := NewOutboxEventHandler(store, nil)
+
+	gtidSet, err := mysql.ParseMysqlGTIDSet("3E11FA47-71CA-11E1-9E33-C80AA9429562:1-10")
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	err = handler.OnPosSynced(nil, mysql.Position{}, gtidSet, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	saved, err := store.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !saved.Equal(gtidSet) {
+		t.Fatalf("expected GTID set %+v, got %+v", gtidSet, saved)
 	}
 }

@@ -30,26 +30,85 @@
       return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
     }
 
+    function genIdempotencyKey() {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+      return 'idemp-' + Date.now() + '-' + Math.random().toString(36).substring(2, 11);
+    }
+
     /* ==================== API Client ==================== */
     const api = {
-      async req(path, opts = {}) {
+      async req(path, opts = {}, retryCount = 0) {
         const headers = { 'Content-Type': 'application/json' };
         const tok = localStorage.getItem('access_token');
         if (tok) headers.Authorization = 'Bearer ' + tok;
-        const res = await fetch(API_BASE + path, {
-          ...opts,
-          headers: { ...headers, ...opts.headers },
-          body: opts.body ? (typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body)) : undefined,
-        });
-        const data = await res.json();
-        // code 1000 = success
-        if (data.code === 1000) return data.data;
-        // token expired / unauthorized
-        if (data.code === 1003 || data.code === 1004 || res.status === 401) {
-          await this.refresh();
-          return this.req(path, opts);
+        const method = (opts.method || 'GET').toUpperCase();
+        if (method !== 'GET' && method !== 'HEAD' && !opts.headers?.['X-Idempotency-Key']) {
+          headers['X-Idempotency-Key'] = genIdempotencyKey();
         }
-        throw new Error(data.msg || '请求失败');
+        const fullHeaders = { ...headers, ...opts.headers };
+        const maxRetries = 2;
+
+        try {
+          const res = await fetch(API_BASE + path, {
+            ...opts,
+            headers: fullHeaders,
+            body: opts.body ? (typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body)) : undefined,
+          });
+
+          // 1. 401 鉴权失效（非认证接口）尝试刷新一次 Token
+          if (res.status === 401 && !path.startsWith('/auth/')) {
+            await this.refresh();
+            return this.req(path, { ...opts, headers: fullHeaders }, retryCount);
+          }
+
+          // 2. HTTP 4xx 客户端错误（除 429 限流外）：如 400 参数错误、401 鉴权失败、404 不存在等，重试必败，立即中断抛出异常
+          if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+            let errData = null;
+            try { errData = await res.json(); } catch (_) {}
+            throw new Error(errData?.msg || ('客户端请求错误 HTTP ' + res.status));
+          }
+
+          // 3. HTTP 429 (限流) 或 5xx (服务端错误)：允许指数退避重试
+          if (res.status === 429 || res.status >= 500) {
+            if (retryCount < maxRetries) {
+              await new Promise(r => setTimeout(r, 100 * Math.pow(2, retryCount)));
+              return this.req(path, { ...opts, headers: fullHeaders }, retryCount + 1);
+            }
+            let errData = null;
+            try { errData = await res.json(); } catch (_) {}
+            throw new Error(errData?.msg || ('服务繁忙，请稍后重试 (HTTP ' + res.status + ')'));
+          }
+
+          const data = await res.json();
+
+          // 4. 业务成功
+          if (data.code === 1000) return data.data;
+
+          // 5. 业务级瞬态服务繁忙 (1005)：允许重试
+          if (data.code === 1005 && retryCount < maxRetries) {
+            await new Promise(r => setTimeout(r, 100 * Math.pow(2, retryCount)));
+            return this.req(path, { ...opts, headers: fullHeaders }, retryCount + 1);
+          }
+
+          // 6. 业务状态码 1006 未授权（非认证接口）：尝试刷新一次 Token
+          if (data.code === 1006 && !path.startsWith('/auth/')) {
+            await this.refresh();
+            return this.req(path, { ...opts, headers: fullHeaders }, retryCount);
+          }
+
+          // 7. 具体的业务逻辑报错（如 1001 参数错误, 1002 用户已存在, 1003 用户不存在, 1004 密码错误, 余额不足等）
+          // 重试多少次都会失败，必须立即中断并抛出异常
+          throw new Error(data.msg || '业务处理失败');
+
+        } catch (err) {
+          // 若为底层网络抖动（TypeError: Failed to fetch），在重试配额内重试
+          const isNetworkError = err instanceof TypeError;
+          if (isNetworkError && retryCount < maxRetries) {
+            await new Promise(r => setTimeout(r, 100 * Math.pow(2, retryCount)));
+            return this.req(path, { ...opts, headers: fullHeaders }, retryCount + 1);
+          }
+          throw err;
+        }
       },
       async refresh() {
         const rt = localStorage.getItem('refresh_token');

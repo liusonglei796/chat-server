@@ -39,9 +39,9 @@ func main() {
 		zap.L().Warn("ensure kafka topic error", zap.Error(err))
 	}
 
-	// Redis 位点存储
+	// Redis GTID 位点存储
 	rdb := myredis.NewClient()
-	posStore := cdc.NewRedisPositionStore(rdb)
+	gtidStore := cdc.NewRedisGTIDStore(rdb)
 
 	// Kafka 发布者
 	kafkaProducer, err := kafka.NewProducer(kafka.TopicDomainEvents)
@@ -77,7 +77,7 @@ func main() {
 		Password:          mysqlPassword,
 		ServerID:          1001,
 		IncludeTableRegex: []string{`^chat_.*\.outbox$`},
-		PosStore:          posStore,
+		GTIDStore:         gtidStore,
 		PublishFn:         publishFn,
 	}
 

@@ -3,9 +3,10 @@ package dberr
 import (
 	"errors"
 
-	"kama_chat_server/pkg/errorx"
-
+	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
+
+	"kama_chat_server/pkg/errorx"
 )
 
 // WrapDBError 包装数据库错误
@@ -36,4 +37,16 @@ func WrapDBErrorf(err error, format string, args ...any) error {
 		return errorx.Wrapf(err, errorx.CodeNotFound, format, args...)
 	}
 	return errorx.Wrapf(err, errorx.CodeDBError, format, args...)
+}
+
+// IsDuplicateKey 检查底层错误是否包含 MySQL 唯一键冲突 (Error 1062)
+func IsDuplicateKey(err error) bool {
+	if err == nil {
+		return false
+	}
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+		return true
+	}
+	return false
 }

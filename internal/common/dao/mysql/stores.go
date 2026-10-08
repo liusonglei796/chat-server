@@ -78,13 +78,12 @@ func (r *Stores) GroupMemberStore() store.GroupMemberStore { return r.GroupMembe
 func (r *Stores) OutboxStore() store.OutboxStore { return r.Outbox }
 
 // RecordEvent 在事务内写一条领域事件到 outbox 表
-// 事件类型与载荷由调用方给出，UUID/状态/时间戳在此统一构造
+// 事件类型与载荷由调用方给出，UUID/时间戳在此统一构造
 func (r *Stores) RecordEvent(ctx context.Context, eventType string, payload []byte) error {
 	o := model.Outbox{
 		Uuid:      fmt.Sprintf("O%s", snowflake.GenerateIDString()),
 		EventType: eventType,
 		Payload:   string(payload),
-		Status:    0,
 		CreatedAt: time.Now(),
 	}
 	return r.Outbox.Create(ctx, &o)

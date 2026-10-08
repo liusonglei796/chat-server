@@ -12,4 +12,5 @@ type UpdateGroupInfoRequest struct {
 	Avatar  *string `json:"avatar"`
 	AddMode *int8   `json:"add_mode"`
 	Notice  *string `json:"notice"`
+	Version *int32  `json:"version" binding:"required"` // 乐观锁版本号（必填，严格校验防丢失更新）
 }

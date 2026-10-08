@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"kama_chat_server/internal/common/dao/mysql/dberr"
 	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/dto/request/auth"
 	userreq "kama_chat_server/internal/common/dto/request/user"
@@ -163,6 +164,9 @@ func (u *UserService) Register(ctx context.Context, registerReq auth.RegisterReq
 	}
 
 	if err := u.uow.UserStore().CreateUser(ctx, user); err != nil {
+		if dberr.IsDuplicateKey(err) {
+			return nil, errorx.New(errorx.CodeUserExist, "用户名已被占用")
+		}
 		zap.L().Error("创建用户失败", zap.Error(err))
 		return nil, errorx.ErrServerBusy
 	}

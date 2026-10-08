@@ -26,6 +26,7 @@ type GroupStore interface {
 	GetGroupList(ctx context.Context, page, pageSize int) ([]model.GroupInfo, int64, error)
 	CreateGroup(ctx context.Context, group *model.GroupInfo) error
 	Update(ctx context.Context, group *model.GroupInfo) error
+	UpdateWithVersion(ctx context.Context, uuid string, expectedVersion int32, updates map[string]interface{}) error
 	UpdateStatusByUuids(ctx context.Context, uuids []string, status int8) error
 	IncrementMemberCount(ctx context.Context, uuid string) error
 	DecrementMemberCountBy(ctx context.Context, uuid string, count int) error
@@ -64,7 +65,7 @@ type MessageStore interface {
 	FindBySessionIdCursor(ctx context.Context, sessionId, cursor string, pageSize int) (*model.CursorPageMessageResult, error)
 	FindByUuid(ctx context.Context, uuid string) (*model.Message, error)
 	UpdateStatus(ctx context.Context, uuid string, status int8) error
-	UpdateContent(ctx context.Context, uuid, content string, msgType int8) error
+	UpdateContent(ctx context.Context, uuid, content string, msgType int8) (bool, error)
 	Create(ctx context.Context, message *model.Message) error
 }
 
@@ -73,6 +74,7 @@ type ApplyStore interface {
 	FindByTargetIdPendingPaged(ctx context.Context, targetId string, page, pageSize int) ([]model.Apply, int64, error)
 	CreateApply(ctx context.Context, apply *model.Apply) error
 	Update(ctx context.Context, apply *model.Apply) error
+	UpdateStatusIfPending(ctx context.Context, uuid string, toStatus int8) (bool, error)
 	SoftDelete(ctx context.Context, applicantId, targetId string) error
 	SoftDeleteByUsers(ctx context.Context, userUuids []string) error
 }
@@ -83,7 +85,7 @@ type GroupMemberStore interface {
 	FindByGroupAndUser(ctx context.Context, groupUuid, userUuid string) (*model.GroupMember, error)
 	CreateGroupMember(ctx context.Context, member *model.GroupMember) error
 	DeleteByGroupUuid(ctx context.Context, groupUuid string) error
-	DeleteByUserUuids(ctx context.Context, groupUuid string, userUuids []string) error
+	DeleteByUserUuids(ctx context.Context, groupUuid string, userUuids []string) (int64, error)
 	DeleteByGroupUuids(ctx context.Context, groupUuids []string) error
 	GetMemberIdsByGroupUuids(ctx context.Context, groupUuids []string) ([]string, error)
 	FindGroupUuidsByUserPaged(ctx context.Context, userUuid string, page, pageSize int) ([]string, int64, error)

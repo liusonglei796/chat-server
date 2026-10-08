@@ -15,6 +15,7 @@ import (
 	"kama_chat_server/internal/common/model"
 	"kama_chat_server/pkg/constants"
 	msgtype "kama_chat_server/pkg/enum/message/message_type"
+	"kama_chat_server/pkg/errorx"
 )
 
 type mockMsgStore struct {
@@ -22,6 +23,7 @@ type mockMsgStore struct {
 	createdMsg     []*model.Message
 	querySessionId string
 	dbMessages     []model.Message
+	failCreate     bool
 }
 
 func (m *mockMsgStore) FindByUserIdsPaged(ctx context.Context, userOneId, userTwoId string, page, pageSize int) ([]model.Message, int64, error) {
@@ -52,12 +54,15 @@ func (m *mockMsgStore) FindByUuid(ctx context.Context, uuid string) (*model.Mess
 func (m *mockMsgStore) UpdateStatus(ctx context.Context, uuid string, status int8) error {
 	return nil
 }
-func (m *mockMsgStore) UpdateContent(ctx context.Context, uuid, content string, msgType int8) error {
-	return nil
+func (m *mockMsgStore) UpdateContent(ctx context.Context, uuid, content string, msgType int8) (bool, error) {
+	return true, nil
 }
 func (m *mockMsgStore) Create(ctx context.Context, message *model.Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failCreate {
+		return errors.New("db create error")
+	}
 	m.createdMsg = append(m.createdMsg, message)
 	return nil
 }
@@ -120,9 +125,17 @@ func newMockCache() *mockCache {
 	}
 }
 func (c *mockCache) Set(ctx context.Context, key string, value string, ttl time.Duration) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.setnx[key] = value
 	return nil
 }
 func (c *mockCache) Get(ctx context.Context, key string) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if val, ok := c.setnx[key]; ok {
+		return val, nil
+	}
 	return "", nil
 }
 func (c *mockCache) GetOrError(ctx context.Context, key string) (string, error) {
@@ -132,6 +145,9 @@ func (c *mockCache) GetByPrefix(ctx context.Context, prefix string) (string, err
 	return "", nil
 }
 func (c *mockCache) Delete(ctx context.Context, key string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.setnx, key)
 	return nil
 }
 func (c *mockCache) DeleteByPattern(ctx context.Context, patterns ...string) error {
@@ -243,14 +259,58 @@ func TestSendMessage_EmptyReceiver(t *testing.T) {
 	svc := NewMessageService(msgStore, sessStore, cache)
 
 	req := messagereq.ChatMessageRequest{
-		SendId:    "U1001",
-		ReceiveId: "",
-		Content:   "hello",
-		Type:      int8(msgtype.Text),
+		ClientMsgId: "msg-fail-empty-rcv",
+		SendId:      "U1001",
+		ReceiveId:   "",
+		Content:     "hello",
+		Type:        int8(msgtype.Text),
 	}
 	_, err := svc.SendMessage(context.Background(), req)
 	if err == nil {
 		t.Fatal("expected error for empty receiveId, got nil")
+	}
+	// 验证失败时 dedup key 已被删除，允许客户端重试
+	if _, exists := cache.setnx["msg:dedup:msg-fail-empty-rcv"]; exists {
+		t.Fatal("expected dedup key to be deleted on validation failure, but it still exists")
+	}
+}
+
+func TestSendMessage_DbCreateFailDeletesDedupKey(t *testing.T) {
+	msgStore := &mockMsgStore{failCreate: true}
+	sessStore := &mockSessStore{}
+	cache := newMockCache()
+	svc := NewMessageService(msgStore, sessStore, cache)
+
+	req := messagereq.ChatMessageRequest{
+		ClientMsgId: "msg-fail-db",
+		SendId:      "U1001",
+		ReceiveId:   "U1002",
+		Content:     "hello db fail",
+		Type:        int8(msgtype.Text),
+	}
+
+	// 第一次调用：数据库写入失败
+	_, err := svc.SendMessage(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error on db create failure, got nil")
+	}
+
+	// 验证失败时 dedup key 已被释放
+	if _, exists := cache.setnx["msg:dedup:msg-fail-db"]; exists {
+		t.Fatal("expected dedup key to be deleted on db create failure, but it still exists")
+	}
+
+	// 数据库恢复正常后重试
+	msgStore.failCreate = false
+	rsp, err := svc.SendMessage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error on retry: %v", err)
+	}
+	if rsp.MessageUuid == "" {
+		t.Fatal("expected valid message uuid on retry, got empty")
+	}
+	if len(msgStore.createdMsg) != 1 {
+		t.Fatalf("expected 1 message created on retry, got %d", len(msgStore.createdMsg))
 	}
 }
 
@@ -280,6 +340,84 @@ func TestSendMessage_Idempotent(t *testing.T) {
 	}
 	if len(msgStore.createdMsg) != 0 {
 		t.Fatalf("expected 0 messages created on duplicate, got %d", len(msgStore.createdMsg))
+	}
+}
+
+func TestSendMessage_InProgress_ReturnsTooManyRequests(t *testing.T) {
+	msgStore := &mockMsgStore{}
+	sessStore := &mockSessStore{}
+	cache := newMockCache()
+	svc := NewMessageService(msgStore, sessStore, cache)
+
+	// 模拟前序请求正在处理中
+	cache.setnx["msg:dedup:client-msg-in-prog"] = msgDedupInProgress
+
+	req := messagereq.ChatMessageRequest{
+		ClientMsgId: "client-msg-in-prog",
+		SendId:      "U1001",
+		ReceiveId:   "U1002",
+		Content:     "concurrent message",
+		Type:        int8(msgtype.Text),
+	}
+
+	_, err := svc.SendMessage(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error on IN_PROGRESS request, got nil")
+	}
+	var codeErr *errorx.CodeError
+	if !errors.As(err, &codeErr) || codeErr.Code != errorx.CodeTooManyRequests {
+		t.Fatalf("expected CodeTooManyRequests, got %v", err)
+	}
+}
+
+func TestSendMessage_SuccessReplayAndCachedResponse(t *testing.T) {
+	msgStore := &mockMsgStore{}
+	sessStore := &mockSessStore{}
+	cache := newMockCache()
+	svc := NewMessageService(msgStore, sessStore, cache)
+
+	clientMsgId := "client-msg-replay-1"
+	req := messagereq.ChatMessageRequest{
+		ClientMsgId: clientMsgId,
+		SendId:      "U1001",
+		ReceiveId:   "U1002",
+		Content:     "hello replay",
+		Type:        int8(msgtype.Text),
+	}
+
+	// 第一次发送：正常落库并缓存真实响应
+	rsp1, err := svc.SendMessage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error on first send: %v", err)
+	}
+	if rsp1.MessageUuid == "" {
+		t.Fatal("expected non-empty message uuid")
+	}
+	if len(msgStore.createdMsg) != 1 {
+		t.Fatalf("expected 1 created message, got %d", len(msgStore.createdMsg))
+	}
+
+	// 检查缓存中存储的是真实落库的 JSON，而不是 "IN_PROGRESS"
+	key := "msg:dedup:" + clientMsgId
+	val, ok := cache.setnx[key]
+	if !ok || val == msgDedupInProgress {
+		t.Fatalf("expected valid cached JSON response, got: %s", val)
+	}
+
+	// 第二次发送：带着相同的 clientMsgId 重试，命中成功回放
+	rsp2, err := svc.SendMessage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error on replay send: %v", err)
+	}
+	if rsp2.MessageUuid != rsp1.MessageUuid {
+		t.Fatalf("expected replayed message uuid %s, got %s", rsp1.MessageUuid, rsp2.MessageUuid)
+	}
+	if rsp2.CreatedAt != rsp1.CreatedAt {
+		t.Fatalf("expected replayed created_at %s, got %s", rsp1.CreatedAt, rsp2.CreatedAt)
+	}
+	// 验证未重复落库
+	if len(msgStore.createdMsg) != 1 {
+		t.Fatalf("expected still 1 created message on replay, got %d", len(msgStore.createdMsg))
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	grouprsp "kama_chat_server/internal/common/dto/respond/group"
 	sessionreq "kama_chat_server/internal/common/dto/request/session"
 	sessionrsp "kama_chat_server/internal/common/dto/respond/session"
+	"kama_chat_server/internal/common/dao/mysql/dberr"
 	userrsp "kama_chat_server/internal/common/dto/respond/user"
 	"kama_chat_server/internal/common/grpc_client"
 	cacheutil "kama_chat_server/internal/common/infrastructure/cache"
@@ -153,6 +154,11 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 
 	// 5. 创建会话
 	if err = s.sessionStore.CreateSession(ctx, &session); err != nil {
+		if dberr.IsDuplicateKey(err) {
+			if existing, queryErr := s.sessionStore.FindBySendIdAndReceiveId(ctx, sendId, receiveId); queryErr == nil && existing != nil {
+				return existing.Uuid, nil
+			}
+		}
 		zap.L().Error("创建会话失败",
 			zap.String("send_id", sendId),
 			zap.String("receive_id", receiveId),
@@ -577,6 +583,11 @@ func (s *SessionService) CreateGroupSession(ctx context.Context, groupId, userId
 		ReceiveId: groupId,
 	}
 	if err := s.sessionStore.CreateSession(ctx, &sess); err != nil {
+		if dberr.IsDuplicateKey(err) {
+			if existing, qErr := s.sessionStore.FindBySendIdAndReceiveId(ctx, userId, groupId); qErr == nil && existing != nil {
+				return existing.Uuid, nil
+			}
+		}
 		return "", err
 	}
 	return sess.Uuid, nil

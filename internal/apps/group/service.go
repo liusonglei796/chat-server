@@ -191,6 +191,7 @@ func (g *GroupService) CheckGroupAddMode(ctx context.Context, groupId string) (i
 				Status:    group.Status,
 				Avatar:    group.Avatar,
 				IsDeleted: group.DeletedAt.Valid,
+				Version:   group.Version,
 			}, nil
 		},
 		cacheutil.RandomizedTTL(24*time.Hour), // 数据 TTL (带抖动防雪崩)
@@ -223,22 +224,26 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 	}
 
 	err = store.WithTx(g.uow, func(tx groupUoW) error {
-		if err := tx.GroupMemberStore().DeleteByUserUuids(ctx, groupId, []string{userId}); err != nil {
+		deletedCount, err := tx.GroupMemberStore().DeleteByUserUuids(ctx, groupId, []string{userId})
+		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		if err := tx.GroupStore().DecrementMemberCountBy(ctx, groupId, 1); err != nil {
-			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
+		if deletedCount > 0 {
+			if err := tx.GroupStore().DecrementMemberCountBy(ctx, groupId, int(deletedCount)); err != nil {
+				zap.L().Error("service error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
 
-		// 写入 outbox 表 (group_member_left 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
-		payload, _ := json.Marshal(event.GroupMemberLeftEvent{
-			GroupId: groupId,
-			UserId:  userId,
-		})
-		return tx.RecordEvent(ctx, event.EventGroupMemberLeft, payload)
+			// 写入 outbox 表 (group_member_left 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
+			payload, _ := json.Marshal(event.GroupMemberLeftEvent{
+				GroupId: groupId,
+				UserId:  userId,
+			})
+			return tx.RecordEvent(ctx, event.EventGroupMemberLeft, payload)
+		}
+		return nil
 	})
 
 	if err != nil {
@@ -333,29 +338,35 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 		return errorx.New(errorx.CodeForbidden, "你没有修改权限")
 	}
 
-	group, err := g.uow.GroupStore().FindByUuid(ctx, req.Uuid)
-	if err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
+	if req.Version == nil {
+		return errorx.New(errorx.CodeInvalidParam, "缺少版本号")
 	}
 
-	// 使用指针类型区分"未传字段"(nil=不更新)和"清空字段"(""=置空)
+	// 仅收集非空字段进行局部增量更新，防止未传字段覆盖或并发字段互相覆盖
+	updates := make(map[string]interface{})
 	if req.Name != nil {
-		group.Name = *req.Name
+		updates["name"] = *req.Name
 	}
 	if req.AddMode != nil {
-		group.AddMode = *req.AddMode
+		updates["add_mode"] = *req.AddMode
 	}
 	if req.Notice != nil {
-		group.Notice = *req.Notice
+		updates["notice"] = *req.Notice
 	}
 	if req.Avatar != nil {
-		group.Avatar = *req.Avatar
+		updates["avatar"] = *req.Avatar
+	}
+
+	if len(updates) == 0 {
+		return nil
 	}
 
 	if err := store.WithTx(g.uow, func(tx groupUoW) error {
-		return tx.GroupStore().Update(ctx, group)
+		return tx.GroupStore().UpdateWithVersion(ctx, req.Uuid, *req.Version, updates)
 	}); err != nil {
+		if errorx.IsCode(err, errorx.CodeConflict) {
+			return err
+		}
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
@@ -493,25 +504,29 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 
 	// 3. 本地事务执行原子操作 (Transactional Outbox 模式)
 	err = store.WithTx(g.uow, func(tx groupUoW) error {
-		// 3.1 批量删除群成员关系记录
-		if err := tx.GroupMemberStore().DeleteByUserUuids(ctx, req.GroupId, req.UuidList); err != nil {
+		// 3.1 批量删除群成员关系记录，获取实际删除行数
+		deletedCount, err := tx.GroupMemberStore().DeleteByUserUuids(ctx, req.GroupId, req.UuidList)
+		if err != nil {
 			zap.L().Error("Delete group members error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
-		// 3.2 批量扣减群元数据中的成员总数
-		if err := tx.GroupStore().DecrementMemberCountBy(ctx, req.GroupId, len(req.UuidList)); err != nil {
-			zap.L().Error("Decrement member count error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
+		// 3.2 只有实际成功删除了成员，才扣减群总人数并派发事件（严格防重复扣减）
+		if deletedCount > 0 {
+			if err := tx.GroupStore().DecrementMemberCountBy(ctx, req.GroupId, int(deletedCount)); err != nil {
+				zap.L().Error("Decrement member count error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
 
-		// 3.3 写入 outbox 表 (group_member_removed 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
-		payload, _ := json.Marshal(event.GroupMemberRemovedEvent{
-			GroupId:     req.GroupId,
-			OperatorId:  operatorId,
-			MemberUuids: req.UuidList,
-		})
-		return tx.RecordEvent(ctx, event.EventGroupMemberRemoved, payload)
+			// 3.3 写入 outbox 表 (group_member_removed 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
+			payload, _ := json.Marshal(event.GroupMemberRemovedEvent{
+				GroupId:     req.GroupId,
+				OperatorId:  operatorId,
+				MemberUuids: req.UuidList,
+			})
+			return tx.RecordEvent(ctx, event.EventGroupMemberRemoved, payload)
+		}
+		return nil
 	})
 
 	if err != nil {
@@ -581,6 +596,7 @@ func (g *GroupService) GetGroupDetail(ctx context.Context, userId, groupId strin
 				AddMode:   grp.AddMode,
 				Status:    grp.Status,
 				IsDeleted: grp.DeletedAt.Valid,
+				Version:   grp.Version,
 			}, nil
 		},
 		cacheutil.RandomizedTTL(time.Hour),

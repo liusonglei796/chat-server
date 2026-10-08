@@ -16,15 +16,15 @@ type SyncerConfig struct {
 	Password          string        // 密码
 	ServerID          uint32        // 唯一 slave server id (不能与主库 server-id 冲突)
 	IncludeTableRegex []string      // 监听表正则表达式，如 []string{"^chat_.*\\.outbox$"}
-	PosStore          PositionStore // 位点持久化存储
+	GTIDStore         GTIDStore     // GTID 持久化存储
 	PublishFn         PublishFunc   // Kafka 投递函数
 }
 
 // CDCSyncer 封装基于 go-mysql/canal 的增量 Binlog 同步器
 type CDCSyncer struct {
-	canal    *canal.Canal
-	posStore PositionStore
-	handler  *OutboxEventHandler
+	canal     *canal.Canal
+	gtidStore GTIDStore
+	handler   *OutboxEventHandler
 }
 
 // NewCDCSyncer 创建 CDCSyncer 实例
@@ -55,53 +55,51 @@ func NewCDCSyncer(cfg SyncerConfig) (*CDCSyncer, error) {
 		return nil, fmt.Errorf("failed to initialize canal: %w", err)
 	}
 
-	handler := NewOutboxEventHandler(cfg.PosStore, cfg.PublishFn)
+	handler := NewOutboxEventHandler(cfg.GTIDStore, cfg.PublishFn)
 	c.SetEventHandler(handler)
 
 	return &CDCSyncer{
-		canal:    c,
-		posStore: cfg.PosStore,
-		handler:  handler,
+		canal:     c,
+		gtidStore: cfg.GTIDStore,
+		handler:   handler,
 	}, nil
 }
 
 // Start 启动 CDC 监听流
 func (s *CDCSyncer) Start(ctx context.Context) error {
-	var startPos mysql.Position
+	var startGTID mysql.GTIDSet
 
-	if s.posStore != nil {
-		pos, err := s.posStore.Get(ctx)
+	if s.gtidStore != nil {
+		set, err := s.gtidStore.Get(ctx)
 		if err != nil {
-			zap.L().Warn("failed to get binlog position from store, falling back to master pos", zap.Error(err))
+			zap.L().Warn("failed to get gtid from store, falling back to master gtid", zap.Error(err))
 		} else {
-			startPos = pos
+			startGTID = set
 		}
 	}
 
-	// 若未找到持久化位点，则从当前主库最新位点开始监听（避免回溯启动前产生的大量旧日志）
-	if startPos.Name == "" || startPos.Pos == 0 {
-		masterPos, err := s.canal.GetMasterPos()
+	// 若未找到持久化位点，则从当前主库最新 GTID 集合开始监听（避免回溯启动前产生的大量旧日志）
+	if startGTID == nil || startGTID.IsEmpty() {
+		masterGTID, err := s.canal.GetMasterGTIDSet()
 		if err != nil {
-			return fmt.Errorf("failed to fetch current master binlog position: %w", err)
+			return fmt.Errorf("failed to fetch current master GTID set: %w", err)
 		}
-		startPos = masterPos
-		zap.L().Info("starting CDC syncer from current master position",
-			zap.String("file", startPos.Name),
-			zap.Uint32("pos", startPos.Pos),
+		startGTID = masterGTID
+		zap.L().Info("starting CDC syncer from current master GTID set",
+			zap.String("gtid", startGTID.String()),
 		)
-		if s.posStore != nil {
-			_ = s.posStore.Save(ctx, startPos)
+		if s.gtidStore != nil {
+			_ = s.gtidStore.Save(ctx, startGTID)
 		}
 	} else {
-		zap.L().Info("resuming CDC syncer from saved position",
-			zap.String("file", startPos.Name),
-			zap.Uint32("pos", startPos.Pos),
+		zap.L().Info("resuming CDC syncer from saved GTID set",
+			zap.String("gtid", startGTID.String()),
 		)
 	}
 
 	errChan := make(chan error, 1)
 	go func() {
-		if err := s.canal.RunFrom(startPos); err != nil {
+		if err := s.canal.StartFromGTID(startGTID); err != nil {
 			errChan <- err
 		}
 	}()

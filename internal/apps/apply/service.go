@@ -3,6 +3,7 @@ package apply
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"kama_chat_server/internal/common/dto/event"
 	applyreq "kama_chat_server/internal/common/dto/request/apply"
 	applyrsp "kama_chat_server/internal/common/dto/respond/apply"
+	"kama_chat_server/internal/common/dao/mysql/dberr"
 	"kama_chat_server/internal/common/grpc_client"
 	cacheutil "kama_chat_server/internal/common/infrastructure/cache"
 	"kama_chat_server/internal/common/infrastructure/snowflake"
@@ -116,6 +118,18 @@ func (u *ApplyService) ApplyFriend(ctx context.Context, userId string, req apply
 			}
 			// 保存新的申请记录到数据库
 			if err := u.uow.ApplyStore().CreateApply(ctx, apply); err != nil {
+				if dberr.IsDuplicateKey(err) {
+					// 并发时被其他请求抢先插入，优雅转为更新已有记录
+					if existing, getErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, userId, req.FriendId); getErr == nil {
+						if existing.Status == apply_status.BLACK {
+							return errorx.New(errorx.CodeInvalidParam, "对方已将你拉黑，无法发送申请")
+						}
+						existing.LastApplyAt = time.Now()
+						existing.Status = apply_status.PENDING
+						existing.Message = req.Message
+						return u.uow.ApplyStore().Update(ctx, existing)
+					}
+				}
 				// 如果保存失败，记录日志并返回服务器繁忙错误
 				zap.L().Error("Create friend apply error", zap.Error(err))
 				return errorx.ErrServerBusy
@@ -250,6 +264,15 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req applyr
 		}
 		// 保存新申请
 		if err := u.uow.ApplyStore().CreateApply(ctx, apply); err != nil {
+			if dberr.IsDuplicateKey(err) {
+				// 并发时被其他请求抢先插入，优雅转为更新已有记录
+				if existing, getErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, userId, req.GroupId); getErr == nil {
+					existing.LastApplyAt = time.Now()
+					existing.Status = apply_status.PENDING
+					existing.Message = req.Message
+					return u.uow.ApplyStore().Update(ctx, existing)
+				}
+			}
 			zap.L().Error("Create group apply error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -478,12 +501,14 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 	// 本地事务更新申请状态为 AGREE，同时写入 outbox 表 (friend_apply_passed)
 	// 由 Canal CDC 监听到 INSERT 后推入 Kafka，下游 friendship_service 异步建立双向好友并推送信令
 	err = store.WithTx(u.uow, func(tx applyUoW) error {
-		// 4. 更新申请状态
-		// 将申请状态更新为已同意（AGREE）
-		apply.Status = apply_status.AGREE
-		if err := tx.ApplyStore().Update(ctx, apply); err != nil {
+		// 4. 更新申请状态（原子跃迁锁：仅当为 PENDING 时更新为 AGREE）
+		ok, err := tx.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.AGREE)
+		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
+		}
+		if !ok {
+			return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 		}
 
 		payload, _ := json.Marshal(event.FriendApplyPassedEvent{
@@ -494,6 +519,10 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 	})
 
 	if err != nil {
+		var codeErr *errorx.CodeError
+		if errors.As(err, &codeErr) {
+			return err
+		}
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
@@ -538,12 +567,14 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 	// 3. 开启事务
 	// 保证入群操作（更新申请、添加成员、增加计数、添加联系）的原子性
 	err = store.WithTx(u.uow, func(tx applyUoW) error {
-		// 3.2 更新申请状态为 AGREED
-		apply.Status = apply_status.AGREE
-
-		if err := tx.ApplyStore().Update(ctx, apply); err != nil {
+		// 3.2 更新申请状态为 AGREE（原子跃迁锁：仅当为 PENDING 时更新为 AGREE）
+		ok, err := tx.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.AGREE)
+		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
+		}
+		if !ok {
+			return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 		}
 
 		payload, _ := json.Marshal(event.GroupApplyPassedEvent{
@@ -554,6 +585,10 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 	})
 
 	if err != nil {
+		var codeErr *errorx.CodeError
+		if errors.As(err, &codeErr) {
+			return err
+		}
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
@@ -581,11 +616,14 @@ func (u *ApplyService) RefuseFriendApply(ctx context.Context, userId string, app
 	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
-	// 2. 更新状态为 REFUSE
-	apply.Status = apply_status.REFUSE
-	if err := u.uow.ApplyStore().Update(ctx, apply); err != nil {
+	// 2. 更新状态为 REFUSE（原子跃迁锁：仅当为 PENDING 时更新）
+	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.REFUSE)
+	if err != nil {
 		zap.L().Error("Update friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
+	}
+	if !ok {
+		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 	return nil
 }
@@ -614,11 +652,14 @@ func (u *ApplyService) RefuseGroupApply(ctx context.Context, operatorId, groupId
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	// 3. 更新状态为 REFUSE
-	apply.Status = apply_status.REFUSE
-	if err := u.uow.ApplyStore().Update(ctx, apply); err != nil {
+	// 3. 更新状态为 REFUSE（原子跃迁锁：仅当为 PENDING 时更新）
+	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.REFUSE)
+	if err != nil {
 		zap.L().Error("Update group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
+	}
+	if !ok {
+		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 	return nil
 }
@@ -642,12 +683,15 @@ func (u *ApplyService) BlackFriendApply(ctx context.Context, userId string, appl
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	// 2. 更新状态为 BLACK
+	// 2. 更新状态为 BLACK（原子跃迁锁：仅当为 PENDING 时更新）
 	// 拉黑后，对方将无法再次发送申请（ApplyFriend会在检查黑名单时拦截）
-	apply.Status = apply_status.BLACK
-	if err := u.uow.ApplyStore().Update(ctx, apply); err != nil {
+	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.BLACK)
+	if err != nil {
 		zap.L().Error("Update friend apply status error", zap.Error(err))
 		return errorx.ErrServerBusy
+	}
+	if !ok {
+		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 	return nil
 }
@@ -686,12 +730,15 @@ func (u *ApplyService) BlackGroupApply(ctx context.Context, operatorId, groupId,
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	// 3. 更新状态为 BLACK
+	// 3. 更新状态为 BLACK（原子跃迁锁：仅当为 PENDING 时更新）
 	// 拉黑后，对方将无法再次申请入群
-	apply.Status = apply_status.BLACK
-	if err := u.uow.ApplyStore().Update(ctx, apply); err != nil {
+	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.BLACK)
+	if err != nil {
 		zap.L().Error("Update group apply status error", zap.Error(err))
 		return errorx.ErrServerBusy
+	}
+	if !ok {
+		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 	return nil
 }

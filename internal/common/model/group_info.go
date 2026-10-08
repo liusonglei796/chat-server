@@ -40,6 +40,9 @@ type GroupInfo struct {
 	// Status 群状态
 	// 0=正常, 1=禁用（管理员操作）, 2=解散
 	Status int8 `gorm:"column:status;default:0;comment:状态，0.正常，1.禁用，2.解散"`
+
+	// Version 乐观锁版本号
+	Version int32 `gorm:"column:version;default:0;not null;comment:乐观锁版本号"`
 }
 
 // TableName 指定表名

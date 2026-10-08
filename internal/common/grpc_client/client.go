@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/retry"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/resolver"
 
@@ -42,11 +46,32 @@ func Init(etcdEndpoints []string) {
 		}
 		resolver.Register(r)
 
+		retryOpts := []retry.CallOption{
+			retry.WithMax(3),
+			retry.WithPerRetryTimeout(2 * time.Second), // 单次调用超时上限，严格受父 context deadline 约束
+			retry.WithBackoff(retry.BackoffExponentialWithJitter(50*time.Millisecond, 0.1)),
+			retry.WithCodes(codes.Unavailable, codes.ResourceExhausted), // 仅临时错误重试
+			retry.WithOnRetryCallback(func(ctx context.Context, attempt uint, err error) {
+				zap.L().Warn("gRPC 客户端临时错误自动重试",
+					zap.Uint("attempt", attempt),
+					zap.Error(err),
+				)
+			}),
+		}
+
 		opts := []grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithResolvers(r),
-			// 先注入用户身份，再注入 trace context（顺序：auth → trace）
+			// 拦截器顺序：
+			// 1. CircuitBreakerInterceptor（方法级熔断器：某接口熔断直接快速失败，不再发起重试和网络调用）
+			// 2. retry 拦截器（多次重试共享同一个父 context deadline）
+			// 3. RetryBudgetInterceptor（每次调用/重试前评估 context 剩余时间预算，不足直接中止）
+			// 4. ClientAuthInterceptor（传递同一个业务幂等键 x-idempotency-key 与用户身份）
+			// 5. ClientTraceInterceptor（链路追踪）
 			grpc.WithChainUnaryInterceptor(
+				interceptor.CircuitBreakerInterceptor(),
+				retry.UnaryClientInterceptor(retryOpts...),
+				interceptor.RetryBudgetInterceptor(100*time.Millisecond),
 				interceptor.ClientAuthInterceptor(),
 				otelinit.ClientTraceInterceptor(),
 			),
@@ -241,9 +266,19 @@ func GetGatewayClient(addr string) (gatewaypb.GatewayServiceClient, error) {
 		return val.(gatewaypb.GatewayServiceClient), nil
 	}
 
+	retryOpts := []retry.CallOption{
+		retry.WithMax(2),
+		retry.WithPerRetryTimeout(2 * time.Second),
+		retry.WithBackoff(retry.BackoffExponentialWithJitter(50*time.Millisecond, 0.1)),
+		retry.WithCodes(codes.Unavailable, codes.ResourceExhausted),
+	}
+
 	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithChainUnaryInterceptor(
+			interceptor.CircuitBreakerInterceptor(),
+			retry.UnaryClientInterceptor(retryOpts...),
+			interceptor.RetryBudgetInterceptor(100*time.Millisecond),
 			interceptor.ClientAuthInterceptor(),
 			otelinit.ClientTraceInterceptor(),
 		),

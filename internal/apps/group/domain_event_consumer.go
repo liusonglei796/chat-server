@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"kama_chat_server/internal/common/dao/mysql/dberr"
 	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/dto/event"
 	kafkainfra "kama_chat_server/internal/common/infrastructure/kafka"
@@ -50,6 +51,11 @@ func (c *DomainEventConsumer) Start() {
 			eventType := outbox.ExtractEventType(msg.Headers)
 			if err := c.handleEvent(context.Background(), eventType, msg.Value); err != nil {
 				zap.L().Error("handle domain event error", zap.String("type", eventType), zap.Error(err))
+				continue // 下游处理失败，不提交位点，等待重试
+			}
+			// 下游存储写入成功后，后置手动同步提交位点 (commitSync)
+			if err := c.reader.CommitRecord(context.Background(), msg); err != nil {
+				zap.L().Error("commit kafka offset error", zap.String("type", eventType), zap.Error(err))
 			}
 		}
 	}()
@@ -80,6 +86,10 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 			Role:      1,
 		}
 		if err := tx.GroupMemberStore().CreateGroupMember(ctx, &newMember); err != nil {
+			if dberr.IsDuplicateKey(err) {
+				// 该成员已存在（重复事件），直接返回 nil，不重复递增人数与发事件
+				return nil
+			}
 			return err
 		}
 		if err := tx.GroupStore().IncrementMemberCount(ctx, e.GroupId); err != nil {
@@ -100,6 +110,10 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 		return tx.RecordEvent(ctx, event.EventGroupJoined, joinedPayload)
 	})
 	if err != nil {
+		if dberr.IsDuplicateKey(err) {
+			zap.L().Info("群成员已加入，幂等处理成功", zap.String("groupId", e.GroupId), zap.String("userId", e.UserId))
+			return nil
+		}
 		return err
 	}
 

@@ -14,6 +14,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // sessionStore SessionStore 接口的实现
@@ -184,8 +185,12 @@ func (r *sessionStore) FindBySendIdAndTypeCursor(ctx context.Context, sendId str
 }
 
 // CreateSession 创建会话
+// 使用 OnConflict 当 (send_id, receive_id) 唯一键冲突时静默忽略，保证并发创建幂等
 func (r *sessionStore) CreateSession(ctx context.Context, session *model.Session) error {
-	if err := r.db.WithContext(ctx).Create(session).Error; err != nil {
+	if err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "send_id"}, {Name: "receive_id"}},
+		DoNothing: true,
+	}).Create(session).Error; err != nil {
 		return dberr.WrapDBError(err, "创建会话")
 	}
 	return nil
@@ -247,6 +252,7 @@ func (r *sessionStore) UpdateByReceiveId(ctx context.Context, receiveId string, 
 
 // UpdateLastMessage 更新会话的最后一条消息信息
 // 用于发送消息后同步更新会话列表显示的最新消息
+// 采用时序乐观锁比对：仅当 last_message_at 为 NULL 或 msgTime >= 当前 last_message_at 时才更新，防止乱序与网络重试导致的旧消息覆盖新消息
 func (r *sessionStore) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time) error {
 	updates := map[string]interface{}{
 		"last_message":      content,
@@ -254,7 +260,7 @@ func (r *sessionStore) UpdateLastMessage(ctx context.Context, sendId, receiveId,
 		"last_message_type": msgType,
 	}
 	if err := r.db.WithContext(ctx).Model(&model.Session{}).
-		Where("send_id = ? AND receive_id = ?", sendId, receiveId).
+		Where("send_id = ? AND receive_id = ? AND (last_message_at IS NULL OR last_message_at <= ?)", sendId, receiveId, msgTime).
 		Updates(updates).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "更新会话最后消息 send_id=%s receive_id=%s", sendId, receiveId)
 	}

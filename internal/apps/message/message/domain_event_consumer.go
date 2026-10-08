@@ -47,6 +47,11 @@ func (c *DomainEventConsumer) Start() {
 			eventType := outbox.ExtractEventType(msg.Headers)
 			if err := c.handler.Handle(context.Background(), eventType, msg.Value); err != nil {
 				zap.L().Error("handle domain event error", zap.String("type", eventType), zap.Error(err))
+				continue // 下游处理失败，不提交位点，等待重试
+			}
+			// 下游存储写入成功后，后置手动同步提交位点 (commitSync)
+			if err := c.reader.CommitRecord(context.Background(), msg); err != nil {
+				zap.L().Error("commit kafka offset error", zap.String("type", eventType), zap.Error(err))
 			}
 		}
 	}()

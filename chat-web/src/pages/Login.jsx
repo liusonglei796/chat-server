@@ -19,18 +19,22 @@ function Login() {
     }
 
     setLoading(true);
-    const res = await request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ username, password })
-    });
-    setLoading(false);
-
-    if (res && res.code === 1000) {
-      localStorage.setItem('token', res.data.access_token);
-      localStorage.setItem('user_info', JSON.stringify({ uuid: res.data.uuid }));
-      navigate('/chat');
-    } else {
-      setError(res?.msg || '登录失败，请检查用户名和密码');
+    try {
+      const res = await request('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username, password })
+      });
+      if (res && res.code === 1000) {
+        localStorage.setItem('token', res.data.access_token);
+        localStorage.setItem('user_info', JSON.stringify({ uuid: res.data.uuid }));
+        navigate('/chat');
+      } else {
+        setError(res?.msg || '登录失败，请检查用户名和密码');
+      }
+    } catch (err) {
+      setError(err.message || '登录失败，请检查用户名和密码');
+    } finally {
+      setLoading(false);
     }
   };
 

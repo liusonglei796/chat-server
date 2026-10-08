@@ -90,6 +90,7 @@ const (
 	CodeDBError         = 1010 // 数据库错误
 	CodeCacheError      = 1011 // 缓存错误
 	CodeTooManyRequests = 1012 // 请求过于频繁（限流）
+	CodeConflict        = 1013 // 资源冲突/并发冲突（乐观锁失败）
 )
 
 // 预定义常用错误实例
@@ -97,7 +98,13 @@ const (
 var (
 	ErrInvalidParam = New(CodeInvalidParam, "请求参数错误")
 	ErrServerBusy   = New(CodeServerBusy, "服务繁忙")
+	ErrConflict     = New(CodeConflict, "数据已被其他用户修改，请刷新后重试")
 )
+
+// IsCode 检查错误是否包含指定的业务错误码
+func IsCode(err error, code int) bool {
+	return GetCode(err) == code
+}
 
 // IsNotFound 检查错误是否为"未找到"类型（包括 gorm.ErrRecordNotFound）
 func IsNotFound(err error) bool {
