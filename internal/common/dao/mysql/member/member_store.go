@@ -89,20 +89,20 @@ func (r *groupMemberStore) CreateGroupMember(ctx context.Context, member *model.
 }
 
 // DeleteByGroupUuid 删除群组的所有成员
-// 用于解散群组时清理成员数据
+// 用于解散群组时清理成员数据（物理删除，释放唯一索引槽位）
 func (r *groupMemberStore) DeleteByGroupUuid(ctx context.Context, groupUuid string) error {
-	if err := r.db.WithContext(ctx).Where("group_uuid = ?", groupUuid).Delete(&model.GroupMember{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Unscoped().Where("group_uuid = ?", groupUuid).Delete(&model.GroupMember{}).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "删除群所有成员 group_uuid=%s", groupUuid)
 	}
 	return nil
 }
 
-// DeleteByUserUuids 批量删除指定用户（踢人），返回实际删除的记录数
+// DeleteByUserUuids 批量删除指定用户（踢人/退群），返回实际删除的记录数（物理删除，释放唯一索引槽位避免再次加群冲突）
 func (r *groupMemberStore) DeleteByUserUuids(ctx context.Context, groupUuid string, userUuids []string) (int64, error) {
 	if len(userUuids) == 0 {
 		return 0, nil
 	}
-	res := r.db.WithContext(ctx).Where("group_uuid = ? AND user_uuid IN ?", groupUuid, userUuids).Delete(&model.GroupMember{})
+	res := r.db.WithContext(ctx).Unscoped().Where("group_uuid = ? AND user_uuid IN ?", groupUuid, userUuids).Delete(&model.GroupMember{})
 	if err := res.Error; err != nil {
 		return 0, dberr.WrapDBErrorf(err, "批量删除群成员 group_uuid=%s", groupUuid)
 	}
@@ -115,7 +115,7 @@ func (r *groupMemberStore) DeleteByGroupUuids(ctx context.Context, groupUuids []
 	if len(groupUuids) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Where("group_uuid IN ?", groupUuids).Delete(&model.GroupMember{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Unscoped().Where("group_uuid IN ?", groupUuids).Delete(&model.GroupMember{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除群所有成员")
 	}
 	return nil

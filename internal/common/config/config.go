@@ -151,8 +151,16 @@ func LoadConfig() (*Config, error) {
 
 // overlayEnvVars 使用环境变量覆盖配置
 func overlayEnvVars(c *Config) {
+	// Step 1.1: 覆盖数据库连接配置
+	// 来源: 环境变量 MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, DB_NAME
+	// 用于: Step 1.2 建立与微服务容器数据库的网络连接
 	if v := os.Getenv("MYSQL_HOST"); v != "" {
 		c.MysqlConfig.Host = v
+	}
+	if v := os.Getenv("MYSQL_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			c.MysqlConfig.Port = port
+		}
 	}
 	if v := os.Getenv("MYSQL_USER"); v != "" {
 		c.MysqlConfig.User = v
@@ -163,8 +171,17 @@ func overlayEnvVars(c *Config) {
 	if v := os.Getenv("MYSQL_PASSWORD"); v != "" {
 		c.MysqlConfig.Password = v
 	}
+
+	// Step 1.2: 覆盖缓存与中间件配置
+	// 来源: 环境变量 REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, JWT_SECRET, KAFKA_HOST_PORT
+	// 用于: Step 1.3 初始化 Redis 客户端及 Kafka 连接
 	if v := os.Getenv("REDIS_HOST"); v != "" {
 		c.RedisConfig.Host = v
+	}
+	if v := os.Getenv("REDIS_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			c.RedisConfig.Port = port
+		}
 	}
 	if v := os.Getenv("REDIS_PASSWORD"); v != "" {
 		c.RedisConfig.Password = v
@@ -175,6 +192,10 @@ func overlayEnvVars(c *Config) {
 	if v := os.Getenv("KAFKA_HOST_PORT"); v != "" {
 		c.KafkaConfig.HostPort = v
 	}
+
+	// Step 1.3: 覆盖网关内部通信参数
+	// 来源: 环境变量 GATEWAY_GRPC_ADDR, GATEWAY_GRPC_PORT
+	// 用于: 服务间内部 gRPC 寻址调用
 	if v := os.Getenv("GATEWAY_GRPC_ADDR"); v != "" {
 		c.MainConfig.GrpcAddr = v
 	}

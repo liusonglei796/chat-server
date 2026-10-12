@@ -108,8 +108,8 @@ func TestFindBySendIdAndTypeCursor_DryRunSQL(t *testing.T) {
 		}
 	})
 
-	t.Run("update last message with timestamp check", func(t *testing.T) {
-		err := store.UpdateLastMessage(context.Background(), "U1001", "U1002", "hello", 1, time.Now())
+	t.Run("update last message with seq_id and timestamp check", func(t *testing.T) {
+		err := store.UpdateLastMessage(context.Background(), "U1001", "U1002", "hello", 1, time.Now(), 1)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

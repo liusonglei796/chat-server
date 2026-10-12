@@ -15,6 +15,7 @@ type AVMessageRespond struct {
 	FileType   string `json:"file_type"`
 	FileName   string `json:"file_name"`
 	FileSize   string `json:"file_size"`
+	SeqId      int64  `json:"seq_id"`
 	CreatedAt  string `json:"created_at"` // 先用CreatedAt排序，后面考虑改成SentAt
 	AVdata     string `json:"av_data"`
 }

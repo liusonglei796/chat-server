@@ -45,6 +45,9 @@ func (h *UserHandler) Login(c *gin.Context) {
 
 // Register 用户注册
 func (h *UserHandler) Register(c *gin.Context) {
+	// Step 1.1: 绑定并校验注册请求体与幂等凭证
+	// 来源: c.Request Body 及 HTTP Headers
+	// 用于: Step 1.2 发起认证中心注册 RPC
 	ctx := c.Request.Context()
 
 	var req auth.RegisterRequest
@@ -52,15 +55,32 @@ func (h *UserHandler) Register(c *gin.Context) {
 		HandleParamError(c, err)
 		return
 	}
+
+	clientToken := req.ClientToken
+	if clientToken == "" {
+		clientToken = c.GetHeader("X-Client-Token")
+	}
+	if clientToken == "" {
+		clientToken = c.GetHeader("X-Idempotency-Key")
+	}
+
+	// Step 1.2: 调用 Auth 微服务执行注册
+	// 来源: Step 1.1 提取的凭据与网络地址
+	// 用于: Step 1.3 响应客户端注册实体结果
 	rsp, err := grpc_client.AuthClient.Register(ctx, &authpb.RegisterRequest{
-		Username: req.Username,
-		Password: req.Password,
-		ClientIp: c.ClientIP(),
+		Username:    req.Username,
+		Password:    req.Password,
+		ClientIp:    c.ClientIP(),
+		ClientToken: clientToken,
 	})
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
+
+	// Step 1.3: 返回注册成功结果
+	// 来源: Step 1.2 返回的用户实体信息
+	// 用于: 客户端展示注册结果并引导登录
 	HandleSuccess(c, rsp)
 }
 

@@ -38,6 +38,10 @@ type Session struct {
 	// 1=文本, 2=文件, 3=音视频
 	LastMessageType int8 `gorm:"column:last_message_type;default:0;comment:最新消息类型"`
 
+	// LastSeqId 会话最新消息单调递增序号
+	// 采用严格单调递增版本比对，彻底解决分布式物理时钟漂移与乱序覆盖
+	LastSeqId int64 `gorm:"column:last_seq_id;default:0;comment:会话内最新消息序列号"`
+
 	// IsPinned 是否置顶
 	// false=未置顶, true=已置顶
 	IsPinned bool `gorm:"column:is_pinned;default:false;comment:是否置顶"`

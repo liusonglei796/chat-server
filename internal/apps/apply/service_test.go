@@ -26,7 +26,7 @@ func (f *fakeApplyStore) FindByApplicantIdAndTargetId(_ context.Context, applica
 	return nil, errorx.New(errorx.CodeNotFound, "申请不存在")
 }
 
-func (f *fakeApplyStore) UpdateStatusIfPending(_ context.Context, uuid string, toStatus int8) (bool, error) {
+func (f *fakeApplyStore) UpdateStatusIfPending(_ context.Context, uuid string, toStatus int8, expectedVersion int32) (bool, error) {
 	a, ok := f.byUuid[uuid]
 	if !ok {
 		return false, nil
@@ -34,7 +34,11 @@ func (f *fakeApplyStore) UpdateStatusIfPending(_ context.Context, uuid string, t
 	if a.Status != apply_status.PENDING {
 		return false, nil
 	}
+	if expectedVersion > 0 && a.Version != expectedVersion {
+		return false, nil
+	}
 	a.Status = toStatus
+	a.Version++
 	return true, nil
 }
 
@@ -87,6 +91,7 @@ func TestApplyService_RefuseFriendApply_AtomicStatus(t *testing.T) {
 			ApplicantId: "USER_A",
 			TargetId:    "USER_B",
 			Status:      initialStatus,
+			Version:     1,
 		}
 		aStore := &fakeApplyStore{
 			applies: map[string]*model.Apply{
@@ -112,7 +117,7 @@ func TestApplyService_RefuseFriendApply_AtomicStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("fails when status is already processed", func(t *testing.T) {
+	t.Run("fails when status is already processed with different target", func(t *testing.T) {
 		svc, _ := setupService(apply_status.AGREE)
 		err := svc.RefuseFriendApply(ctx, "USER_B", "USER_A")
 		if err == nil {
@@ -120,6 +125,64 @@ func TestApplyService_RefuseFriendApply_AtomicStatus(t *testing.T) {
 		}
 		if !errorx.IsCode(err, errorx.CodeInvalidParam) {
 			t.Errorf("expected CodeInvalidParam (1001), got code: %d, err: %v", errorx.GetCode(err), err)
+		}
+	})
+
+	t.Run("heals idempotently when status is already refused", func(t *testing.T) {
+		svc, apply := setupService(apply_status.REFUSE)
+		err := svc.RefuseFriendApply(ctx, "USER_B", "USER_A")
+		if err != nil {
+			t.Fatalf("expected nil err for already refused apply, got: %v", err)
+		}
+		if apply.Status != apply_status.REFUSE {
+			t.Errorf("expected status %d, got %d", apply_status.REFUSE, apply.Status)
+		}
+	})
+}
+
+func TestApplyService_BlackFriendApply_IdempotentHealing(t *testing.T) {
+	ctx := context.Background()
+
+	setupService := func(initialStatus int8) (*ApplyService, *model.Apply) {
+		apply := &model.Apply{
+			Uuid:        "APPLY_2",
+			ApplicantId: "USER_A",
+			TargetId:    "USER_B",
+			Status:      initialStatus,
+			Version:     1,
+		}
+		aStore := &fakeApplyStore{
+			applies: map[string]*model.Apply{
+				"USER_A:USER_B": apply,
+			},
+			byUuid: map[string]*model.Apply{
+				"APPLY_2": apply,
+			},
+		}
+		uow := &fakeApplyUOW{applyStore: aStore}
+		svc := NewApplyService(uow, &fakeCacheService{})
+		return svc, apply
+	}
+
+	t.Run("first black succeeds", func(t *testing.T) {
+		svc, apply := setupService(apply_status.PENDING)
+		err := svc.BlackFriendApply(ctx, "USER_B", "USER_A")
+		if err != nil {
+			t.Fatalf("expected nil err, got: %v", err)
+		}
+		if apply.Status != apply_status.BLACK {
+			t.Errorf("expected status %d, got %d", apply_status.BLACK, apply.Status)
+		}
+	})
+
+	t.Run("retry black heals idempotently when already blacked", func(t *testing.T) {
+		svc, apply := setupService(apply_status.BLACK)
+		err := svc.BlackFriendApply(ctx, "USER_B", "USER_A")
+		if err != nil {
+			t.Fatalf("expected nil err for already blacked apply, got: %v", err)
+		}
+		if apply.Status != apply_status.BLACK {
+			t.Errorf("expected status %d, got %d", apply_status.BLACK, apply.Status)
 		}
 	})
 }

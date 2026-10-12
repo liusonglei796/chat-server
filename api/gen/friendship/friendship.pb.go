@@ -7,6 +7,7 @@
 package friendship
 
 import (
+	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -902,7 +903,7 @@ var File_api_proto_friendship_proto protoreflect.FileDescriptor
 const file_api_proto_friendship_proto_rawDesc = "" +
 	"\n" +
 	"\x1aapi/proto/friendship.proto\x12\n" +
-	"friendship\"`\n" +
+	"friendship\x1a\x1cgoogle/api/annotations.proto\"`\n" +
 	"\x14GetFriendListRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x12\n" +
 	"\x04page\x18\x02 \x01(\x05R\x04page\x12\x1b\n" +
@@ -953,14 +954,16 @@ const file_api_proto_friendship_proto_rawDesc = "" +
 	"\x1aEstablishFriendshipRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1b\n" +
 	"\tfriend_id\x18\x02 \x01(\tR\bfriendId\"\x1d\n" +
-	"\x1bEstablishFriendshipResponse2\xcf\x05\n" +
-	"\x11FriendshipService\x12T\n" +
-	"\rGetFriendList\x12 .friendship.GetFriendListRequest\x1a!.friendship.GetFriendListResponse\x12T\n" +
-	"\rGetFriendInfo\x12 .friendship.GetFriendInfoRequest\x1a!.friendship.GetFriendInfoResponse\x12Q\n" +
-	"\fDeleteFriend\x12\x1f.friendship.DeleteFriendRequest\x1a .friendship.DeleteFriendResponse\x12N\n" +
-	"\vBlackFriend\x12\x1e.friendship.BlackFriendRequest\x1a\x1f.friendship.BlackFriendResponse\x12T\n" +
-	"\rUnblackFriend\x12 .friendship.UnblackFriendRequest\x1a!.friendship.UnblackFriendResponse\x12Q\n" +
-	"\fUpdateRemark\x12\x1f.friendship.UpdateRemarkRequest\x1a .friendship.UpdateRemarkResponse\x12Z\n" +
+	"\x1bEstablishFriendshipResponse2\xd9\x06\n" +
+	"\x11FriendshipService\x12f\n" +
+	"\rGetFriendList\x12 .friendship.GetFriendListRequest\x1a!.friendship.GetFriendListResponse\"\x10\x82\xd3\xe4\x93\x02\n" +
+	"\x12\b/friends\x12k\n" +
+	"\rGetFriendInfo\x12 .friendship.GetFriendInfoRequest\x1a!.friendship.GetFriendInfoResponse\"\x15\x82\xd3\xe4\x93\x02\x0f\x12\r/friends/info\x12c\n" +
+	"\fDeleteFriend\x12\x1f.friendship.DeleteFriendRequest\x1a .friendship.DeleteFriendResponse\"\x10\x82\xd3\xe4\x93\x02\n" +
+	"*\b/friends\x12i\n" +
+	"\vBlackFriend\x12\x1e.friendship.BlackFriendRequest\x1a\x1f.friendship.BlackFriendResponse\"\x19\x82\xd3\xe4\x93\x02\x13:\x01*\x1a\x0e/friends/block\x12l\n" +
+	"\rUnblackFriend\x12 .friendship.UnblackFriendRequest\x1a!.friendship.UnblackFriendResponse\"\x16\x82\xd3\xe4\x93\x02\x10*\x0e/friends/block\x12m\n" +
+	"\fUpdateRemark\x12\x1f.friendship.UpdateRemarkRequest\x1a .friendship.UpdateRemarkResponse\"\x1a\x82\xd3\xe4\x93\x02\x14:\x01*\x1a\x0f/friends/remark\x12Z\n" +
 	"\x0fCheckFriendship\x12\".friendship.CheckFriendshipRequest\x1a#.friendship.CheckFriendshipResponse\x12f\n" +
 	"\x13EstablishFriendship\x12&.friendship.EstablishFriendshipRequest\x1a'.friendship.EstablishFriendshipResponseB%Z#kama_chat_server/api/gen/friendshipb\x06proto3"
 

@@ -4,13 +4,42 @@ package user;
 
 option go_package = "kama_chat_server/api/gen/user";
 
+import "google/api/annotations.proto";
+
 service UserService {
-    rpc UpdateUserInfo (UpdateUserInfoRequest) returns (UpdateUserInfoResponse);
-    rpc GetUserInfo (GetUserInfoRequest) returns (GetUserInfoResponse);
-    rpc GetPublicUserInfo (GetPublicUserInfoRequest) returns (GetPublicUserInfoResponse);
-    rpc BatchGetPublicUserInfo (BatchGetPublicUserInfoRequest) returns (BatchGetPublicUserInfoResponse);
-    rpc GetUserStatus (GetUserStatusRequest) returns (GetUserStatusResponse);
-    rpc KickUser (KickUserRequest) returns (KickUserResponse);
+    rpc UpdateUserInfo (UpdateUserInfoRequest) returns (UpdateUserInfoResponse) {
+        option (google.api.http) = {
+            put: "/user/info"
+            body: "*"
+        };
+    }
+    rpc GetUserInfo (GetUserInfoRequest) returns (GetUserInfoResponse) {
+        option (google.api.http) = {
+            get: "/user/info"
+        };
+    }
+    rpc GetPublicUserInfo (GetPublicUserInfoRequest) returns (GetPublicUserInfoResponse) {
+        option (google.api.http) = {
+            get: "/user/public-info"
+        };
+    }
+    rpc BatchGetPublicUserInfo (BatchGetPublicUserInfoRequest) returns (BatchGetPublicUserInfoResponse) {
+        option (google.api.http) = {
+            post: "/user/public-info/batch"
+            body: "*"
+        };
+    }
+    rpc GetUserStatus (GetUserStatusRequest) returns (GetUserStatusResponse) {
+        option (google.api.http) = {
+            get: "/user/status"
+        };
+    }
+    rpc KickUser (KickUserRequest) returns (KickUserResponse) {
+        option (google.api.http) = {
+            post: "/auth/kick"
+            body: "*"
+        };
+    }
 }
 
 message UpdateUserInfoRequest {

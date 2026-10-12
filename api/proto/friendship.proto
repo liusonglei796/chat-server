@@ -4,13 +4,41 @@ package friendship;
 
 option go_package = "kama_chat_server/api/gen/friendship";
 
+import "google/api/annotations.proto";
+
 service FriendshipService {
-    rpc GetFriendList (GetFriendListRequest) returns (GetFriendListResponse);
-    rpc GetFriendInfo (GetFriendInfoRequest) returns (GetFriendInfoResponse);
-    rpc DeleteFriend (DeleteFriendRequest) returns (DeleteFriendResponse);
-    rpc BlackFriend (BlackFriendRequest) returns (BlackFriendResponse);
-    rpc UnblackFriend (UnblackFriendRequest) returns (UnblackFriendResponse);
-    rpc UpdateRemark (UpdateRemarkRequest) returns (UpdateRemarkResponse);
+    rpc GetFriendList (GetFriendListRequest) returns (GetFriendListResponse) {
+        option (google.api.http) = {
+            get: "/friends"
+        };
+    }
+    rpc GetFriendInfo (GetFriendInfoRequest) returns (GetFriendInfoResponse) {
+        option (google.api.http) = {
+            get: "/friends/info"
+        };
+    }
+    rpc DeleteFriend (DeleteFriendRequest) returns (DeleteFriendResponse) {
+        option (google.api.http) = {
+            delete: "/friends"
+        };
+    }
+    rpc BlackFriend (BlackFriendRequest) returns (BlackFriendResponse) {
+        option (google.api.http) = {
+            put: "/friends/block"
+            body: "*"
+        };
+    }
+    rpc UnblackFriend (UnblackFriendRequest) returns (UnblackFriendResponse) {
+        option (google.api.http) = {
+            delete: "/friends/block"
+        };
+    }
+    rpc UpdateRemark (UpdateRemarkRequest) returns (UpdateRemarkResponse) {
+        option (google.api.http) = {
+            put: "/friends/remark"
+            body: "*"
+        };
+    }
     // 检查好友关系状态：0=非好友 1=正常 2=已拉黑对方 3=被对方拉黑
     rpc CheckFriendship (CheckFriendshipRequest) returns (CheckFriendshipResponse);
     // 跨服务建立双向好友关系（供 apply 审批通过后直调）

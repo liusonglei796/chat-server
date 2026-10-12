@@ -106,7 +106,7 @@
         <div class="sidebar-content hidden" id="tab-friends">
           <div class="add-form">
             <input type="text" id="add-friend-input" class="form-input" placeholder="输入用户ID添加好友">
-            <button class="btn btn-primary btn-sm" onclick="App.addFriend()">添加</button>
+            <button class="btn btn-primary btn-sm" onclick="App.addFriend(this)">添加</button>
           </div>
           <div id="friend-list"></div>
         </div>
@@ -114,7 +114,7 @@
         <div class="sidebar-content hidden" id="tab-groups">
           <div class="add-form">
             <input type="text" id="create-group-input" class="form-input" placeholder="输入群组名称创建群组">
-            <button class="btn btn-primary btn-sm" onclick="App.createGroup()">创建</button>
+            <button class="btn btn-primary btn-sm" onclick="App.createGroup(this)">创建</button>
           </div>
           <div id="group-list"></div>
         </div>

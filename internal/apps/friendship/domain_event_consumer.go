@@ -91,6 +91,7 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 			UserId:   e.UserId,
 			FriendId: e.FriendId,
 			Status:   friendship_status.NORMAL,
+			Version:  1,
 		}
 		if err := tx.FriendshipStore().CreateFriendship(ctx, &newFriendship); err != nil {
 			if dberr.IsDuplicateKey(err) {
@@ -103,6 +104,7 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 			UserId:   e.FriendId,
 			FriendId: e.UserId,
 			Status:   friendship_status.NORMAL,
+			Version:  1,
 		}
 		if err := tx.FriendshipStore().CreateFriendship(ctx, &anotherFriendship); err != nil {
 			if dberr.IsDuplicateKey(err) {

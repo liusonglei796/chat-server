@@ -38,6 +38,10 @@ func (m *mockEventHandlerSessionStore) FindBySendIdAndReceiveId(ctx context.Cont
 	return sess, nil
 }
 
+func (m *mockEventHandlerSessionStore) FindBySendIdAndReceiveIdUnscoped(ctx context.Context, sendId, receiveId string) (*model.Session, error) {
+	return m.FindBySendIdAndReceiveId(ctx, sendId, receiveId)
+}
+
 func (m *mockEventHandlerSessionStore) FindBySendIdAndTypePaged(ctx context.Context, sendId string, receiveIdPrefix string, page, pageSize int) ([]model.Session, int64, error) {
 	return nil, 0, nil
 }
@@ -72,7 +76,7 @@ func (m *mockEventHandlerSessionStore) UpdateByReceiveId(ctx context.Context, re
 	return nil
 }
 
-func (m *mockEventHandlerSessionStore) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time) error {
+func (m *mockEventHandlerSessionStore) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time, seqId int64) error {
 	return nil
 }
 

@@ -4,10 +4,27 @@ package auth;
 
 option go_package = "kama_chat_server/api/gen/auth";
 
+import "google/api/annotations.proto";
+
 service AuthService {
-    rpc Login (LoginRequest) returns (LoginResponse);
-    rpc Register (RegisterRequest) returns (RegisterResponse);
-    rpc Logout (LogoutRequest) returns (LogoutResponse);
+    rpc Login (LoginRequest) returns (LoginResponse) {
+        option (google.api.http) = {
+            post: "/auth/login"
+            body: "*"
+        };
+    }
+    rpc Register (RegisterRequest) returns (RegisterResponse) {
+        option (google.api.http) = {
+            post: "/auth/register"
+            body: "*"
+        };
+    }
+    rpc Logout (LogoutRequest) returns (LogoutResponse) {
+        option (google.api.http) = {
+            post: "/auth/logout"
+            body: "*"
+        };
+    }
     rpc ValidateTokenID (ValidateTokenIDRequest) returns (ValidateTokenIDResponse);
     rpc GetUserIsAdmin (GetUserIsAdminRequest) returns (GetUserIsAdminResponse);
 }
@@ -38,6 +55,7 @@ message RegisterRequest {
     string username = 1;
     string password = 2;
     string client_ip = 3;
+    string client_token = 4;
 }
 
 message RegisterResponse {
@@ -51,9 +69,7 @@ message RegisterResponse {
     string signature = 8;
     int32 is_admin = 9;
     int32 status = 10;
-    string access_token = 11;
-    string refresh_token = 12;
-    string created_at = 13;
+    string created_at = 11;
 }
 
 message LogoutRequest {

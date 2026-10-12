@@ -4,18 +4,68 @@ package group;
 
 option go_package = "kama_chat_server/api/gen/group";
 
+import "google/api/annotations.proto";
+
 service GroupService {
-    rpc CreateGroup (CreateGroupRequest) returns (CreateGroupResponse);
-    rpc LoadMyGroup (LoadMyGroupRequest) returns (LoadMyGroupResponse);
-    rpc GetGroupListByMember (GetGroupListByMemberRequest) returns (GetGroupListByMemberResponse);
-    rpc CheckGroupAddMode (CheckGroupAddModeRequest) returns (CheckGroupAddModeResponse);
-    rpc LeaveGroup (LeaveGroupRequest) returns (LeaveGroupResponse);
-    rpc DismissGroup (DismissGroupRequest) returns (DismissGroupResponse);
-    rpc UpdateGroupInfo (UpdateGroupInfoRequest) returns (UpdateGroupInfoResponse);
-    rpc GetGroupMemberList (GetGroupMemberListRequest) returns (GetGroupMemberListResponse);
-    rpc RemoveGroupMembers (RemoveGroupMembersRequest) returns (RemoveGroupMembersResponse);
-    rpc GetGroupDetail (GetGroupDetailRequest) returns (GetGroupDetailResponse);
-    rpc MuteMember (MuteMemberRequest) returns (MuteMemberResponse);
+    rpc CreateGroup (CreateGroupRequest) returns (CreateGroupResponse) {
+        option (google.api.http) = {
+            post: "/groups"
+            body: "*"
+        };
+    }
+    rpc LoadMyGroup (LoadMyGroupRequest) returns (LoadMyGroupResponse) {
+        option (google.api.http) = {
+            get: "/groups/owned"
+        };
+    }
+    rpc GetGroupListByMember (GetGroupListByMemberRequest) returns (GetGroupListByMemberResponse) {
+        option (google.api.http) = {
+            get: "/groups/joined"
+        };
+    }
+    rpc CheckGroupAddMode (CheckGroupAddModeRequest) returns (CheckGroupAddModeResponse) {
+        option (google.api.http) = {
+            get: "/groups/add-mode"
+        };
+    }
+    rpc LeaveGroup (LeaveGroupRequest) returns (LeaveGroupResponse) {
+        option (google.api.http) = {
+            post: "/groups/leave"
+            body: "*"
+        };
+    }
+    rpc DismissGroup (DismissGroupRequest) returns (DismissGroupResponse) {
+        option (google.api.http) = {
+            delete: "/groups"
+        };
+    }
+    rpc UpdateGroupInfo (UpdateGroupInfoRequest) returns (UpdateGroupInfoResponse) {
+        option (google.api.http) = {
+            put: "/groups/info"
+            body: "*"
+        };
+    }
+    rpc GetGroupMemberList (GetGroupMemberListRequest) returns (GetGroupMemberListResponse) {
+        option (google.api.http) = {
+            get: "/groups/members"
+        };
+    }
+    rpc RemoveGroupMembers (RemoveGroupMembersRequest) returns (RemoveGroupMembersResponse) {
+        option (google.api.http) = {
+            delete: "/groups/members"
+        };
+    }
+    rpc GetGroupDetail (GetGroupDetailRequest) returns (GetGroupDetailResponse) {
+        option (google.api.http) = {
+            get: "/groups/detail"
+        };
+    }
+    rpc MuteMember (MuteMemberRequest) returns (MuteMemberResponse) {
+        option (google.api.http) = {
+            put: "/groups/members/mute"
+            body: "*"
+        };
+    }
     // 检查用户是否为群成员
     rpc CheckGroupMember (CheckGroupMemberRequest) returns (CheckGroupMemberResponse);
     // 获取群全部成员ID（供消息服务群发用，不要求调用方是成员）
@@ -32,8 +82,11 @@ message CreateGroupRequest {
     string notice = 3;
     int32 add_mode = 4;
     string avatar = 5;
+    string client_token = 6;
 }
-message CreateGroupResponse {}
+message CreateGroupResponse {
+    string group_id = 1;
+}
 
 message LoadMyGroupRequest {
     string user_id = 1;

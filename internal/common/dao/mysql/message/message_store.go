@@ -301,3 +301,35 @@ func (r *messageStore) FindBySessionIdCursor(ctx context.Context, sessionId, cur
 		HasMore:    hasMore,
 	}, nil
 }
+
+// FindBySessionIdSync 基于会话单调自增 SeqID 进行增量拉取（微信/钉钉 Sync 增量同步协议）
+// sessionId: 会话 UUID (如 P_1001_1002 或 G2001)
+// afterSeq: 客户端已同步的最大序列号（拉取 seq_id > afterSeq）
+// limit: 单批拉取上限
+// 返回: 单调递增排序的消息列表，按 seq_id ASC
+func (r *messageStore) FindBySessionIdSync(ctx context.Context, sessionId string, afterSeq int64, limit int) ([]model.Message, error) {
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	var messages []model.Message
+	if err := r.db.WithContext(ctx).
+		Where("session_id = ? AND seq_id > ?", sessionId, afterSeq).
+		Order("seq_id ASC").
+		Limit(limit).
+		Find(&messages).Error; err != nil {
+		return nil, dberr.WrapDBErrorf(err, "基于Seq增量同步消息 session_id=%s after_seq=%d", sessionId, afterSeq)
+	}
+	return messages, nil
+}
+
+// GetMaxSeqBySessionId 查询指定会话当前最大的 seq_id，用于 Redis 发号器冷启动基线校准
+func (r *messageStore) GetMaxSeqBySessionId(ctx context.Context, sessionId string) (int64, error) {
+	var maxSeq int64
+	if err := r.db.WithContext(ctx).Model(&model.Message{}).
+		Where("session_id = ?", sessionId).
+		Select("COALESCE(MAX(seq_id), 0)").
+		Scan(&maxSeq).Error; err != nil {
+		return 0, dberr.WrapDBErrorf(err, "查询会话最大seq_id session_id=%s", sessionId)
+	}
+	return maxSeq, nil
+}

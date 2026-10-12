@@ -45,6 +45,10 @@ type Apply struct {
 	// LastApplyAt 最后申请时间
 	// 用于判断是否可以再次申请（防止频繁骚扰）
 	LastApplyAt time.Time `gorm:"column:last_apply_at;type:datetime;not null;comment:最后申请时间"`
+
+	// Version 乐观锁版本号
+	// 用于申请/审批状态流转防 ABA 与迟到审批穿透
+	Version int32 `gorm:"column:version;default:1;not null;comment:乐观锁版本号"`
 }
 
 // TableName 指定表名

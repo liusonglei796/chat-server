@@ -30,6 +30,10 @@ type Friendship struct {
 	// Remark 好友备注名
 	// 用户对好友设置的自定义备注名称
 	Remark string `gorm:"column:remark;type:varchar(50);default:'';comment:好友备注"`
+
+	// Version 乐观锁版本号
+	// 用于循环状态机跃迁防 ABA 与迟到请求覆盖
+	Version int64 `gorm:"column:version;default:1;not null;comment:乐观锁版本号"`
 }
 
 // TableName 指定表名

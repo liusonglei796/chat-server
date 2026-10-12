@@ -26,7 +26,7 @@ func TestApplyStore_UpdateStatusIfPending_DryRun(t *testing.T) {
 	store := NewApplyStore(db)
 
 	// In DryRun mode, RowsAffected is 0, so ok should be false and err should be nil
-	ok, err := store.UpdateStatusIfPending(context.Background(), "apply-uuid-1", apply_status.AGREE)
+	ok, err := store.UpdateStatusIfPending(context.Background(), "apply-uuid-1", apply_status.AGREE, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

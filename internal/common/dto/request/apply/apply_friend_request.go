@@ -10,4 +10,6 @@ type ApplyFriendRequest struct {
 	FriendId string `json:"friend_id" binding:"required"`
 	// Message 申请附言
 	Message string `json:"message"`
+	// ClientToken 客户端幂等防重 Token
+	ClientToken string `json:"client_token"`
 }

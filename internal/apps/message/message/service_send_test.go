@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	messagereq "kama_chat_server/internal/common/dto/request/message"
+	messagersp "kama_chat_server/internal/common/dto/respond/message"
 	"kama_chat_server/internal/common/model"
 	"kama_chat_server/pkg/constants"
 	msgtype "kama_chat_server/pkg/enum/message/message_type"
@@ -24,6 +26,8 @@ type mockMsgStore struct {
 	querySessionId string
 	dbMessages     []model.Message
 	failCreate     bool
+	maxSeq         int64
+	syncMessages   []model.Message
 }
 
 func (m *mockMsgStore) FindByUserIdsPaged(ctx context.Context, userOneId, userTwoId string, page, pageSize int) ([]model.Message, int64, error) {
@@ -47,6 +51,16 @@ func (m *mockMsgStore) FindBySessionIdCursor(ctx context.Context, sessionId, cur
 		NextCursor: "",
 		HasMore:    false,
 	}, nil
+}
+func (m *mockMsgStore) FindBySessionIdSync(ctx context.Context, sessionId string, afterSeq int64, limit int) ([]model.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.syncMessages, nil
+}
+func (m *mockMsgStore) GetMaxSeqBySessionId(ctx context.Context, sessionId string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.maxSeq, nil
 }
 func (m *mockMsgStore) FindByUuid(ctx context.Context, uuid string) (*model.Message, error) {
 	return nil, nil
@@ -78,6 +92,9 @@ func (s *mockSessStore) FindByUuid(ctx context.Context, uuid string) (*model.Ses
 func (s *mockSessStore) FindBySendIdAndReceiveId(ctx context.Context, sendId, receiveId string) (*model.Session, error) {
 	return nil, nil
 }
+func (s *mockSessStore) FindBySendIdAndReceiveIdUnscoped(ctx context.Context, sendId, receiveId string) (*model.Session, error) {
+	return nil, nil
+}
 func (s *mockSessStore) FindBySendIdAndTypePaged(ctx context.Context, sendId string, receiveIdPrefix string, page, pageSize int) ([]model.Session, int64, error) {
 	return nil, 0, nil
 }
@@ -99,7 +116,7 @@ func (s *mockSessStore) UpdatePinStatus(ctx context.Context, uuid string, isPinn
 func (s *mockSessStore) UpdateByReceiveId(ctx context.Context, receiveId string, updates map[string]interface{}) error {
 	return nil
 }
-func (s *mockSessStore) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time) error {
+func (s *mockSessStore) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time, seqId int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lastContent = content
@@ -116,13 +133,49 @@ type mockCache struct {
 	setnx  map[string]string
 	failNX bool
 	zsets  map[string][]zsetItem
+	status map[string]string
+	res    map[string]string
 }
 
 func newMockCache() *mockCache {
 	return &mockCache{
-		setnx: make(map[string]string),
-		zsets: make(map[string][]zsetItem),
+		setnx:  make(map[string]string),
+		zsets:  make(map[string][]zsetItem),
+		status: make(map[string]string),
+		res:    make(map[string]string),
 	}
+}
+
+func (c *mockCache) Execute(ctx context.Context, key string, leaseTTL, successTTL time.Duration, fn func(ctx context.Context) (string, error)) (string, bool, error) {
+	c.mu.Lock()
+	if c.status == nil {
+		c.status = make(map[string]string)
+		c.res = make(map[string]string)
+	}
+	st := c.status[key]
+	if st == "SUCCESS" {
+		res := c.res[key]
+		c.mu.Unlock()
+		return res, true, nil
+	}
+	if st == "PROCESSING" {
+		c.mu.Unlock()
+		return "", false, errorx.New(errorx.CodeTooManyRequests, "请求正在处理中，请勿重复提交")
+	}
+	c.status[key] = "PROCESSING"
+	c.mu.Unlock()
+
+	res, err := fn(ctx)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err != nil {
+		delete(c.status, key)
+		delete(c.res, key)
+		return "", false, err
+	}
+	c.status[key] = "SUCCESS"
+	c.res[key] = res
+	return res, false, nil
 }
 func (c *mockCache) Set(ctx context.Context, key string, value string, ttl time.Duration) error {
 	c.mu.Lock()
@@ -166,7 +219,15 @@ func (c *mockCache) SetNX(ctx context.Context, key string, value string, ttl tim
 	return true, nil
 }
 func (c *mockCache) Incr(ctx context.Context, key string) (int64, error) {
-	return 0, nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var current int64 = 0
+	if val, ok := c.setnx[key]; ok {
+		current, _ = strconv.ParseInt(val, 10, 64)
+	}
+	current++
+	c.setnx[key] = strconv.FormatInt(current, 10)
+	return current, nil
 }
 func (c *mockCache) Expire(ctx context.Context, key string, ttl time.Duration) error {
 	return nil
@@ -248,6 +309,18 @@ func (c *mockCache) ZCard(ctx context.Context, key string) (int64, error) {
 func (c *mockCache) ZScore(ctx context.Context, key string, member string) (float64, error) {
 	return 0, nil
 }
+func (c *mockCache) Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(keys) > 0 && len(args) > 0 {
+		key := keys[0]
+		if target, ok := args[0].(int64); ok {
+			c.setnx[key] = strconv.FormatInt(target, 10)
+			return target, nil
+		}
+	}
+	return int64(1), nil
+}
 func (c *mockCache) SubmitTask(action func()) {
 	action()
 }
@@ -270,7 +343,7 @@ func TestSendMessage_EmptyReceiver(t *testing.T) {
 		t.Fatal("expected error for empty receiveId, got nil")
 	}
 	// 验证失败时 dedup key 已被删除，允许客户端重试
-	if _, exists := cache.setnx["msg:dedup:msg-fail-empty-rcv"]; exists {
+	if _, exists := cache.status["msg:dedup:msg-fail-empty-rcv"]; exists {
 		t.Fatal("expected dedup key to be deleted on validation failure, but it still exists")
 	}
 }
@@ -296,7 +369,7 @@ func TestSendMessage_DbCreateFailDeletesDedupKey(t *testing.T) {
 	}
 
 	// 验证失败时 dedup key 已被释放
-	if _, exists := cache.setnx["msg:dedup:msg-fail-db"]; exists {
+	if _, exists := cache.status["msg:dedup:msg-fail-db"]; exists {
 		t.Fatal("expected dedup key to be deleted on db create failure, but it still exists")
 	}
 
@@ -320,8 +393,14 @@ func TestSendMessage_Idempotent(t *testing.T) {
 	cache := newMockCache()
 	svc := NewMessageService(msgStore, sessStore, cache)
 
-	// Pre-populate dedup key in cache
-	cache.setnx["msg:dedup:client-msg-123"] = "1"
+	// Pre-populate dedup key as SUCCESS in cache
+	cachedRsp := messagersp.SendMessageRespond{
+		MessageUuid: "client-msg-123",
+		CreatedAt:   "2026-10-10 12:00:00",
+	}
+	data, _ := json.Marshal(cachedRsp)
+	cache.status["msg:dedup:client-msg-123"] = "SUCCESS"
+	cache.res["msg:dedup:client-msg-123"] = string(data)
 
 	req := messagereq.ChatMessageRequest{
 		ClientMsgId: "client-msg-123",
@@ -350,7 +429,7 @@ func TestSendMessage_InProgress_ReturnsTooManyRequests(t *testing.T) {
 	svc := NewMessageService(msgStore, sessStore, cache)
 
 	// 模拟前序请求正在处理中
-	cache.setnx["msg:dedup:client-msg-in-prog"] = msgDedupInProgress
+	cache.status["msg:dedup:client-msg-in-prog"] = "PROCESSING"
 
 	req := messagereq.ChatMessageRequest{
 		ClientMsgId: "client-msg-in-prog",
@@ -397,11 +476,11 @@ func TestSendMessage_SuccessReplayAndCachedResponse(t *testing.T) {
 		t.Fatalf("expected 1 created message, got %d", len(msgStore.createdMsg))
 	}
 
-	// 检查缓存中存储的是真实落库的 JSON，而不是 "IN_PROGRESS"
+	// 检查状态机中存储的是真实 SUCCESS 终态
 	key := "msg:dedup:" + clientMsgId
-	val, ok := cache.setnx[key]
-	if !ok || val == msgDedupInProgress {
-		t.Fatalf("expected valid cached JSON response, got: %s", val)
+	val, ok := cache.status[key]
+	if !ok || val != "SUCCESS" {
+		t.Fatalf("expected valid cached SUCCESS status, got: %s", val)
 	}
 
 	// 第二次发送：带着相同的 clientMsgId 重试，命中成功回放
@@ -570,5 +649,97 @@ func TestGetMessagesBySessionIdCursorWithCache_FallbackDB(t *testing.T) {
 	count, _ := cache.ZCard(context.Background(), key)
 	if count != 1 {
 		t.Fatalf("expected 1 item backfilled into ZSET, got %d", count)
+	}
+}
+
+func TestNextSessionSeq_MonotonicAndColdStartRecovery(t *testing.T) {
+	msgStore := &mockMsgStore{
+		maxSeq: 0,
+	}
+	sessStore := &mockSessStore{}
+	cache := newMockCache()
+	svc := NewMessageService(msgStore, sessStore, cache)
+
+	sessionId := "P_U1001_U1002"
+
+	// 1. 首次发号（seq == 1，DB 无历史消息）
+	seq1, err := svc.nextSessionSeq(context.Background(), sessionId)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if seq1 != 1 {
+		t.Fatalf("expected seq 1, got %d", seq1)
+	}
+
+	// 2. 正常连续发号（seq == 2, 3）
+	seq2, err := svc.nextSessionSeq(context.Background(), sessionId)
+	if err != nil || seq2 != 2 {
+		t.Fatalf("expected seq 2, got %d (err: %v)", seq2, err)
+	}
+	seq3, err := svc.nextSessionSeq(context.Background(), sessionId)
+	if err != nil || seq3 != 3 {
+		t.Fatalf("expected seq 3, got %d (err: %v)", seq3, err)
+	}
+
+	// 3. 模拟 Redis 缓存丢失/冷启动，但 DB 已有历史消息 maxSeq = 50
+	_ = cache.Delete(context.Background(), constants.CacheKeySessionSeq+sessionId)
+	msgStore.maxSeq = 50
+
+	seqRecovered, err := svc.nextSessionSeq(context.Background(), sessionId)
+	if err != nil {
+		t.Fatalf("unexpected error on cold start recovery: %v", err)
+	}
+	if seqRecovered != 51 {
+		t.Fatalf("expected calibrated seq 51, got %d", seqRecovered)
+	}
+
+	// 4. 继续自增
+	seqNext, err := svc.nextSessionSeq(context.Background(), sessionId)
+	if err != nil || seqNext != 52 {
+		t.Fatalf("expected next seq 52, got %d (err: %v)", seqNext, err)
+	}
+}
+
+func TestSyncMessages(t *testing.T) {
+	msgStore := &mockMsgStore{
+		syncMessages: []model.Message{
+			{
+				Uuid:      "M1001",
+				SessionId: "P_U1001_U1002",
+				SendId:    "U1001",
+				ReceiveId: "U1002",
+				Content:   "hello seq 1",
+				SeqId:     1,
+			},
+			{
+				Uuid:      "M1002",
+				SessionId: "P_U1001_U1002",
+				SendId:    "U1002",
+				ReceiveId: "U1001",
+				Content:   "world seq 2",
+				SeqId:     2,
+			},
+		},
+	}
+	sessStore := &mockSessStore{}
+	cache := newMockCache()
+	svc := NewMessageService(msgStore, sessStore, cache)
+
+	// 非参与者访问被拒绝
+	_, err := svc.SyncMessages(context.Background(), "U9999", "P_U1001_U1002", 0, 10)
+	if err == nil {
+		t.Fatal("expected forbidden error for non-participant")
+	}
+
+	// 参与者正常拉取
+	res, err := svc.SyncMessages(context.Background(), "U1001", "P_U1001_U1002", 0, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(res))
+	}
+	if res[0].SeqId != 1 || res[1].SeqId != 2 {
+		t.Fatalf("expected seq 1 and 2, got %d and %d", res[0].SeqId, res[1].SeqId)
 	}
 }

@@ -84,6 +84,11 @@ func NewRedisCache(client *redis.Client, poolSize int) *RedisCache {
 // 确保 RedisCache 实现了 AsyncCacheService 接口
 var _ store.AsyncCacheService = (*RedisCache)(nil)
 
+// Client 获取底层原生 Redis 客户端
+func (r *RedisCache) Client() *redis.Client {
+	return r.client
+}
+
 // SetNX 设置键值对，仅当键不存在时生效（原子操作）
 // 返回 bool 表示是否设置成功（true=新键，false=键已存在）
 func (r *RedisCache) SetNX(ctx context.Context, key string, value string, ttl time.Duration) (bool, error) {
@@ -173,6 +178,15 @@ func (r *RedisCache) ZCard(ctx context.Context, key string) (int64, error) {
 // ZScore 获取有序集合指定成员的分数
 func (r *RedisCache) ZScore(ctx context.Context, key string, member string) (float64, error) {
 	return ops.ZScore(r.client, ctx, key, member)
+}
+
+// Eval 执行 Lua 脚本
+func (r *RedisCache) Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error) {
+	val, err := r.client.Eval(ctx, script, keys, args...).Result()
+	if err != nil {
+		return nil, ops.WrapRedisError(err, "执行 Lua 脚本 keys=%v", keys)
+	}
+	return val, nil
 }
 
 

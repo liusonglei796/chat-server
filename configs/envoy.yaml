@@ -1,0 +1,288 @@
+# ==============================================================================
+# Envoy API 网关全功能生产级配置 (支持纯 gRPC 单协议自动转码与长连接代理)
+# ==============================================================================
+
+# 1. Admin 监控管理端点 (访问 http://localhost:9901 查看状态、QPS、集群健康度)
+admin:
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 9901
+
+static_resources:
+  listeners:
+  - name: listener_0
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: 9080
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          codec_type: AUTO
+          generate_request_id: true
+
+          # 2. 结构化 JSON 访问日志 (stdout 输出，docker logs 即可观测)
+          access_log:
+          - name: envoy.access_loggers.stdout
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+              log_format:
+                json_format:
+                  start_time: "%START_TIME%"
+                  request_id: "%REQ(X-REQUEST-ID)%"
+                  method: "%REQ(:METHOD)%"
+                  path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+                  protocol: "%PROTOCOL%"
+                  response_code: "%RESPONSE_CODE%"
+                  response_flags: "%RESPONSE_FLAGS%"
+                  bytes_received: "%BYTES_RECEIVED%"
+                  bytes_sent: "%BYTES_SENT%"
+                  duration_ms: "%DURATION%"
+                  upstream_service_time_ms: "%RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)%"
+                  upstream_cluster: "%UPSTREAM_CLUSTER%"
+                  upstream_host: "%UPSTREAM_HOST%"
+                  grpc_status: "%RESP(GRPC-STATUS)%"
+                  user_agent: "%REQ(USER-AGENT)%"
+
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: local_service
+              domains: ["*"]
+              # 3. CORS 跨域资源共享规则
+              cors:
+                allow_origin_string_match:
+                - safe_regex:
+                    regex: ".*"
+                allow_methods: "GET, PUT, DELETE, POST, OPTIONS"
+                allow_headers: "keep-alive,user-agent,cache-control,content-type,content-transfer-encoding,custom-header-1,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,x-grpc-web,grpc-timeout,authorization,x-user-id"
+                max_age: "1728000"
+                expose_headers: "custom-header-1,grpc-status,grpc-message,x-request-id"
+              # 4. 全局 gRPC / 网络故障安全重试策略 (仅对连接层故障与临时 5xx 重试，防雪崩)
+              retry_policy:
+                retry_on: "5xx,connect-failure,refused-stream,reset"
+                num_retries: 2
+                per_try_timeout: 2s
+                retry_back_off:
+                  base_interval: 25ms
+                  max_interval: 250ms
+              routes:
+              # Step 1: WebSocket 长连接专用路由 (转发至专职 ConnService)
+              - match:
+                  prefix: "/ws"
+                route:
+                  cluster: conn_service_cluster
+                  timeout: 0s
+                  max_stream_duration:
+                    grpc_timeout_header_max: 0s
+                upgrade_configs:
+                - upgrade_type: "websocket"
+
+              # Step 2: 认证服务路由 (转码调用 user_service gRPC 50051)
+              - match:
+                  prefix: "/auth"
+                route:
+                  cluster: user_service_cluster
+                  timeout: 15s
+
+              # Step 3: 用户资料路由 (转码调用 user_service gRPC 50051)
+              - match:
+                  prefix: "/user"
+                route:
+                  cluster: user_service_cluster
+                  timeout: 15s
+
+              # Step 4: 好友申请路由 (转码调用 apply_service gRPC 50053)
+              - match:
+                  prefix: "/friends/appl"
+                route:
+                  cluster: apply_service_cluster
+                  timeout: 15s
+
+              # Step 5: 群聊申请路由 (转码调用 apply_service gRPC 50053)
+              - match:
+                  prefix: "/groups/appl"
+                route:
+                  cluster: apply_service_cluster
+                  timeout: 15s
+
+              # Step 6: 好友关系路由 (转码调用 friendship_service gRPC 50054)
+              - match:
+                  prefix: "/friends"
+                route:
+                  cluster: friendship_service_cluster
+                  timeout: 15s
+
+              # Step 7: 群组管理路由 (转码调用 group_service gRPC 50055)
+              - match:
+                  prefix: "/groups"
+                route:
+                  cluster: group_service_cluster
+                  timeout: 15s
+
+              # Step 8: 会话管理路由 (转码调用 message_service gRPC 50056)
+              - match:
+                  prefix: "/sessions"
+                route:
+                  cluster: message_service_cluster
+                  timeout: 15s
+
+              # Step 9: 消息查询与撤回路由 (转码调用 message_service gRPC 50056)
+              - match:
+                  prefix: "/messages"
+                route:
+                  cluster: message_service_cluster
+                  timeout: 15s
+
+              # Step 10: 兜底静态资源及旧网关反代路由
+              - match:
+                  prefix: "/"
+                route:
+                  cluster: conn_service_cluster
+                  timeout: 15s
+
+          # 4. HTTP 过滤器链
+          http_filters:
+          - name: envoy.filters.http.cors
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.cors.v3.Cors
+          # 5. gRPC-JSON 转码器核心插件 (根据 proto.pb 将 HTTP 请求映射至对应 gRPC 方法)
+          - name: envoy.filters.http.grpc_json_transcoder
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_json_transcoder.v3.GrpcJsonTranscoder
+              proto_descriptor: "/etc/envoy/proto.pb"
+              services:
+              - "user.UserService"
+              - "auth.AuthService"
+              - "friendship.FriendshipService"
+              - "apply.ApplyService"
+              - "group.GroupService"
+              - "message.MessageService"
+              print_options:
+                add_whitespace: true
+                always_print_primitive_fields: true
+              convert_grpc_status: true
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  # 6. 后端 Upstream 集群配置 (gRPC 微服务与长连接服务)
+  clusters:
+  # Upstream 1: user_service (gRPC 50051)
+  - name: user_service_cluster
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
+    load_assignment:
+      cluster_name: user_service_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: user-service
+                port_value: 50051
+
+  # Upstream 2: apply_service (gRPC 50053)
+  - name: apply_service_cluster
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
+    load_assignment:
+      cluster_name: apply_service_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: apply-service
+                port_value: 50053
+
+  # Upstream 3: friendship_service (gRPC 50054)
+  - name: friendship_service_cluster
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
+    load_assignment:
+      cluster_name: friendship_service_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: friendship-service
+                port_value: 50054
+
+  # Upstream 4: group_service (gRPC 50055)
+  - name: group_service_cluster
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
+    load_assignment:
+      cluster_name: group_service_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: group-service
+                port_value: 50055
+
+  # Upstream 5: message_service (gRPC 50056)
+  - name: message_service_cluster
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
+    load_assignment:
+      cluster_name: message_service_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: message-service
+                port_value: 50056
+
+  # Upstream 6: conn_service (专职长连接服务，HTTP/WebSocket 8000)
+  - name: conn_service_cluster
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: conn_service_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: chat-server
+                port_value: 8000

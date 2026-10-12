@@ -37,14 +37,20 @@ func (h *GroupHandler) CreateGroup(c *gin.Context) {
 		return
 	}
 
-	if _, err := grpc_client.GroupClient.CreateGroup(ctx, &grouppb.CreateGroupRequest{
-		OwnerId: userId.(string),
-		Name:    req.Name,
-		Notice:  req.Notice,
-		AddMode: int32(req.AddMode),
-		Avatar:  req.Avatar,
-	}); err != nil {
+	rsp, err := grpc_client.GroupClient.CreateGroup(ctx, &grouppb.CreateGroupRequest{
+		OwnerId:     userId.(string),
+		Name:        req.Name,
+		Notice:      req.Notice,
+		AddMode:     int32(req.AddMode),
+		Avatar:      req.Avatar,
+		ClientToken: req.ClientToken,
+	})
+	if err != nil {
 		HandleError(c, err)
+		return
+	}
+	if rsp != nil && rsp.GroupId != "" {
+		HandleSuccess(c, gin.H{"group_id": rsp.GroupId})
 		return
 	}
 	HandleSuccess(c, nil)

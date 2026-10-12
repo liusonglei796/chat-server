@@ -1026,7 +1026,7 @@
       border-left: 4px solid var(--primary)
     }
 
-    /* ==================== Loading ==================== */
+    /* ==================== Loading & Button States ==================== */
     .loading-spinner {
       width: 20px;
       height: 20px;
@@ -1034,6 +1034,61 @@
       border-top-color: var(--primary);
       border-radius: 50%;
       animation: spin .6s linear infinite
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    .btn-loading {
+      position: relative;
+      pointer-events: none;
+      opacity: 0.8;
+    }
+
+    .btn-spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    /* Message status indicators */
+    .msg-status {
+      display: inline-flex;
+      align-items: center;
+      margin-left: 6px;
+      vertical-align: middle;
+      font-size: 12px;
+      user-select: none;
+    }
+
+    .msg-status.sending {
+      width: 12px;
+      height: 12px;
+      border: 2px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+    }
+
+    .msg-status.failed {
+      color: var(--danger);
+      cursor: pointer;
+      font-weight: bold;
+      padding: 0 2px;
+      border-radius: 4px;
+    }
+
+    .msg-status.failed:hover {
+      background: var(--danger-bg);
     }
 
     @keyframes spin {

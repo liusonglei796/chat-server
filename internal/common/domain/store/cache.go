@@ -24,6 +24,7 @@ type CacheService interface {
 	ZRem(ctx context.Context, key string, members ...interface{}) error
 	ZCard(ctx context.Context, key string) (int64, error)
 	ZScore(ctx context.Context, key string, member string) (float64, error)
+	Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error)
 }
 
 type AsyncCacheService interface {

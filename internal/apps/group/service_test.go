@@ -25,6 +25,24 @@ func (f *fakeGroupStore) FindByUuid(_ context.Context, uuid string) (*model.Grou
 	return nil, errorx.New(errorx.CodeNotFound, "群组不存在")
 }
 
+func (f *fakeGroupStore) FindByOwnerIdAndName(_ context.Context, ownerId, name string) (*model.GroupInfo, error) {
+	for _, g := range f.groups {
+		if g.OwnerId == ownerId && g.Name == name && g.Status == 0 {
+			cpy := *g
+			return &cpy, nil
+		}
+	}
+	return nil, errorx.New(errorx.CodeNotFound, "群组不存在")
+}
+
+func (f *fakeGroupStore) CreateGroup(_ context.Context, group *model.GroupInfo) error {
+	if f.groups == nil {
+		f.groups = make(map[string]*model.GroupInfo)
+	}
+	f.groups[group.Uuid] = group
+	return nil
+}
+
 func (f *fakeGroupStore) Update(_ context.Context, group *model.GroupInfo) error {
 	f.groups[group.Uuid] = group
 	return nil
@@ -76,6 +94,14 @@ func (f *fakeGroupMemberStore) FindByGroupUuid(_ context.Context, groupUuid stri
 		}
 	}
 	return result, nil
+}
+
+func (f *fakeGroupMemberStore) CreateGroupMember(_ context.Context, member *model.GroupMember) error {
+	if f.members == nil {
+		f.members = make(map[string]*model.GroupMember)
+	}
+	f.members[member.GroupUuid+":"+member.UserUuid] = member
+	return nil
 }
 
 // fakeGroupUOW 满足 groupUoW 接口
@@ -196,6 +222,23 @@ func TestGroupService_UpdateGroupInfo_OptimisticLock(t *testing.T) {
 		}
 	})
 
+	t.Run("conflict version but identical content heals idempotently", func(t *testing.T) {
+		svc, gStore := setupService()
+		// gStore 中 G1001 的名称为 "测试群聊"
+		existingName := gStore.groups["G1001"].Name
+		staleVersion := int32(0) // 过期版本号，但名称与数据库一致（模拟重试）
+		req := group.UpdateGroupInfoRequest{
+			Uuid:    "G1001",
+			Name:    &existingName,
+			Version: &staleVersion,
+		}
+
+		err := svc.UpdateGroupInfo(ctx, "U_ADMIN", req)
+		if err != nil {
+			t.Fatalf("expected nil err for identical content retry, got: %v", err)
+		}
+	})
+
 	t.Run("error when version is missing", func(t *testing.T) {
 		svc, _ := setupService()
 		newName := "新群名"
@@ -243,3 +286,76 @@ func TestGroupService_UpdateGroupInfo_OptimisticLock(t *testing.T) {
 		}
 	})
 }
+
+type mockTestGroupGuard struct {
+	store map[string]string
+}
+
+func (m *mockTestGroupGuard) Execute(ctx context.Context, key string, leaseTTL, successTTL time.Duration, fn func(context.Context) (string, error)) (string, bool, error) {
+	if val, ok := m.store[key]; ok {
+		return val, true, nil // 模拟命中历史成功结果回显
+	}
+	res, err := fn(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	m.store[key] = res
+	return res, false, nil
+}
+
+func TestGroupService_CreateGroup_Idempotent(t *testing.T) {
+	ctx := context.Background()
+
+	gStore := &fakeGroupStore{groups: make(map[string]*model.GroupInfo)}
+	mStore := &fakeGroupMemberStore{members: make(map[string]*model.GroupMember)}
+	uow := &fakeGroupUOW{groupStore: gStore, groupMemberStore: mStore}
+	guard := &mockTestGroupGuard{store: make(map[string]string)}
+
+	svc := NewGroupService(uow, &fakeCacheService{}, guard)
+
+	req := group.CreateGroupRequest{
+		Name:        "幂等架构群",
+		Notice:      "测试群公告",
+		AddMode:     1,
+		ClientToken: "client-token-9999",
+	}
+
+	// 1. 首次调用：成功创建群，返回群ID并持久化在 fakeGroupStore
+	gid1, err1 := svc.CreateGroup(ctx, "U1001", req)
+	if err1 != nil {
+		t.Fatalf("first CreateGroup failed: %v", err1)
+	}
+	if gid1 == "" {
+		t.Fatal("expected non-empty group id")
+	}
+	if len(gStore.groups) != 1 {
+		t.Fatalf("expected 1 group in store, got %d", len(gStore.groups))
+	}
+
+	// 2. 第二次调用（相同 ClientToken 重试）：触发状态机幂等回放，返回完全一致的群ID，且并未在 store 中产生重复群
+	gid2, err2 := svc.CreateGroup(ctx, "U1001", req)
+	if err2 != nil {
+		t.Fatalf("replay CreateGroup failed: %v", err2)
+	}
+	if gid2 != gid1 {
+		t.Fatalf("expected replayed group id %s, got %s", gid1, gid2)
+	}
+	if len(gStore.groups) != 1 {
+		t.Fatalf("expected still exactly 1 group in store, got %d", len(gStore.groups))
+	}
+
+	// 3. 不带 ClientToken 再次尝试创建同名群：触发业务同名校验拦截
+	reqNoToken := group.CreateGroupRequest{
+		Name:    "幂等架构群",
+		Notice:  "不同公告",
+		AddMode: 1,
+	}
+	_, err3 := svc.CreateGroup(ctx, "U1001", reqNoToken)
+	if err3 == nil {
+		t.Fatal("expected duplicate name error, got nil")
+	}
+	if !errorx.IsCode(err3, errorx.CodeInvalidParam) {
+		t.Errorf("expected CodeInvalidParam, got %v", err3)
+	}
+}
+

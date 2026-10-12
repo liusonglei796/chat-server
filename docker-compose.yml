@@ -80,6 +80,20 @@ services:
     command: ["-config.file=/etc/tempo.yaml"]
     restart: unless-stopped
 
+  envoy:
+    image: envoyproxy/envoy:v1.30.1
+    container_name: chat-envoy
+    restart: unless-stopped
+    volumes:
+      - ./configs/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./configs/proto.pb:/etc/envoy/proto.pb:ro
+    ports:
+      - "9080:9080" # Envoy 外部统一接入网关
+      - "9901:9901" # Envoy Admin 监控管理控制台
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    depends_on:
+      - etcd
+
   chat-server:
     build:
       context: .
@@ -109,6 +123,8 @@ services:
       args:
         SERVICE_PATH: ./cmd/user_service
     container_name: user-service
+    ports:
+      - "50051:50051"
     environment:
       MYSQL_USER: svc_user
       MYSQL_PASSWORD: svc_user_pwd
@@ -131,6 +147,8 @@ services:
       args:
         SERVICE_PATH: ./cmd/apply_service
     container_name: apply-service
+    ports:
+      - "50053:50053"
     environment:
       MYSQL_USER: svc_apply
       MYSQL_PASSWORD: svc_apply_pwd
@@ -153,6 +171,8 @@ services:
       args:
         SERVICE_PATH: ./cmd/friendship_service
     container_name: friendship-service
+    ports:
+      - "50054:50054"
     environment:
       MYSQL_USER: svc_friendship
       MYSQL_PASSWORD: svc_friendship_pwd
@@ -177,6 +197,8 @@ services:
       args:
         SERVICE_PATH: ./cmd/group_service
     container_name: group-service
+    ports:
+      - "50055:50055"
     environment:
       MYSQL_USER: svc_group
       MYSQL_PASSWORD: svc_group_pwd
@@ -201,6 +223,8 @@ services:
       args:
         SERVICE_PATH: ./cmd/message_service
     container_name: message-service
+    ports:
+      - "50056:50056"
     environment:
       MYSQL_USER: svc_message
       MYSQL_PASSWORD: svc_message_pwd

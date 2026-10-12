@@ -3,8 +3,16 @@ import urllib.error
 import json
 import uuid
 import time
+import sys
+import os
 
-BASE_URL = "http://localhost:8081"
+BASE_URL = os.environ.get("TARGET_URL", "http://localhost:9080")
+if len(sys.argv) > 1:
+    arg = sys.argv[1]
+    if arg.isdigit():
+        BASE_URL = f"http://localhost:{arg}"
+    elif arg.startswith("http"):
+        BASE_URL = arg
 
 def log(msg):
     print(f"[*] {msg}")
@@ -36,6 +44,8 @@ def req(path, data=None, token=None, method="POST"):
         return 500, {}
 
 def test_flow():
+    log(f"Testing against base URL: {BASE_URL}")
+
     # 1. Register User A & B
     user_a = f"test_a_{uuid.uuid4().hex[:6]}"
     user_b = f"test_b_{uuid.uuid4().hex[:6]}"
@@ -90,7 +100,6 @@ def test_flow():
         
     # 6. Check friends list
     log("Checking friends list...")
-    _, friends_a = req("/friends", token=token_a, method="GET")
     status, friends_res = req("/friends", token=token_a, method="GET")
     friends = friends_res.get('data', {}).get('list', [])
     print("Friends list:", friends)
@@ -118,9 +127,36 @@ def test_flow():
         log(f"Get joined groups failed: {groups_a}")
         return False
 
+    # 9. Check Open Session Allowed
+    log("Checking session open permission between A and B...")
+    status, sess_chk = req(f"/sessions/check?target_id={id_b}", token=token_a, method="GET")
+    if status != 200 or sess_chk.get('code') != 1000:
+        log(f"Check open session failed: {sess_chk}")
+        return False
+
+    # 10. Open Session
+    log("A opens session with B...")
+    status, sess_open = req("/sessions", {"receive_id": id_b}, token=token_a, method="POST")
+    if status != 200 or sess_open.get('code') != 1000:
+        log(f"Open session failed: {sess_open}")
+        return False
+
+    # 11. Check User Direct Sessions
+    log("Checking A's direct session list...")
+    status, sess_list = req("/sessions/direct", token=token_a, method="GET")
+    if status != 200 or sess_list.get('code') != 1000:
+        log(f"Get sessions list failed: {sess_list}")
+        return False
+
+    # 12. Query messages between A and B
+    log("Checking messages between A and B...")
+    status, msg_list = req(f"/messages?target_id={id_b}", token=token_a, method="GET")
+    if status != 200 or msg_list.get('code') != 1000:
+        log(f"Get messages failed: {msg_list}")
+        return False
+
     print("\n[SUCCESS] ALL EXTENDED HTTP APIs ARE WORKING CORRECTLY!")
     return True
 
 if __name__ == "__main__":
-    time.sleep(2)
     test_flow()

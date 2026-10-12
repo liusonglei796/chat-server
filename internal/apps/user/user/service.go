@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/common/dao/mysql/dberr"
@@ -13,12 +14,13 @@ import (
 	"kama_chat_server/internal/common/dto/request/auth"
 	userreq "kama_chat_server/internal/common/dto/request/user"
 	userrsp "kama_chat_server/internal/common/dto/respond/user"
-	cacheutil 	"kama_chat_server/internal/common/infrastructure/cache"
+	cacheutil "kama_chat_server/internal/common/infrastructure/cache"
 	"kama_chat_server/internal/common/infrastructure/jwt"
 	"kama_chat_server/internal/common/model"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
+	"kama_chat_server/pkg/idempotent"
 )
 
 // userUoW 用户服务的 UoW 接口：事务/事件能力 + 仅本服务拥有的 User Store
@@ -34,14 +36,22 @@ type UserService struct {
 	uow         userUoW
 	cache       store.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
+	guard       idempotent.Guard
 }
 
 // NewUserService 构造函数，注入所有依赖
-func NewUserService(uow userUoW, cacheService store.AsyncCacheService) *UserService {
+func NewUserService(uow userUoW, cacheService store.AsyncCacheService, guard ...idempotent.Guard) *UserService {
+	var g idempotent.Guard
+	if len(guard) > 0 && guard[0] != nil {
+		g = guard[0]
+	} else if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc.Client() != nil {
+		g = idempotent.NewRedisGuard(rc.Client())
+	}
 	return &UserService{
 		uow:         uow,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
+		guard:       g,
 	}
 }
 
@@ -142,36 +152,70 @@ func (u *UserService) Login(ctx context.Context, loginReq auth.LoginRequest, cli
 }
 
 // Register 用户注册
-func (u *UserService) Register(ctx context.Context, registerReq auth.RegisterRequest, clientIP string) (*userrsp.LoginRespond, error) {
-	// 检查用户名是否已存在
-	existing, err := u.uow.UserStore().FindByNickname(ctx, registerReq.Username)
-	if err == nil && existing != nil {
-		return nil, errorx.New(errorx.CodeUserExist, "用户名已被占用")
-	}
-
-	// 生成 UUID
-	uuid := "U" + fmt.Sprintf("%d", time.Now().UnixMilli())
-
-	// 创建用户
-	user := &model.UserInfo{
-		Uuid:        uuid,
-		Nickname:    registerReq.Username,
-		Telephone:   "",
-		Password:    "", // Will be set via RawPassword + BeforeSave
-		RawPassword: registerReq.Password,
-		IsAdmin:     0,
-		Status:      0,
-	}
-
-	if err := u.uow.UserStore().CreateUser(ctx, user); err != nil {
-		if dberr.IsDuplicateKey(err) {
+// 遵循方案一职责解耦规范：专职创建用户实体，不签发登录 Token；
+// 挂载第三代状态机幂等保护，彻底解决弱网重试时报错“用户名已被占用”的问题
+func (u *UserService) Register(ctx context.Context, registerReq auth.RegisterRequest, clientIP string) (*userrsp.RegisterRespond, error) {
+	// Step 1.1: 构造核心用户创建闭包
+	// 来源: registerReq 携带的用户名与密码
+	// 用于: Step 1.2 注入幂等守卫执行
+	action := func(c context.Context) (*userrsp.RegisterRespond, error) {
+		// 检查用户名是否已存在
+		existing, err := u.uow.UserStore().FindByNickname(c, registerReq.Username)
+		if err == nil && existing != nil {
 			return nil, errorx.New(errorx.CodeUserExist, "用户名已被占用")
 		}
-		zap.L().Error("创建用户失败", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+
+		// 生成 UUID
+		uuid := "U" + fmt.Sprintf("%d", time.Now().UnixMilli())
+
+		// 创建用户
+		user := &model.UserInfo{
+			Uuid:        uuid,
+			Nickname:    registerReq.Username,
+			Telephone:   "",
+			Password:    "", // Will be set via RawPassword + BeforeSave
+			RawPassword: registerReq.Password,
+			IsAdmin:     0,
+			Status:      0,
+		}
+
+		if err := u.uow.UserStore().CreateUser(c, user); err != nil {
+			if dberr.IsDuplicateKey(err) {
+				return nil, errorx.New(errorx.CodeUserExist, "用户名已被占用")
+			}
+			zap.L().Error("创建用户失败", zap.Error(err))
+			return nil, errorx.ErrServerBusy
+		}
+
+		return &userrsp.RegisterRespond{
+			Uuid:      user.Uuid,
+			Nickname:  user.Nickname,
+			Telephone: user.Telephone,
+			Avatar:    user.Avatar,
+			Email:     user.Email,
+			Gender:    user.Gender,
+			Birthday:  user.Birthday,
+			Signature: user.Signature,
+			CreatedAt: user.CreatedAt.Format("2006-01-02 15:04:05"),
+			IsAdmin:   user.IsAdmin,
+			Status:    user.Status,
+		}, nil
 	}
 
-	return u.buildLoginResponse(ctx, user, clientIP)
+	// Step 1.2: 判定是否启用了客户端防重凭证
+	// 来源: registerReq.ClientToken
+	// 用于: 若携带防重凭证则通过 Guard 保护，否则直接执行业务
+	if registerReq.ClientToken != "" && u.guard != nil {
+		key := fmt.Sprintf("auth:reg:%s:%s", registerReq.Username, registerReq.ClientToken)
+		// 5秒短租约防并发连击，24小时成功持久化防重试回放已注册实体
+		rsp, isReplay, err := idempotent.ExecuteJSON(ctx, u.guard, key, 5*time.Second, 24*time.Hour, action)
+		if isReplay {
+			zap.L().Info("命中用户注册幂等回放，直接返回已创建用户实体", zap.String("userId", rsp.Uuid), zap.String("username", registerReq.Username))
+		}
+		return rsp, err
+	}
+
+	return action(ctx)
 }
 
 // Logout 用户登出

@@ -105,4 +105,37 @@ func TestMessageService_RecallMessage_Atomic(t *testing.T) {
 			t.Fatal("expected notify NOT to be called on duplicate recall")
 		}
 	})
+
+	t.Run("retry recall on already recalled message heals idempotently with nil error and no notify", func(t *testing.T) {
+		msgStore := &mockRecallMessageStore{
+			msg: &model.Message{
+				Uuid:      "M1001",
+				SendId:    "U1",
+				ReceiveId: "U2",
+				Type:      int8(msgtype.Recall), // 已是撤回终态
+				Content:   "",
+			},
+			updateOk: false,
+		}
+		msgStore.msg.CreatedAt = time.Now()
+
+		svc := NewMessageService(msgStore, nil, nil)
+		notifyCalled := false
+		svc.SetPushRecallNotify(func(messageUuid, receiveId string) {
+			notifyCalled = true
+		})
+
+		err := svc.RecallMessage(ctx, "U1", messagereq.RecallMessageRequest{
+			MessageUuid: "M1001",
+		})
+		if err != nil {
+			t.Fatalf("expected nil error for idempotent healing, got %v", err)
+		}
+		if notifyCalled {
+			t.Fatal("expected notify NOT to be called on idempotent healing")
+		}
+		if msgStore.updateCalled != 0 {
+			t.Fatalf("expected updateCalled=0 when already recalled, got %d", msgStore.updateCalled)
+		}
+	})
 }

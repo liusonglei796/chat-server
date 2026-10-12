@@ -66,6 +66,18 @@ func (r *groupStore) FindByOwnerIdPaged(ctx context.Context, ownerId string, pag
 	return groups, total, nil
 }
 
+// FindByOwnerIdAndName 根据群主ID和群名称查找正常状态的群组（用于建群防重）
+// ownerId: 群主用户UUID
+// name: 群名称
+// 返回: 群组信息、错误
+func (r *groupStore) FindByOwnerIdAndName(ctx context.Context, ownerId, name string) (*model.GroupInfo, error) {
+	var group model.GroupInfo
+	if err := r.db.WithContext(ctx).Where("owner_id = ? AND name = ? AND status = 0", ownerId, name).First(&group).Error; err != nil {
+		return nil, dberr.WrapDBErrorf(err, "查询群组 owner_id=%s name=%s", ownerId, name)
+	}
+	return &group, nil
+}
+
 // GetGroupList [管理员] 分页查找群组（包含软删除的）
 // page: 页码（从1开始）
 // pageSize: 每页数量
@@ -174,12 +186,12 @@ func (r *groupStore) DecrementMemberCountBy(ctx context.Context, uuid string, co
 	return nil
 }
 
-// SoftDeleteByUuids [管理员] 批量软删除群组
+// SoftDeleteByUuids [管理员/解散] 批量删除群组（物理删除释放群名称唯一索引槽位）
 func (r *groupStore) SoftDeleteByUuids(ctx context.Context, uuids []string) error {
 	if len(uuids) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Where("uuid IN ?", uuids).Delete(&model.GroupInfo{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Unscoped().Where("uuid IN ?", uuids).Delete(&model.GroupInfo{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除群组")
 	}
 	return nil

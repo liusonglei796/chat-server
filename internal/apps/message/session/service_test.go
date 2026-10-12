@@ -25,6 +25,10 @@ func (m *mockSessionStore) FindBySendIdAndReceiveId(_ context.Context, sendId, r
 	return nil, nil
 }
 
+func (m *mockSessionStore) FindBySendIdAndReceiveIdUnscoped(ctx context.Context, sendId, receiveId string) (*model.Session, error) {
+	return m.FindBySendIdAndReceiveId(ctx, sendId, receiveId)
+}
+
 func (m *mockSessionStore) CreateSession(_ context.Context, session *model.Session) error {
 	key := session.SendId + ":" + session.ReceiveId
 	if m.failOnCreateWithDup {

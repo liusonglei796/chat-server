@@ -16,6 +16,7 @@ import (
 
 	bwsnowflake "github.com/bwmarrin/snowflake"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	userpb "kama_chat_server/api/gen/user"
@@ -32,6 +33,7 @@ import (
 	msgtype "kama_chat_server/pkg/enum/message/message_type"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
+	"kama_chat_server/pkg/idempotent"
 )
 
 // MessageService 消息业务逻辑实现
@@ -40,6 +42,7 @@ type MessageService struct {
 	messageStore store.MessageStore
 	sessionStore store.SessionStore
 	cache        store.AsyncCacheService
+	guard        idempotent.Guard
 	// pushRecallNotify 撤回通知回调（可由下游单管道推送实现）
 	pushRecallNotify func(messageUuid, receiveId string)
 }
@@ -49,11 +52,21 @@ func NewMessageService(
 	messageStore store.MessageStore,
 	sessionStore store.SessionStore,
 	cacheService store.AsyncCacheService,
+	guard ...idempotent.Guard,
 ) *MessageService {
+	var g idempotent.Guard
+	if len(guard) > 0 && guard[0] != nil {
+		g = guard[0]
+	} else if ig, ok := cacheService.(idempotent.Guard); ok && ig != nil {
+		g = ig
+	} else if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc != nil && rc.Client() != nil {
+		g = idempotent.NewRedisGuard(rc.Client())
+	}
 	m := &MessageService{
 		messageStore: messageStore,
 		sessionStore: sessionStore,
 		cache:        cacheService,
+		guard:        g,
 	}
 	m.pushRecallNotify = m.PushRecallNotify
 	return m
@@ -185,7 +198,12 @@ func (m *MessageService) cacheMessageToZSet(message *model.Message) {
 	msgCopy := *message
 	m.cache.SubmitTask(func() {
 		key := constants.CacheKeyMessageZSet + msgCopy.SessionId
-		score := snowflakeUuidToScore(msgCopy.Uuid)
+		var score float64
+		if msgCopy.SeqId > 0 {
+			score = float64(msgCopy.SeqId)
+		} else {
+			score = snowflakeUuidToScore(msgCopy.Uuid)
+		}
 		if score <= 0 {
 			score = float64(msgCopy.CreatedAt.UnixMicro())
 		}
@@ -222,7 +240,12 @@ func (m *MessageService) updateRecalledMessageInZSet(sessionId, messageUuid stri
 				_ = m.cache.ZRem(ctx, key, member)
 				msg.Content = ""
 				msg.Type = int8(msgtype.Recall)
-				score := snowflakeUuidToScore(msg.Uuid)
+				var score float64
+				if msg.SeqId > 0 {
+					score = float64(msg.SeqId)
+				} else {
+					score = snowflakeUuidToScore(msg.Uuid)
+				}
 				if updatedData, err := json.Marshal(msg); err == nil {
 					_ = m.cache.ZAdd(ctx, key, score, string(updatedData))
 				}
@@ -287,7 +310,12 @@ func (m *MessageService) getMessagesBySessionIdCursorWithCache(ctx context.Conte
 		copy(messagesToCache, result.Messages)
 		m.cache.SubmitTask(func() {
 			for _, msg := range messagesToCache {
-				score := snowflakeUuidToScore(msg.Uuid)
+				var score float64
+				if msg.SeqId > 0 {
+					score = float64(msg.SeqId)
+				} else {
+					score = snowflakeUuidToScore(msg.Uuid)
+				}
 				if score <= 0 {
 					score = float64(msg.CreatedAt.UnixMicro())
 				}
@@ -484,9 +512,11 @@ func (m *MessageService) saveFile(fileHeader *multipart.FileHeader, dstDir strin
 }
 
 // RecallMessage 撤回消息
-// 流程：查消息 → 校验身份 → 校验时限 → 更新数据库 → WebSocket 通知对方
+// 流程：查消息 → 校验身份 → 终态自愈 → 校验时限 → 更新数据库 → WebSocket 通知对方
 func (m *MessageService) RecallMessage(ctx context.Context, userId string, req messagereq.RecallMessageRequest) error {
-	// 1. 查询消息是否存在
+	// Step 1.1: 查询消息是否存在
+	// 来源: req.MessageUuid
+	// 用于: Step 1.2 与 Step 1.3 身份核验与时效判断
 	msg, err := m.messageStore.FindByUuid(ctx, req.MessageUuid)
 	if err != nil {
 		if errorx.IsNotFound(err) {
@@ -496,33 +526,61 @@ func (m *MessageService) RecallMessage(ctx context.Context, userId string, req m
 		return errorx.ErrServerBusy
 	}
 
-	// 2. 只有发送者可以撤回
+	// Step 1.2: 身份校验（仅发送者可以撤回）
+	// 来源: msg.SendId 与操作人 userId
+	// 用于: 权限隔离
 	if msg.SendId != userId {
 		return errorx.New(errorx.CodeForbidden, "只能撤回自己发送的消息")
 	}
 
-	// 3. 已撤回的消息不能重复撤回
+	// Step 1.3: 终态幂等自愈检查
+	// 来源: msg.Type
+	// 用于: 消息已处于撤回终态时静默自愈返回成功，阻断重复撤回广播与虚假报错
 	if msg.Type == int8(msgtype.Recall) {
-		return errorx.New(errorx.CodeInvalidParam, "该消息已被撤回")
+		return nil
 	}
 
-	// 4. 2分钟时限
+	// Step 1.4: 撤回时限校验（2分钟）
+	// 来源: msg.CreatedAt 与当前系统时间
+	// 用于: 超过2分钟不允许撤回
 	if time.Since(msg.CreatedAt) > 2*time.Minute {
 		return errorx.New(errorx.CodeForbidden, "消息发送超过2分钟，无法撤回")
 	}
 
-	// 5. 更新消息类型为撤回，清空内容（原子状态更新：仅当尚未撤回时更新成功）
+	// Step 1.5: 原子更新消息类型为撤回（CAS 状态跃迁锁：仅当尚未撤回时更新成功）
+	// 来源: req.MessageUuid
+	// 用于: 数据库行级排他锁跃迁并防并发击穿
 	ok, err := m.messageStore.UpdateContent(ctx, req.MessageUuid, "", int8(msgtype.Recall))
 	if err != nil {
 		zap.L().Error("撤回消息失败", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	if !ok {
-		// 并发请求已被前序操作撤回，杜绝重复撤回与重复广播
+		// Step 1.5.1: 检查 CAS 执行结果（RowsAffected == 0），反查真实记录并按规范分流
+		// 来源: UpdateContent 的 ok == false
+		// 用于: 拦截越权/非法状态，或终态放行
+		cur, queryErr := m.messageStore.FindByUuid(ctx, req.MessageUuid)
+		if queryErr != nil || cur == nil {
+			return errorx.New(errorx.CodeNotFound, "消息不存在")
+		}
+		// 【先拦截 1】：用户不匹配（越权操作，最严重的合规问题优先拦截）
+		if cur.SendId != userId {
+			return errorx.New(errorx.CodeForbidden, "只能撤回自己发送的消息")
+		}
+		// 【先拦截 2】：非法前置时限约束（超时）
+		if time.Since(cur.CreatedAt) > 2*time.Minute {
+			return errorx.New(errorx.CodeForbidden, "消息发送超过2分钟，无法撤回")
+		}
+		// 【最后放行】：确认确实是撤回终态（并发/网络重试），静默放行掐断副作用
+		if cur.Type == int8(msgtype.Recall) {
+			return nil
+		}
 		return errorx.New(errorx.CodeInvalidParam, "该消息已被撤回")
 	}
 
-	// 6. 仅当实际成功撤回 (RowsAffected > 0) 时，才通过 WebSocket 通知（群聊广播所有群成员，私聊通知双方）
+	// Step 1.6: 仅首次成功跃迁时通过 WebSocket 通知双方/群成员
+	// 来源: req.MessageUuid 与 msg.ReceiveId, msg.SendId
+	// 用于: 推送实时撤回事件
 	if m.pushRecallNotify != nil {
 		m.pushRecallNotify(req.MessageUuid, msg.ReceiveId)
 		if len(msg.ReceiveId) > 0 && msg.ReceiveId[0] == 'U' && msg.SendId != "" {
@@ -536,10 +594,11 @@ func (m *MessageService) RecallMessage(ctx context.Context, userId string, req m
 		}
 	}
 
-	// 7. 更新会话最后消息摘要
+	// Step 1.7: 更新会话最后消息摘要与 ZSET 历史缓存
+	// 来源: msg 实体与 req.MessageUuid
+	// 用于: 同步会话摘要为撤回占位符
 	m.updateSessionLastMessage(msg, "[一条消息已被撤回]")
 
-	// 8. 同步更新/清除 ZSET 缓存中的撤回消息
 	sessionId := msg.SessionId
 	if sessionId == "" {
 		sessionId = ResolveSessionId(msg.SendId, msg.ReceiveId)
@@ -677,6 +736,57 @@ func (m *MessageService) buildMessageFromRequest(req messagereq.ChatMessageReque
 	}
 }
 
+// nextSessionSeq 获取会话单调连续自增序号（微信/钉钉标准方案）
+// 来源: sessionId 会话唯一标识 (P_xxx_yyy 或 Gxxx)
+// 用于: 消息实体绑定 SeqId，保证全会话因果时序单调递增，彻底消除分布式时钟漂移
+func (m *MessageService) nextSessionSeq(ctx context.Context, sessionId string) (int64, error) {
+	// Step 1.1: 快速路径 - 优先通过 Redis INCR 原子发号
+	// 来源: sessionId
+	// 用于: 高并发内存级原子发号（单Key 10w+ QPS）
+	if m.cache != nil {
+		key := constants.CacheKeySessionSeq + sessionId
+		seq, err := m.cache.Incr(ctx, key)
+		if err == nil {
+			// 若 seq == 1，说明该 key 可能是冷启动（Redis 重启、初次创建或淘汰）
+			if seq == 1 {
+				// Step 1.2: 冷启动基线校准
+				// 来源: m.messageStore.GetMaxSeqBySessionId
+				// 用于: 从底层数据库捞取当前最大 seq_id，防止 Redis 宕机重启后发号倒退
+				maxSeq, dbErr := m.messageStore.GetMaxSeqBySessionId(ctx, sessionId)
+				if dbErr == nil && maxSeq >= 1 {
+					calibratedSeq := maxSeq + 1
+					script := `
+local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+local target = tonumber(ARGV[1])
+if current <= target then
+    redis.call('SET', KEYS[1], target)
+    return target
+else
+    return redis.call('INCR', KEYS[1])
+end`
+					if res, evalErr := m.cache.Eval(ctx, script, []string{key}, calibratedSeq); evalErr == nil {
+						if num, ok := res.(int64); ok {
+							return num, nil
+						}
+					}
+					return calibratedSeq, nil
+				}
+			}
+			return seq, nil
+		}
+		zap.L().Warn("Redis 生成会话 Seq 失败，降级查 DB 基准", zap.String("sessionId", sessionId), zap.Error(err))
+	}
+
+	// Step 1.3: Redis 异常或未就绪时的兜底降级
+	// 来源: m.messageStore.GetMaxSeqBySessionId
+	// 用于: 保障服务在缓存故障时的可用性
+	maxSeq, err := m.messageStore.GetMaxSeqBySessionId(ctx, sessionId)
+	if err != nil {
+		return 0, err
+	}
+	return maxSeq + 1, nil
+}
+
 func (m *MessageService) trySendBack(targetUserId string, messageUuid string, payload []byte) {
 	if m.cache == nil {
 		return
@@ -753,6 +863,7 @@ func (m *MessageService) updateSessionLastMessage(message *model.Message, conten
 			content,
 			message.Type,
 			message.CreatedAt,
+			message.SeqId,
 		); err != nil {
 			zap.L().Error("更新发送者会话最后消息失败", zap.Error(err))
 		}
@@ -764,6 +875,7 @@ func (m *MessageService) updateSessionLastMessage(message *model.Message, conten
 				content,
 				message.Type,
 				message.CreatedAt,
+				message.SeqId,
 			); err != nil {
 				zap.L().Warn("更新接收者会话最后消息失败", zap.Error(err))
 			}
@@ -808,6 +920,7 @@ func (m *MessageService) hydrateMessages(ctx context.Context, messages []model.M
 			FileType:   msg.FileType,
 			FileName:   msg.FileName,
 			FileSize:   msg.FileSize,
+			SeqId:      msg.SeqId,
 			CreatedAt:  msg.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
@@ -826,6 +939,7 @@ func (m *MessageService) dispatchToUser(message model.Message, sendName, origina
 		FileSize:   message.FileSize,
 		FileName:   message.FileName,
 		FileType:   message.FileType,
+		SeqId:      message.SeqId,
 		CreatedAt:  message.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
 	jsonMessage, _ := json.Marshal(messageRsp)
@@ -846,6 +960,7 @@ func (m *MessageService) dispatchToGroup(ctx context.Context, message model.Mess
 		FileSize:   message.FileSize,
 		FileName:   message.FileName,
 		FileType:   message.FileType,
+		SeqId:      message.SeqId,
 		CreatedAt:  message.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
 	jsonMessage, _ := json.Marshal(messageRsp)
@@ -898,6 +1013,7 @@ func (m *MessageService) dispatchAVToUser(message model.Message, sendName, sendA
 			FileSize:   message.FileSize,
 			FileName:   message.FileName,
 			FileType:   message.FileType,
+			SeqId:      message.SeqId,
 			CreatedAt:  message.CreatedAt.Format("2006-01-02 15:04:05"),
 			AVdata:     message.AVdata,
 		}
@@ -906,106 +1022,159 @@ func (m *MessageService) dispatchAVToUser(message model.Message, sendName, sendA
 	}
 }
 
-// SendMessage 上行消息发送（同步鉴权、幂等、落库，并向单管道 downstream 投递广播）
-func (m *MessageService) SendMessage(ctx context.Context, req messagereq.ChatMessageRequest) (rsp *messagersp.SendMessageRespond, err error) {
-	// 1. 幂等检查（抢占处理中锁 / 成功回放）
-	cachedRsp, dedupKey, lockErr := m.acquireDedupLock(ctx, req.ClientMsgId)
-	if lockErr != nil {
-		return nil, lockErr
-	}
-	if cachedRsp != nil {
-		// 命中幂等且前序请求已成功：直接回放历史真实响应结果
-		return cachedRsp, nil
-	}
-	if dedupKey != "" {
-		// 2. 失败删 Key（防重锁模式）/ 成功持久化真实响应（成功回放）
-		defer func() {
-			if err != nil {
-				// 业务处理失败（鉴权失败、落库失败等），必须删除防重 Key 允许客户端重试
-				_ = m.cache.Delete(context.Background(), dedupKey)
-			} else if rsp != nil {
-				// 业务确定性成功，将真实落库结果持久化缓存 24h，供后续重试时幂等回放
-				if data, jsonErr := json.Marshal(rsp); jsonErr == nil {
-					_ = m.cache.Set(context.Background(), dedupKey, string(data), msgDedupSuccessTTL)
+// SendMessage 上行消息发送（同步鉴权、状态机幂等、落库，并向单管道 downstream 投递广播）
+func (m *MessageService) SendMessage(ctx context.Context, req messagereq.ChatMessageRequest) (*messagersp.SendMessageRespond, error) {
+	// Step 1.1: 声明消息业务核心执行体（权限校验、落库、缓存、更新会话与多端分发）
+	// 来源: req 消息发送请求实体
+	// 用于: 首次执行并产出落库结果，或被第三代状态机幂等组件保护执行
+	execFn := func(execCtx context.Context) (*messagersp.SendMessageRespond, error) {
+		// 1. 权限校验（发送者状态、好友关系或群成员关系）
+		if err := m.checkSendPermission(execCtx, req.SendId, req.ReceiveId); err != nil {
+			return nil, err
+		}
+
+		message := m.buildMessageFromRequest(req)
+
+		// Step 1.1.1: 获取会话单调递增 SeqID
+		// 来源: message.SessionId (会话唯一ID)
+		// 用于: 为单会话消息绑定绝对因果自增序列号，消除分布式时钟漂移
+		seqId, err := m.nextSessionSeq(execCtx, message.SessionId)
+		if err != nil {
+			zap.L().Error("生成会话 SeqID 失败", zap.String("sessionId", message.SessionId), zap.Error(err))
+			return nil, errorx.ErrServerBusy
+		}
+		message.SeqId = seqId
+
+		switch req.Type {
+		case int8(msgtype.Text):
+			metrics.MessagesConsumed.WithLabelValues("text").Inc()
+			message.Url = ""
+			message.FileSize = "0B"
+			message.FileType = ""
+			message.FileName = ""
+			message.AVdata = ""
+			if err := m.messageStore.Create(execCtx, &message); err != nil {
+				zap.L().Error("创建文本消息失败", zap.Error(err))
+				return nil, errorx.ErrServerBusy
+			}
+			m.cacheMessageToZSet(&message)
+			m.updateSessionLastMessage(&message, message.Content)
+			if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
+				m.dispatchToUser(message, req.SendName, req.SendAvatar)
+			} else if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'G' {
+				m.dispatchToGroup(execCtx, message, req.SendName, req.SendAvatar)
+			}
+
+		case int8(msgtype.File):
+			metrics.MessagesConsumed.WithLabelValues("file").Inc()
+			message.Content = ""
+			message.AVdata = ""
+			if err := m.messageStore.Create(execCtx, &message); err != nil {
+				zap.L().Error("创建文件消息失败", zap.Error(err))
+				return nil, errorx.ErrServerBusy
+			}
+			m.cacheMessageToZSet(&message)
+			content := "[文件] " + req.FileName
+			m.updateSessionLastMessage(&message, content)
+			if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
+				m.dispatchToUser(message, req.SendName, req.SendAvatar)
+			} else if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'G' {
+				m.dispatchToGroup(execCtx, message, req.SendName, req.SendAvatar)
+			}
+
+		case int8(msgtype.AudioOrVideo):
+			metrics.MessagesConsumed.WithLabelValues("audio_video").Inc()
+			var avData messagereq.AVSignalData
+			_ = json.Unmarshal([]byte(req.AVdata), &avData)
+			message.Content = ""
+
+			if avData.MessageId == "PROXY" && (avData.Type == "start_call" || avData.Type == "receive_call" || avData.Type == "reject_call") {
+				if err := m.messageStore.Create(execCtx, &message); err == nil {
+					m.cacheMessageToZSet(&message)
 				}
+				var summary string
+				switch avData.Type {
+				case "start_call":
+					summary = "[通话] 发起了通话"
+				case "receive_call":
+					summary = "[通话] 已接听"
+				case "reject_call":
+					summary = "[通话] 已拒绝"
+				}
+				m.updateSessionLastMessage(&message, summary)
 			}
-		}()
+			m.dispatchAVToUser(message, req.SendName, req.SendAvatar)
+		default:
+			return nil, errorx.New(errorx.CodeInvalidParam, "不支持的消息类型")
+		}
+
+		return &messagersp.SendMessageRespond{
+			MessageUuid: message.Uuid,
+			SeqId:       message.SeqId,
+			CreatedAt:   message.CreatedAt.Format("2006-01-02 15:04:05"),
+		}, nil
 	}
 
-	// 3. 权限校验（发送者状态、好友关系或群成员关系）
-	if err = m.checkSendPermission(ctx, req.SendId, req.ReceiveId); err != nil {
-		return nil, err
+	// Step 1.2: 接入第三代状态机幂等保护
+	// 来源: req.ClientMsgId 与注入的 m.guard
+	// 用于: 5s 短租约防并发连击，24 小时成功结果持久化供重试 0ms 回放
+	if m.guard != nil && req.ClientMsgId != "" {
+		key := "msg:dedup:" + req.ClientMsgId
+		rsp, isReplay, err := idempotent.ExecuteJSON(ctx, m.guard, key, 5*time.Second, 24*time.Hour, execFn)
+		if err != nil {
+			return nil, err
+		}
+		if isReplay {
+			metrics.MessagesDuplicated.Inc()
+			zap.L().Info("命中消息发送幂等回放，直接返回已发送消息记录",
+				zap.String("client_msg_id", req.ClientMsgId),
+				zap.String("message_uuid", rsp.MessageUuid),
+			)
+		}
+		return rsp, nil
 	}
 
-	message := m.buildMessageFromRequest(req)
+	// Step 1.3: 无防重凭证或无 Guard 时的直接执行兜底
+	// 来源: Step 1.1 声明的 execFn 执行体
+	// 用于: 直接产出消息发送响应
+	return execFn(ctx)
+}
 
-	switch req.Type {
-	case int8(msgtype.Text):
-		metrics.MessagesConsumed.WithLabelValues("text").Inc()
-		message.Url = ""
-		message.FileSize = "0B"
-		message.FileType = ""
-		message.FileName = ""
-		message.AVdata = ""
-		if err := m.messageStore.Create(ctx, &message); err != nil {
-			zap.L().Error("创建文本消息失败", zap.Error(err))
+// SyncMessages 基于会话 SeqID 增量同步拉取消息（微信/钉钉标准增量拉取协议）
+// 来源: requesterId 请求者UUID, sessionId 会话UUID, afterSeq 客户端本地已同步的最大序列号, limit 单批拉取上限
+// 用于: 客户端断网重连消息对齐、空洞检测自动定向补洞
+func (m *MessageService) SyncMessages(ctx context.Context, requesterId, sessionId string, afterSeq int64, limit int) ([]messagersp.GetMessageListRespond, error) {
+	// Step 2.1: 会话参与权限校验
+	// 来源: requesterId, sessionId
+	// 用于: 防止未授权用户越权偷看会话历史
+	if strings.HasPrefix(sessionId, "G") {
+		// 群聊权限检查：只要有该群的 Session 即有权限
+		if _, err := m.sessionStore.FindBySendIdAndReceiveId(ctx, requesterId, sessionId); err != nil {
+			if errorx.IsNotFound(err) {
+				return nil, errorx.New(errorx.CodeForbidden, "您没有该群的会话记录")
+			}
 			return nil, errorx.ErrServerBusy
 		}
-		m.cacheMessageToZSet(&message)
-		m.updateSessionLastMessage(&message, message.Content)
-		if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
-			m.dispatchToUser(message, req.SendName, req.SendAvatar)
-		} else if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'G' {
-			m.dispatchToGroup(ctx, message, req.SendName, req.SendAvatar)
+	} else if strings.HasPrefix(sessionId, "P_") {
+		// 单聊校验：解析双方 ID，检验 requesterId 是否属于其中之一
+		parts := strings.Split(sessionId, "_")
+		if len(parts) != 3 || (parts[1] != requesterId && parts[2] != requesterId) {
+			return nil, errorx.New(errorx.CodeForbidden, "您无权访问该单聊会话")
 		}
-
-	case int8(msgtype.File):
-		metrics.MessagesConsumed.WithLabelValues("file").Inc()
-		message.Content = ""
-		message.AVdata = ""
-		if err := m.messageStore.Create(ctx, &message); err != nil {
-			zap.L().Error("创建文件消息失败", zap.Error(err))
-			return nil, errorx.ErrServerBusy
-		}
-		m.cacheMessageToZSet(&message)
-		content := "[文件] " + req.FileName
-		m.updateSessionLastMessage(&message, content)
-		if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
-			m.dispatchToUser(message, req.SendName, req.SendAvatar)
-		} else if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'G' {
-			m.dispatchToGroup(ctx, message, req.SendName, req.SendAvatar)
-		}
-
-	case int8(msgtype.AudioOrVideo):
-		metrics.MessagesConsumed.WithLabelValues("audio_video").Inc()
-		var avData messagereq.AVSignalData
-		_ = json.Unmarshal([]byte(req.AVdata), &avData)
-		message.Content = ""
-
-		if avData.MessageId == "PROXY" && (avData.Type == "start_call" || avData.Type == "receive_call" || avData.Type == "reject_call") {
-			if err := m.messageStore.Create(ctx, &message); err == nil {
-				m.cacheMessageToZSet(&message)
-			}
-			var summary string
-			switch avData.Type {
-			case "start_call":
-				summary = "[通话] 发起了通话"
-			case "receive_call":
-				summary = "[通话] 已接听"
-			case "reject_call":
-				summary = "[通话] 已拒绝"
-			}
-			m.updateSessionLastMessage(&message, summary)
-		}
-		m.dispatchAVToUser(message, req.SendName, req.SendAvatar)
-	default:
-		return nil, errorx.New(errorx.CodeInvalidParam, "不支持的消息类型")
 	}
 
-	rsp = &messagersp.SendMessageRespond{
-		MessageUuid: message.Uuid,
-		CreatedAt:   message.CreatedAt.Format("2006-01-02 15:04:05"),
+	// Step 2.2: 从底层持久化存储拉取递增序列消息
+	// 来源: sessionId, afterSeq, limit
+	// 用于: 按 seq_id ASC 纯正序返回增量新消息
+	messages, err := m.messageStore.FindBySessionIdSync(ctx, sessionId, afterSeq, limit)
+	if err != nil {
+		zap.L().Error("SyncMessages 增量同步失败", zap.String("sessionId", sessionId), zap.Int64("afterSeq", afterSeq), zap.Error(err))
+		return nil, errorx.ErrServerBusy
 	}
-	return rsp, nil
+
+	// Step 2.3: 聚合发送方公开资料并返回
+	// 来源: Step 2.2 的 messages 列表
+	// 用于: 格式化为响应实体交付客户端
+	return m.hydrateMessages(ctx, messages), nil
 }
 

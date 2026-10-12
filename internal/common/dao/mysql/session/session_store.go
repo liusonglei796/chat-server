@@ -14,7 +14,6 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // sessionStore SessionStore 接口的实现
@@ -42,6 +41,15 @@ func (r *sessionStore) FindBySendIdAndReceiveId(ctx context.Context, sendId, rec
 	var session model.Session
 	if err := r.db.WithContext(ctx).Where("send_id = ? AND receive_id = ?", sendId, receiveId).First(&session).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "查询会话 send_id=%s receive_id=%s", sendId, receiveId)
+	}
+	return &session, nil
+}
+
+// FindBySendIdAndReceiveIdUnscoped 包含软删除记录查找会话（用于唯一键冲突后的兜底回显与复活）
+func (r *sessionStore) FindBySendIdAndReceiveIdUnscoped(ctx context.Context, sendId, receiveId string) (*model.Session, error) {
+	var session model.Session
+	if err := r.db.WithContext(ctx).Unscoped().Where("send_id = ? AND receive_id = ?", sendId, receiveId).First(&session).Error; err != nil {
+		return nil, dberr.WrapDBErrorf(err, "查询会话(含软删除) send_id=%s receive_id=%s", sendId, receiveId)
 	}
 	return &session, nil
 }
@@ -185,35 +193,43 @@ func (r *sessionStore) FindBySendIdAndTypeCursor(ctx context.Context, sendId str
 }
 
 // CreateSession 创建会话
-// 使用 OnConflict 当 (send_id, receive_id) 唯一键冲突时静默忽略，保证并发创建幂等
+// 当 (send_id, receive_id) 唯一键冲突时返回 DuplicateKey 错误，由业务层捕获并返回已有会话 UUID。
+// 若发现冲突记录已被软删除，自动清除 deleted_at 复活该会话，彻底消除唯一索引与软删除的死锁
 func (r *sessionStore) CreateSession(ctx context.Context, session *model.Session) error {
-	if err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "send_id"}, {Name: "receive_id"}},
-		DoNothing: true,
-	}).Create(session).Error; err != nil {
+	if err := r.db.WithContext(ctx).Create(session).Error; err != nil {
+		if dberr.IsDuplicateKey(err) {
+			var existing model.Session
+			if queryErr := r.db.WithContext(ctx).Unscoped().Where("send_id = ? AND receive_id = ?", session.SendId, session.ReceiveId).First(&existing).Error; queryErr == nil {
+				if existing.DeletedAt.Valid {
+					// 软删除复活：重置 deleted_at 状态为活跃并更新时间戳
+					_ = r.db.WithContext(ctx).Unscoped().Model(&existing).Update("deleted_at", nil)
+					session.Uuid = existing.Uuid
+				}
+			}
+		}
 		return dberr.WrapDBError(err, "创建会话")
 	}
 	return nil
 }
 
-// SoftDeleteByUuids 批量软删除会话（按照会话ID）
+// SoftDeleteByUuids 批量删除会话（物理删除，释放唯一索引槽位避免再次建立会话冲突）
 func (r *sessionStore) SoftDeleteByUuids(ctx context.Context, uuids []string) error {
 	if len(uuids) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Where("uuid IN ?", uuids).Delete(&model.Session{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Unscoped().Where("uuid IN ?", uuids).Delete(&model.Session{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除会话")
 	}
 	return nil
 }
 
-// SoftDeleteByUsers 批量软删除指定用户的所有会话
+// SoftDeleteByUsers 批量删除指定用户的所有会话（物理删除，释放唯一索引槽位）
 // 删除用户发起的和接收的所有会话
 func (r *sessionStore) SoftDeleteByUsers(ctx context.Context, userUuids []string) error {
 	if len(userUuids) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Where("send_id IN ? OR receive_id IN ?", userUuids, userUuids).Delete(&model.Session{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Unscoped().Where("send_id IN ? OR receive_id IN ?", userUuids, userUuids).Delete(&model.Session{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除会话")
 	}
 	return nil
@@ -252,16 +268,27 @@ func (r *sessionStore) UpdateByReceiveId(ctx context.Context, receiveId string, 
 
 // UpdateLastMessage 更新会话的最后一条消息信息
 // 用于发送消息后同步更新会话列表显示的最新消息
-// 采用时序乐观锁比对：仅当 last_message_at 为 NULL 或 msgTime >= 当前 last_message_at 时才更新，防止乱序与网络重试导致的旧消息覆盖新消息
-func (r *sessionStore) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time) error {
+// 采用双重版本乐观锁：
+//  1. 若 seqId > 0，采用严格单调递增的 last_seq_id 比对 (last_seq_id = 0 或 last_seq_id <= seqId)，彻底杜绝分布式时钟漂移与网络乱序覆盖；
+//  2. 若 seqId <= 0（兼容旧数据场景），退避使用 last_message_at 物理时间戳比对
+func (r *sessionStore) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time, seqId int64) error {
 	updates := map[string]interface{}{
 		"last_message":      content,
 		"last_message_at":   msgTime,
 		"last_message_type": msgType,
 	}
-	if err := r.db.WithContext(ctx).Model(&model.Session{}).
-		Where("send_id = ? AND receive_id = ? AND (last_message_at IS NULL OR last_message_at <= ?)", sendId, receiveId, msgTime).
-		Updates(updates).Error; err != nil {
+	if seqId > 0 {
+		updates["last_seq_id"] = seqId
+	}
+
+	query := r.db.WithContext(ctx).Model(&model.Session{}).Where("send_id = ? AND receive_id = ?", sendId, receiveId)
+	if seqId > 0 {
+		query = query.Where("(last_seq_id = 0 OR last_seq_id <= ?)", seqId)
+	} else {
+		query = query.Where("(last_message_at IS NULL OR last_message_at <= ?)", msgTime)
+	}
+
+	if err := query.Updates(updates).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "更新会话最后消息 send_id=%s receive_id=%s", sendId, receiveId)
 	}
 	return nil

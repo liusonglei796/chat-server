@@ -7,6 +7,7 @@
 package group
 
 import (
+	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -28,6 +29,7 @@ type CreateGroupRequest struct {
 	Notice        string                 `protobuf:"bytes,3,opt,name=notice,proto3" json:"notice,omitempty"`
 	AddMode       int32                  `protobuf:"varint,4,opt,name=add_mode,json=addMode,proto3" json:"add_mode,omitempty"`
 	Avatar        string                 `protobuf:"bytes,5,opt,name=avatar,proto3" json:"avatar,omitempty"`
+	ClientToken   string                 `protobuf:"bytes,6,opt,name=client_token,json=clientToken,proto3" json:"client_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -97,8 +99,16 @@ func (x *CreateGroupRequest) GetAvatar() string {
 	return ""
 }
 
+func (x *CreateGroupRequest) GetClientToken() string {
+	if x != nil {
+		return x.ClientToken
+	}
+	return ""
+}
+
 type CreateGroupResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupId       string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -131,6 +141,13 @@ func (x *CreateGroupResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CreateGroupResponse.ProtoReflect.Descriptor instead.
 func (*CreateGroupResponse) Descriptor() ([]byte, []int) {
 	return file_api_proto_group_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CreateGroupResponse) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
 }
 
 type LoadMyGroupRequest struct {
@@ -1705,14 +1722,16 @@ var File_api_proto_group_proto protoreflect.FileDescriptor
 
 const file_api_proto_group_proto_rawDesc = "" +
 	"\n" +
-	"\x15api/proto/group.proto\x12\x05group\"\x8e\x01\n" +
+	"\x15api/proto/group.proto\x12\x05group\x1a\x1cgoogle/api/annotations.proto\"\xb1\x01\n" +
 	"\x12CreateGroupRequest\x12\x19\n" +
 	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
 	"\x06notice\x18\x03 \x01(\tR\x06notice\x12\x19\n" +
 	"\badd_mode\x18\x04 \x01(\x05R\aaddMode\x12\x16\n" +
-	"\x06avatar\x18\x05 \x01(\tR\x06avatar\"\x15\n" +
-	"\x13CreateGroupResponse\"^\n" +
+	"\x06avatar\x18\x05 \x01(\tR\x06avatar\x12!\n" +
+	"\fclient_token\x18\x06 \x01(\tR\vclientToken\"0\n" +
+	"\x13CreateGroupResponse\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\"^\n" +
 	"\x12LoadMyGroupRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x12\n" +
 	"\x04page\x18\x02 \x01(\x05R\x04page\x12\x1b\n" +
@@ -1814,21 +1833,21 @@ const file_api_proto_group_proto_rawDesc = "" +
 	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x12\n" +
 	"\x04role\x18\x03 \x01(\x05R\x04role\"\x18\n" +
-	"\x16AddGroupMemberResponse2\xd3\t\n" +
-	"\fGroupService\x12D\n" +
-	"\vCreateGroup\x12\x19.group.CreateGroupRequest\x1a\x1a.group.CreateGroupResponse\x12D\n" +
-	"\vLoadMyGroup\x12\x19.group.LoadMyGroupRequest\x1a\x1a.group.LoadMyGroupResponse\x12_\n" +
-	"\x14GetGroupListByMember\x12\".group.GetGroupListByMemberRequest\x1a#.group.GetGroupListByMemberResponse\x12V\n" +
-	"\x11CheckGroupAddMode\x12\x1f.group.CheckGroupAddModeRequest\x1a .group.CheckGroupAddModeResponse\x12A\n" +
+	"\x16AddGroupMemberResponse2\xdf\v\n" +
+	"\fGroupService\x12X\n" +
+	"\vCreateGroup\x12\x19.group.CreateGroupRequest\x1a\x1a.group.CreateGroupResponse\"\x12\x82\xd3\xe4\x93\x02\f:\x01*\"\a/groups\x12[\n" +
+	"\vLoadMyGroup\x12\x19.group.LoadMyGroupRequest\x1a\x1a.group.LoadMyGroupResponse\"\x15\x82\xd3\xe4\x93\x02\x0f\x12\r/groups/owned\x12w\n" +
+	"\x14GetGroupListByMember\x12\".group.GetGroupListByMemberRequest\x1a#.group.GetGroupListByMemberResponse\"\x16\x82\xd3\xe4\x93\x02\x10\x12\x0e/groups/joined\x12p\n" +
+	"\x11CheckGroupAddMode\x12\x1f.group.CheckGroupAddModeRequest\x1a .group.CheckGroupAddModeResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/groups/add-mode\x12[\n" +
 	"\n" +
-	"LeaveGroup\x12\x18.group.LeaveGroupRequest\x1a\x19.group.LeaveGroupResponse\x12G\n" +
-	"\fDismissGroup\x12\x1a.group.DismissGroupRequest\x1a\x1b.group.DismissGroupResponse\x12P\n" +
-	"\x0fUpdateGroupInfo\x12\x1d.group.UpdateGroupInfoRequest\x1a\x1e.group.UpdateGroupInfoResponse\x12Y\n" +
-	"\x12GetGroupMemberList\x12 .group.GetGroupMemberListRequest\x1a!.group.GetGroupMemberListResponse\x12Y\n" +
-	"\x12RemoveGroupMembers\x12 .group.RemoveGroupMembersRequest\x1a!.group.RemoveGroupMembersResponse\x12M\n" +
-	"\x0eGetGroupDetail\x12\x1c.group.GetGroupDetailRequest\x1a\x1d.group.GetGroupDetailResponse\x12A\n" +
+	"LeaveGroup\x12\x18.group.LeaveGroupRequest\x1a\x19.group.LeaveGroupResponse\"\x18\x82\xd3\xe4\x93\x02\x12:\x01*\"\r/groups/leave\x12X\n" +
+	"\fDismissGroup\x12\x1a.group.DismissGroupRequest\x1a\x1b.group.DismissGroupResponse\"\x0f\x82\xd3\xe4\x93\x02\t*\a/groups\x12i\n" +
+	"\x0fUpdateGroupInfo\x12\x1d.group.UpdateGroupInfoRequest\x1a\x1e.group.UpdateGroupInfoResponse\"\x17\x82\xd3\xe4\x93\x02\x11:\x01*\x1a\f/groups/info\x12r\n" +
+	"\x12GetGroupMemberList\x12 .group.GetGroupMemberListRequest\x1a!.group.GetGroupMemberListResponse\"\x17\x82\xd3\xe4\x93\x02\x11\x12\x0f/groups/members\x12r\n" +
+	"\x12RemoveGroupMembers\x12 .group.RemoveGroupMembersRequest\x1a!.group.RemoveGroupMembersResponse\"\x17\x82\xd3\xe4\x93\x02\x11*\x0f/groups/members\x12e\n" +
+	"\x0eGetGroupDetail\x12\x1c.group.GetGroupDetailRequest\x1a\x1d.group.GetGroupDetailResponse\"\x16\x82\xd3\xe4\x93\x02\x10\x12\x0e/groups/detail\x12b\n" +
 	"\n" +
-	"MuteMember\x12\x18.group.MuteMemberRequest\x1a\x19.group.MuteMemberResponse\x12S\n" +
+	"MuteMember\x12\x18.group.MuteMemberRequest\x1a\x19.group.MuteMemberResponse\"\x1f\x82\xd3\xe4\x93\x02\x19:\x01*\x1a\x14/groups/members/mute\x12S\n" +
 	"\x10CheckGroupMember\x12\x1e.group.CheckGroupMemberRequest\x1a\x1f.group.CheckGroupMemberResponse\x12Y\n" +
 	"\x12ListGroupMemberIds\x12 .group.ListGroupMemberIdsRequest\x1a!.group.ListGroupMemberIdsResponse\x12Y\n" +
 	"\x12GetGroupMemberRole\x12 .group.GetGroupMemberRoleRequest\x1a!.group.GetGroupMemberRoleResponse\x12M\n" +

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,6 +27,7 @@ import (
 	"kama_chat_server/pkg/enum/group/group_status"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
+	"kama_chat_server/pkg/idempotent"
 )
 
 // SessionService 会话业务逻辑实现
@@ -33,8 +35,9 @@ import (
 type SessionService struct {
 	sessionStore store.SessionStore
 	messageStore store.MessageStore
-	cache       store.AsyncCacheService
-	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
+	cache        store.AsyncCacheService
+	cacheHelper  *cacheutil.Helper // 缓存辅助工具（带 singleflight）
+	guard        idempotent.Guard
 }
 
 // NewSessionService 构造函数，注入所有依赖
@@ -42,12 +45,20 @@ func NewSessionService(
 	sessionStore store.SessionStore,
 	messageStore store.MessageStore,
 	cacheService store.AsyncCacheService,
+	guard ...idempotent.Guard,
 ) *SessionService {
+	var g idempotent.Guard
+	if len(guard) > 0 && guard[0] != nil {
+		g = guard[0]
+	} else if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc.Client() != nil {
+		g = idempotent.NewRedisGuard(rc.Client())
+	}
 	return &SessionService{
 		sessionStore: sessionStore,
 		messageStore: messageStore,
-		cache:       cacheService,
-		cacheHelper: cacheutil.NewHelper(cacheService),
+		cache:        cacheService,
+		cacheHelper:  cacheutil.NewHelper(cacheService),
+		guard:        g,
 	}
 }
 
@@ -155,7 +166,7 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 	// 5. 创建会话
 	if err = s.sessionStore.CreateSession(ctx, &session); err != nil {
 		if dberr.IsDuplicateKey(err) {
-			if existing, queryErr := s.sessionStore.FindBySendIdAndReceiveId(ctx, sendId, receiveId); queryErr == nil && existing != nil {
+			if existing, queryErr := s.sessionStore.FindBySendIdAndReceiveIdUnscoped(ctx, sendId, receiveId); queryErr == nil && existing != nil {
 				return existing.Uuid, nil
 			}
 		}
@@ -304,38 +315,61 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, sendId,
 // OpenSession 打开会话
 // sendId: 从 JWT 上下文获取的当前用户 ID，防止 IDOR 攻击
 func (s *SessionService) OpenSession(ctx context.Context, sendId string, req sessionreq.OpenSessionRequest) (string, error) {
-	cacheKey := constants.CacheKeySessionOpen + sendId + "_" + req.ReceiveId
+	// Step 1.1: 声明打开/创建会话的核心执行体
+	// 来源: sendId 与 req.ReceiveId
+	// 用于: Step 1.2 接入第三代状态机幂等探针执行或直接执行
+	action := func(execCtx context.Context) (string, error) {
+		cacheKey := constants.CacheKeySessionOpen + sendId + "_" + req.ReceiveId
 
-	// 1. 查缓存
-	rspString, err := s.cache.Get(context.Background(), cacheKey)
-	if err == nil && rspString != "" {
-		var session model.Session
-		if err := json.Unmarshal([]byte(rspString), &session); err == nil {
-			return session.Uuid, nil
+		// 1. 查缓存
+		rspString, err := s.cache.Get(execCtx, cacheKey)
+		if err == nil && rspString != "" {
+			var session model.Session
+			if err := json.Unmarshal([]byte(rspString), &session); err == nil {
+				return session.Uuid, nil
+			}
+			zap.L().Error("Unmarshal session cache failed", zap.Error(err))
 		}
-		// 反序列化失败，记录日志并降级查库（不要直接返回空）
-		zap.L().Error("Unmarshal session cache failed", zap.Error(err))
+
+		// 2. 查库（缓存未命中或反序列化失败）
+		session, err := s.sessionStore.FindBySendIdAndReceiveId(execCtx, sendId, req.ReceiveId)
+		if err != nil {
+			if errorx.GetCode(err) == errorx.CodeNotFound {
+				zap.L().Info("会话没有找到，将新建会话")
+				return s.CreateSession(execCtx, sendId, req.ReceiveId)
+			}
+			zap.L().Error("service error", zap.Error(err))
+			return "", errorx.ErrServerBusy
+		}
+
+		// 3. 缓存回写
+		s.cache.SubmitTask(func() {
+			if data, err := json.Marshal(session); err == nil {
+				_ = s.cache.Set(context.Background(), cacheKey, string(data), time.Minute*constants.REDIS_TIMEOUT)
+			}
+		})
+
+		return session.Uuid, nil
 	}
 
-	// 2. 查库（缓存未命中或反序列化失败）
-	session, err := s.sessionStore.FindBySendIdAndReceiveId(ctx, sendId, req.ReceiveId)
-	if err != nil {
-		if errorx.GetCode(err) == errorx.CodeNotFound {
-			zap.L().Info("会话没有找到，将新建会话")
-			return s.CreateSession(ctx, sendId, req.ReceiveId)
+	// Step 1.2: 接入第三代状态机幂等探针保护
+	// 来源: req.ClientToken 或自然业务键，配合 s.guard
+	// 用于: 短租约防高频并发击穿，24 小时回显已有会话ID
+	if s.guard != nil {
+		var key string
+		if req.ClientToken != "" {
+			key = "session:open:" + req.ClientToken
+		} else {
+			key = "session:open:" + sendId + ":" + req.ReceiveId
 		}
-		zap.L().Error("service error", zap.Error(err))
-		return "", errorx.ErrServerBusy
+		rsp, _, err := idempotent.ExecuteJSON(ctx, s.guard, key, 5*time.Second, 24*time.Hour, action)
+		return rsp, err
 	}
 
-	// 3. 【优化点】缓存回写
-	s.cache.SubmitTask(func() {
-		if data, err := json.Marshal(session); err == nil {
-			_ = s.cache.Set(context.Background(), cacheKey, string(data), time.Minute*constants.REDIS_TIMEOUT)
-		}
-	})
-
-	return session.Uuid, nil
+	// Step 1.3: 无 Guard 时的直接执行兜底
+	// 来源: Step 1.1 的 action 闭包
+	// 用于: 直接产出会话 ID
+	return action(ctx)
 }
 
 // GetUserSessionList 获取用户单聊会话列表（分页）
@@ -453,6 +487,7 @@ func (s *SessionService) hydrateUserSessions(ctx context.Context, sessions []mod
 			LastMessage:     sess.LastMessage,
 			LastMessageTime: lastMessageTime,
 			LastMessageType: sess.LastMessageType,
+			LastSeqId:       sess.LastSeqId,
 			IsPinned:        sess.IsPinned,
 		})
 	}
@@ -493,6 +528,7 @@ func (s *SessionService) hydrateGroupSessions(ctx context.Context, ownerId strin
 			LastMessage:     sess.LastMessage,
 			LastMessageTime: lastMessageTime,
 			LastMessageType: sess.LastMessageType,
+			LastSeqId:       sess.LastSeqId,
 			IsPinned:        sess.IsPinned,
 		})
 	}
@@ -505,7 +541,8 @@ func (s *SessionService) DeleteSession(ctx context.Context, ownerId, sessionId s
 	session, err := s.sessionStore.FindByUuid(ctx, sessionId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeNotFound, "会话不存在")
+			// 终态幂等自愈：会话已不存在（前序删除重试已生效），静默返回成功
+			return nil
 		}
 		zap.L().Error("查询会话失败", zap.String("session_id", sessionId), zap.Error(err))
 		return errorx.ErrServerBusy
@@ -523,6 +560,12 @@ func (s *SessionService) DeleteSession(ctx context.Context, ownerId, sessionId s
 		)
 		return errorx.ErrServerBusy
 	}
+
+	// 3. 清理 OpenSession 缓存，避免删除后重新打开时命中旧缓存幽灵复活
+	cacheKey := constants.CacheKeySessionOpen + ownerId + "_" + session.ReceiveId
+	s.cache.SubmitTask(func() {
+		_ = s.cache.Delete(context.Background(), cacheKey)
+	})
 
 	return nil
 }
@@ -584,7 +627,7 @@ func (s *SessionService) CreateGroupSession(ctx context.Context, groupId, userId
 	}
 	if err := s.sessionStore.CreateSession(ctx, &sess); err != nil {
 		if dberr.IsDuplicateKey(err) {
-			if existing, qErr := s.sessionStore.FindBySendIdAndReceiveId(ctx, userId, groupId); qErr == nil && existing != nil {
+			if existing, qErr := s.sessionStore.FindBySendIdAndReceiveIdUnscoped(ctx, userId, groupId); qErr == nil && existing != nil {
 				return existing.Uuid, nil
 			}
 		}

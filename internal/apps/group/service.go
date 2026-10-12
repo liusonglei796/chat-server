@@ -3,12 +3,15 @@ package group
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	userpb "kama_chat_server/api/gen/user"
+	"kama_chat_server/internal/common/dao/mysql/dberr"
 	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/dto/event"
 	"kama_chat_server/internal/common/dto/request/group"
@@ -20,6 +23,7 @@ import (
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/group/group_status"
 	"kama_chat_server/pkg/errorx"
+	"kama_chat_server/pkg/idempotent"
 )
 
 // groupUoW 群组服务的 UoW 接口：事务/事件能力 + 仅本服务拥有的 Group/GroupMember Store
@@ -36,62 +40,105 @@ type GroupService struct {
 	uow         groupUoW
 	cache       store.AsyncCacheService
 	cacheHelper *cacheutil.Helper // 缓存辅助工具（带 singleflight）
+	guard       idempotent.Guard
 }
 
 // NewGroupService 构造函数，注入所有依赖
-func NewGroupService(uow groupUoW, cacheService store.AsyncCacheService) *GroupService {
+func NewGroupService(uow groupUoW, cacheService store.AsyncCacheService, guard ...idempotent.Guard) *GroupService {
+	var g idempotent.Guard
+	if len(guard) > 0 && guard[0] != nil {
+		g = guard[0]
+	} else if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc.Client() != nil {
+		g = idempotent.NewRedisGuard(rc.Client())
+	}
 	return &GroupService{
 		uow:         uow,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
+		guard:       g,
 	}
 }
 
 // CreateGroup 创建群聊 (ownerId 从 JWT 获取)
-func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq group.CreateGroupRequest) error {
-	group := model.GroupInfo{
-		Uuid:      fmt.Sprintf("G%s", snowflake.GenerateIDString()),
-		Name:      groupReq.Name,
-		Notice:    groupReq.Notice,
-		OwnerId:   ownerId, // 使用 JWT 中的用户 ID
-		MemberCnt: 1,
-		AddMode:   groupReq.AddMode,
-		Avatar:    groupReq.Avatar,
-		Status:    group_status.NORMAL,
-	}
-
-	err := store.WithTx(g.uow, func(tx groupUoW) error {
-		if err := tx.GroupStore().CreateGroup(ctx, &group); err != nil {
-			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
-		}
-		// 创建群成员（群主 Role=3）
-		member := model.GroupMember{
-			GroupUuid: group.Uuid,
-			UserUuid:  ownerId,
-			Role:      3,
-		}
-		if err := tx.GroupMemberStore().CreateGroupMember(ctx, &member); err != nil {
-			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
+// 包含第三代状态机幂等保护：支持短租约防连击与超时重试直接回显 groupId
+func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq group.CreateGroupRequest) (string, error) {
+	// Step 1.1: 构造核心建群业务事务闭包
+	// 来源: 入参 ownerId (JWT 用户标识) 与 groupReq 提交的群资料
+	// 用于: Step 1.2 注入幂等守卫执行
+	action := func(c context.Context) (string, error) {
+		newGroup := model.GroupInfo{
+			Uuid:      fmt.Sprintf("G%s", snowflake.GenerateIDString()),
+			Name:      groupReq.Name,
+			Notice:    groupReq.Notice,
+			OwnerId:   ownerId, // 使用 JWT 中的用户 ID
+			MemberCnt: 1,
+			AddMode:   groupReq.AddMode,
+			Avatar:    groupReq.Avatar,
+			Status:    group_status.NORMAL,
 		}
 
-		// 写入 outbox 表 (group_created 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
-		payload, _ := json.Marshal(event.GroupCreatedEvent{
-			GroupId:     group.Uuid,
-			OwnerId:     ownerId,
-			GroupName:   group.Name,
-			GroupAvatar: group.Avatar,
+		err := store.WithTx(g.uow, func(tx groupUoW) error {
+			// 同群主同名正常群防重复创建
+			existing, err := tx.GroupStore().FindByOwnerIdAndName(c, ownerId, newGroup.Name)
+			if err == nil && existing != nil {
+				return errorx.New(errorx.CodeInvalidParam, "您已拥有同名的正常群聊，请勿重复创建")
+			}
+
+			// 持久化群组信息
+			if err := tx.GroupStore().CreateGroup(c, &newGroup); err != nil {
+				if dberr.IsDuplicateKey(err) {
+					return errorx.New(errorx.CodeInvalidParam, "您已拥有同名的正常群聊，请勿重复创建")
+				}
+				zap.L().Error("service error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+
+			// 创建群成员（群主 Role=3）
+			member := model.GroupMember{
+				GroupUuid: newGroup.Uuid,
+				UserUuid:  ownerId,
+				Role:      3,
+			}
+			if err := tx.GroupMemberStore().CreateGroupMember(c, &member); err != nil {
+				zap.L().Error("service error", zap.Error(err))
+				return errorx.ErrServerBusy
+			}
+
+			// 写入 outbox 表 (group_created 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
+			payload, _ := json.Marshal(event.GroupCreatedEvent{
+				GroupId:     newGroup.Uuid,
+				OwnerId:     ownerId,
+				GroupName:   newGroup.Name,
+				GroupAvatar: newGroup.Avatar,
+			})
+			return tx.RecordEvent(c, event.EventGroupCreated, payload)
 		})
-		return tx.RecordEvent(ctx, event.EventGroupCreated, payload)
-	})
 
-	if err != nil {
-		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
+		if err != nil {
+			var codeErr *errorx.CodeError
+			if errors.As(err, &codeErr) {
+				return "", err
+			}
+			zap.L().Error("service error", zap.Error(err))
+			return "", errorx.ErrServerBusy
+		}
+		return newGroup.Uuid, nil
 	}
 
-	return nil
+	// Step 1.2: 判定是否启用了客户端防重凭证
+	// 来源: groupReq.ClientToken
+	// 用于: 若携带防重凭证则通过 Guard 保护，否则直接执行业务
+	if groupReq.ClientToken != "" && g.guard != nil {
+		key := fmt.Sprintf("grp:create:%s:%s", ownerId, groupReq.ClientToken)
+		// 5秒短租约防并发连击，24小时成功持久化防重试回放
+		groupID, isReplay, err := g.guard.Execute(ctx, key, 5*time.Second, 24*time.Hour, action)
+		if isReplay {
+			zap.L().Info("命中建群幂等回放，直接返回已有群号", zap.String("groupId", groupID), zap.String("ownerId", ownerId))
+		}
+		return groupID, err
+	}
+
+	return action(ctx)
 }
 
 // LoadMyGroup 获取我创建的群聊（分页）
@@ -212,7 +259,8 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 	member, err := g.uow.GroupMemberStore().FindByGroupAndUser(ctx, groupId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
+			// 终态幂等自愈：用户已不是群成员（前序退群重试已生效），静默放行并阻断副作用
+			return nil
 		}
 		zap.L().Error("Check group membership error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -272,7 +320,8 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 	group, err := g.uow.GroupStore().FindByUuid(ctx, groupId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeNotFound, "群组不存在")
+			// 终态幂等自愈：群组已被解散或不存在，静默返回成功
+			return nil
 		}
 		zap.L().Error("Find group error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -325,7 +374,9 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 
 // UpdateGroupInfo 更新群组信息 (operatorId 必须是群主或管理员)
 func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, req group.UpdateGroupInfoRequest) error {
-	// 权限校验: 必须是群主或管理员 (Role >= 2)
+	// Step 1.1: 权限校验
+	// 来源: req.Uuid 与 operatorId
+	// 用于: Step 1.2 确认操作人具备群主或管理员 (Role >= 2) 权限
 	member, err := g.uow.GroupMemberStore().FindByGroupAndUser(ctx, req.Uuid, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
@@ -338,11 +389,16 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 		return errorx.New(errorx.CodeForbidden, "你没有修改权限")
 	}
 
+	// Step 1.2: 版本号入参校验
+	// 来源: req.Version
+	// 用于: Step 1.4 乐观锁 CAS 防并发覆盖
 	if req.Version == nil {
 		return errorx.New(errorx.CodeInvalidParam, "缺少版本号")
 	}
 
-	// 仅收集非空字段进行局部增量更新，防止未传字段覆盖或并发字段互相覆盖
+	// Step 1.3: 收集非空更新字段
+	// 来源: req 中的各项属性
+	// 用于: Step 1.4 仅更新提交的字段，防止未传字段被置空
 	updates := make(map[string]interface{})
 	if req.Name != nil {
 		updates["name"] = *req.Name
@@ -361,27 +417,51 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 		return nil
 	}
 
+	// Step 1.4: 开启事务执行带版本号的乐观锁 CAS 更新
+	// 来源: req.Uuid, *req.Version 及 updates 字段集合
+	// 用于: 保证并发修改不丢失更新；当版本冲突时执行字段内容比对自愈
 	if err := store.WithTx(g.uow, func(tx groupUoW) error {
 		return tx.GroupStore().UpdateWithVersion(ctx, req.Uuid, *req.Version, updates)
 	}); err != nil {
 		if errorx.IsCode(err, errorx.CodeConflict) {
+			// Step 1.4.1: 乐观锁冲突时的幂等自愈比对
+			// 来源: 冲突时重新查出的群组最新记录
+			// 用于: 判断当前数据库中字段是否已完全满足本次修改；若已达成则作为网络重试自愈成功
+			currentGroup, queryErr := g.uow.GroupStore().FindByUuid(ctx, req.Uuid)
+			if queryErr == nil && currentGroup != nil {
+				matched := true
+				if req.Name != nil && currentGroup.Name != *req.Name {
+					matched = false
+				}
+				if req.AddMode != nil && currentGroup.AddMode != *req.AddMode {
+					matched = false
+				}
+				if req.Notice != nil && currentGroup.Notice != *req.Notice {
+					matched = false
+				}
+				if req.Avatar != nil && currentGroup.Avatar != *req.Avatar {
+					matched = false
+				}
+				if matched {
+					zap.L().Info("UpdateGroupInfo 命中乐观锁版本变更但字段内容完全一致，幂等自愈返回成功",
+						zap.String("groupId", req.Uuid),
+						zap.Int32("expectedVersion", *req.Version),
+						zap.Int32("currentVersion", currentGroup.Version),
+					)
+					return nil
+				}
+			}
 			return err
 		}
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
-	// 获取群成员列表用于缓存清理
-	members, _ := g.uow.GroupMemberStore().FindByGroupUuid(ctx, req.Uuid)
-	memberIds := make([]string, 0, len(members))
-	for _, m := range members {
-		memberIds = append(memberIds, m.UserUuid)
-	}
-
-	// 异步清理缓存
+	// Step 1.5: 异步清理群信息缓存
+	// 来源: req.Uuid
+	// 用于: 失效旧缓存，驱动下次读取时加载最新资料
 	groupId := req.Uuid
 	g.cache.SubmitTask(func() {
-		// 清理群信息缓存（含空值标记）
 		if err := g.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+groupId); err != nil {
 			zap.L().Error("清理群信息缓存失败", zap.Error(err))
 		}

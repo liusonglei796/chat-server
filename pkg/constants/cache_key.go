@@ -21,6 +21,7 @@ const (
 
 	// 会话相关
 	CacheKeySessionOpen = "session:open:" // 单个会话缓存（OpenSession）
+	CacheKeySessionSeq  = "session:seq:"  // 会话内单调递增 SeqID 发号器 (INCR)
 
 	// 好友关系（Redis Set）
 	CacheKeyFriendRelUser = "friend_relation:user:" // 用户好友关系集合

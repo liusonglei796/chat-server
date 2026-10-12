@@ -93,9 +93,37 @@ func (r *friendshipStore) UpdateStatus(ctx context.Context, userId, friendId str
 	return nil
 }
 
-// SoftDelete 软删除好友关系（双向删除）
+// UpdateStatusWithExpected 原子比较并更新好友关系状态与版本号（状态机与版本号双重乐观锁 CAS）
+// 来源: BlackFriend / UnblackFriend 状态跃迁
+// 用于: 并发防重、ABA 阻断与副作用阻断，仅当当前状态为 expectedStatus 且版本号为 expectedVersion 时更新，依赖 RowsAffected > 0 判定成功
+func (r *friendshipStore) UpdateStatusWithExpected(ctx context.Context, userId, friendId string, expectedStatus, targetStatus int8, expectedVersion int64) (bool, error) {
+	// Step 1.1: 构建更新载荷与递增版本表达式
+	// 来源: 目标状态 targetStatus 与自增版本需求
+	// 用于: 原子跃迁状态并使版本单调递增
+	updates := map[string]interface{}{
+		"status":  targetStatus,
+		"version": gorm.Expr("version + 1"),
+	}
+
+	// Step 1.2: 执行带状态与版本双重约束的原子条件更新
+	// 来源: userId, friendId, expectedStatus, expectedVersion
+	// 用于: 防止状态倒退与 ABA 穿透，产出影响行数校验结果
+	query := r.db.WithContext(ctx).Model(&model.Friendship{}).
+		Where("user_id = ? AND friend_id = ? AND status = ?", userId, friendId, expectedStatus)
+	if expectedVersion > 0 {
+		query = query.Where("version = ?", expectedVersion)
+	}
+
+	result := query.Updates(updates)
+	if result.Error != nil {
+		return false, dberr.WrapDBErrorf(result.Error, "状态机与版本号更新好友状态 user_id=%s friend_id=%s expected=%d target=%d version=%d", userId, friendId, expectedStatus, targetStatus, expectedVersion)
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// SoftDelete 删除好友关系（双向删除，采用物理删除释放唯一索引槽位，允许重新加好友）
 func (r *friendshipStore) SoftDelete(ctx context.Context, userId, friendId string) error {
-	if err := r.db.WithContext(ctx).Where(
+	if err := r.db.WithContext(ctx).Unscoped().Where(
 		"(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
 		userId, friendId, friendId, userId,
 	).Delete(&model.Friendship{}).Error; err != nil {
@@ -104,12 +132,12 @@ func (r *friendshipStore) SoftDelete(ctx context.Context, userId, friendId strin
 	return nil
 }
 
-// SoftDeleteByUsers 批量软删除指定用户的所有好友关系
+// SoftDeleteByUsers 批量删除指定用户的所有好友关系（物理删除释放唯一索引槽位）
 func (r *friendshipStore) SoftDeleteByUsers(ctx context.Context, userUuids []string) error {
 	if len(userUuids) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Where("user_id IN ? OR friend_id IN ?", userUuids, userUuids).Delete(&model.Friendship{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Unscoped().Where("user_id IN ? OR friend_id IN ?", userUuids, userUuids).Delete(&model.Friendship{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除好友关系")
 	}
 	return nil

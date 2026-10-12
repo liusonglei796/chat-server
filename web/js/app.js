@@ -30,30 +30,76 @@
       return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
     }
 
+    // Step 1.1: 生成高唯一性客户端幂等键
+    // 来源: 浏览器加密随机源或时间戳与随机数
+    // 用于: Step 1.3 为写请求头及服务层提供防重凭据
     function genIdempotencyKey() {
       if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
       return 'idemp-' + Date.now() + '-' + Math.random().toString(36).substring(2, 11);
     }
 
+    // Step 1.2: 计算具备 Full Jitter 随机抖动的指数退避重试延迟
+    // 来源: 当前重试轮次 retryCount 及基础延迟 baseDelay
+    // 用于: Step 1.3 在网络故障与 5xx 场景下次重试前的休眠等待
+    function calculateRetryDelay(retryCount, baseDelay = 150, maxDelay = 2500) {
+      const exponential = Math.min(maxDelay, baseDelay * Math.pow(2, retryCount));
+      return Math.floor(Math.random() * exponential);
+    }
+
     /* ==================== API Client ==================== */
     const api = {
+      // Step 1.3: 执行具备多领域分级重试与幂等保障的 HTTP 请求
+      // 来源: 业务触发的目标 path、请求配置 opts 及当前重试计数 retryCount
+      // 用于: 向边缘网关 Envoy / 微服务发送请求，并在遇到瞬态网络异常时自愈重试
       async req(path, opts = {}, retryCount = 0) {
+        // Step 1.3.1: 确定业务领域及对应的重试策略 (Domain-Specific Retry Strategy)
+        // 来源: 请求路径 path
+        // 用于: 限制最大重试次数与超时时间，防止安全敏感操作盲目重试
+        let maxRetries = 2;
+        let timeoutMs = 8000;
+        let allowAutoRetry = true;
+
+        if (path.startsWith('/auth/login') || path.startsWith('/auth/refresh')) {
+          // 安全鉴权领域：严格反幂等，严禁自动静默重试，超时 5 秒
+          maxRetries = 0;
+          timeoutMs = 5000;
+          allowAutoRetry = false;
+        } else if (path.startsWith('/messages/send')) {
+          // IM 消息发送领域：允许 2 次静默重试，超时 6 秒
+          maxRetries = 2;
+          timeoutMs = 6000;
+        } else if (path.startsWith('/groups') || path.startsWith('/friends/apply')) {
+          // 资源创建与审批领域：允许 2 次重试，超时 8 秒
+          maxRetries = 2;
+          timeoutMs = 8000;
+        }
+
         const headers = { 'Content-Type': 'application/json' };
         const tok = localStorage.getItem('access_token');
         if (tok) headers.Authorization = 'Bearer ' + tok;
         const method = (opts.method || 'GET').toUpperCase();
-        if (method !== 'GET' && method !== 'HEAD' && !opts.headers?.['X-Idempotency-Key']) {
+
+        // 仅对非安全敏感的写操作注入 X-Idempotency-Key；若重试则严格沿用第一次生成的 key
+        if (method !== 'GET' && method !== 'HEAD' && !path.startsWith('/auth/login') && !opts.headers?.['X-Idempotency-Key']) {
           headers['X-Idempotency-Key'] = genIdempotencyKey();
         }
         const fullHeaders = { ...headers, ...opts.headers };
-        const maxRetries = 2;
+
+        // 设置单次请求超时 AbortController
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
+          // Step 1.3.2: 发起真实网络调用
+          // 来源: 拼装好的全量 headers、序列化后的 body 及 abort signal
+          // 用于: 接收网关或微服务返回的 Response
           const res = await fetch(API_BASE + path, {
             ...opts,
             headers: fullHeaders,
+            signal: controller.signal,
             body: opts.body ? (typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body)) : undefined,
           });
+          clearTimeout(timeoutId);
 
           // 1. 401 鉴权失效（非认证接口）尝试刷新一次 Token
           if (res.status === 401 && !path.startsWith('/auth/')) {
@@ -61,17 +107,29 @@
             return this.req(path, { ...opts, headers: fullHeaders }, retryCount);
           }
 
-          // 2. HTTP 4xx 客户端错误（除 429 限流外）：如 400 参数错误、401 鉴权失败、404 不存在等，重试必败，立即中断抛出异常
+          // 2. HTTP 4xx 客户端错误（除 429 限流外）：重试必败，立即中断抛出异常
           if (res.status >= 400 && res.status < 500 && res.status !== 429) {
             let errData = null;
             try { errData = await res.json(); } catch (_) {}
             throw new Error(errData?.msg || ('客户端请求错误 HTTP ' + res.status));
           }
 
-          // 3. HTTP 429 (限流) 或 5xx (服务端错误)：允许指数退避重试
-          if (res.status === 429 || res.status >= 500) {
-            if (retryCount < maxRetries) {
-              await new Promise(r => setTimeout(r, 100 * Math.pow(2, retryCount)));
+          // 3. HTTP 429 限流处理
+          if (res.status === 429) {
+            if (allowAutoRetry && retryCount < maxRetries) {
+              const retryAfter = parseInt(res.headers.get('Retry-After') || '1', 10);
+              const delay = isNaN(retryAfter) ? calculateRetryDelay(retryCount) : retryAfter * 1000;
+              await new Promise(r => setTimeout(r, delay));
+              return this.req(path, { ...opts, headers: fullHeaders }, retryCount + 1);
+            }
+            throw new Error('操作过于频繁，请稍候再试');
+          }
+
+          // 4. HTTP 5xx 服务端错误：在重试配额内执行 Full Jitter 退避重试
+          if (res.status >= 500) {
+            if (allowAutoRetry && retryCount < maxRetries) {
+              const delay = calculateRetryDelay(retryCount);
+              await new Promise(r => setTimeout(r, delay));
               return this.req(path, { ...opts, headers: fullHeaders }, retryCount + 1);
             }
             let errData = null;
@@ -81,31 +139,38 @@
 
           const data = await res.json();
 
-          // 4. 业务成功
+          // 5. 业务处理成功
           if (data.code === 1000) return data.data;
 
-          // 5. 业务级瞬态服务繁忙 (1005)：允许重试
-          if (data.code === 1005 && retryCount < maxRetries) {
-            await new Promise(r => setTimeout(r, 100 * Math.pow(2, retryCount)));
+          // 6. 业务级瞬态服务繁忙 (1005)：在配额内允许重试
+          if (data.code === 1005 && allowAutoRetry && retryCount < maxRetries) {
+            const delay = calculateRetryDelay(retryCount);
+            await new Promise(r => setTimeout(r, delay));
             return this.req(path, { ...opts, headers: fullHeaders }, retryCount + 1);
           }
 
-          // 6. 业务状态码 1006 未授权（非认证接口）：尝试刷新一次 Token
+          // 7. 业务状态码 1006 未授权（非认证接口）：刷新 Token
           if (data.code === 1006 && !path.startsWith('/auth/')) {
             await this.refresh();
             return this.req(path, { ...opts, headers: fullHeaders }, retryCount);
           }
 
-          // 7. 具体的业务逻辑报错（如 1001 参数错误, 1002 用户已存在, 1003 用户不存在, 1004 密码错误, 余额不足等）
-          // 重试多少次都会失败，必须立即中断并抛出异常
+          // 8. 具体业务逻辑报错 (1001 参数错误, 1002 已存在, 1004 凭据错误等)：立即中断
           throw new Error(data.msg || '业务处理失败');
 
         } catch (err) {
-          // 若为底层网络抖动（TypeError: Failed to fetch），在重试配额内重试
+          clearTimeout(timeoutId);
+          // 判定是否属于网络中断或超时
           const isNetworkError = err instanceof TypeError;
-          if (isNetworkError && retryCount < maxRetries) {
-            await new Promise(r => setTimeout(r, 100 * Math.pow(2, retryCount)));
+          const isTimeout = err.name === 'AbortError';
+
+          if ((isNetworkError || isTimeout) && allowAutoRetry && retryCount < maxRetries) {
+            const delay = calculateRetryDelay(retryCount);
+            await new Promise(r => setTimeout(r, delay));
             return this.req(path, { ...opts, headers: fullHeaders }, retryCount + 1);
+          }
+          if (isTimeout) {
+            throw new Error('网络请求超时，请检查连接后重试');
           }
           throw err;
         }
@@ -437,11 +502,46 @@
             '<button class="btn btn-secondary btn-sm" onclick="App.removeFriend(\'' + esc(f.friend_id) + '\')">删除</button></div></div>';
         }).join('');
       },
-      async addFriend() {
-        const v = document.getElementById('add-friend-input').value.trim();
+      // Step 2.1: 按钮 Loading 与防连击状态执行器
+      // 来源: 用户交互触发的按钮元素 btn 及异步业务闭包 fn
+      // 用于: 在请求周期内锁定按钮防连击并渲染转圈 Spinner，结束后安全恢复状态
+      async withButtonLoading(btn, fn, loadingText = '处理中...') {
+        const targetBtn = btn || (window.event?.target && window.event.target.tagName === 'BUTTON' ? window.event.target : null);
+        if (!targetBtn) {
+          return fn();
+        }
+        if (targetBtn.disabled) return;
+        const oldHtml = targetBtn.innerHTML;
+        targetBtn.disabled = true;
+        targetBtn.classList.add('btn-loading');
+        targetBtn.innerHTML = `<span class="btn-spinner"></span>${loadingText}`;
+        try {
+          await fn();
+        } finally {
+          targetBtn.disabled = false;
+          targetBtn.classList.remove('btn-loading');
+          targetBtn.innerHTML = oldHtml;
+        }
+      },
+
+      // Step 2.2: 申请添加好友 (锁定按钮防连击，失败保留输入)
+      // 来源: 输入框 #add-friend-input
+      // 用于: 调用 api.addFriend 发起好友申请
+      async addFriend(btn) {
+        const input = document.getElementById('add-friend-input');
+        const v = input ? input.value.trim() : '';
         if (!v) { this.showToast('请输入用户ID', 'error'); return; }
-        try { await api.addFriend(v); document.getElementById('add-friend-input').value = ''; this.showToast('好友申请已发送', 'success'); this.loadFriends(); }
-        catch (e) { this.showToast(e.message || '添加失败', 'error'); }
+        await this.withButtonLoading(btn, async () => {
+          try {
+            await api.addFriend(v);
+            if (input) input.value = '';
+            this.showToast('好友申请已发送', 'success');
+            this.loadFriends();
+          } catch (e) {
+            // 失败时保留输入框文本，方便用户重试
+            this.showToast(e.message || '申请发送失败，请重试', 'error');
+          }
+        }, '提交中...');
       },
       async removeFriend(id) {
         if (!confirm('确定删除该好友？')) return;
@@ -463,11 +563,26 @@
             '<div class="list-item-actions"><button class="btn btn-primary btn-sm" onclick="App.chatWithGroup(\'' + esc(g.groupId) + '\',\'' + esc(g.groupName) + '\',\'' + esc(g.avatar || '') + '\')">聊天</button></div></div>';
         }).join('');
       },
-      async createGroup() {
-        const v = document.getElementById('create-group-input').value.trim();
+
+      // Step 2.3: 创建群组 (锁定等待模式，防止网络抖动重复创建重影群)
+      // 来源: 输入框 #create-group-input
+      // 用于: 调用 api.createGroup 创建群组
+      async createGroup(btn) {
+        const input = document.getElementById('create-group-input');
+        const v = input ? input.value.trim() : '';
         if (!v) { this.showToast('请输入群组名称', 'error'); return; }
-        try { await api.createGroup(v); document.getElementById('create-group-input').value = ''; this.showToast('群组已创建', 'success'); this.loadGroups(); this.loadSessions(); }
-        catch (e) { this.showToast(e.message || '创建失败', 'error'); }
+        await this.withButtonLoading(btn, async () => {
+          try {
+            await api.createGroup(v);
+            if (input) input.value = '';
+            this.showToast('群组已创建', 'success');
+            this.loadGroups();
+            this.loadSessions();
+          } catch (e) {
+            // 失败时保留已输入的群名称，弹出友好错误提示
+            this.showToast(e.message || '群组创建超时，请点击重试', 'error');
+          }
+        }, '创建中...');
       },
 
       /* --- Chat --- */
@@ -507,6 +622,10 @@
         } catch (e) { console.error('loadMsgs:', e); }
         finally { this.loadingMsgs = false; }
       },
+
+      // Step 2.4: 渲染聊天单条消息 (支持发送中转圈与失败红感叹号)
+      // 来源: 历史记录或乐观发送消息对象 m
+      // 用于: 动态生成带交互状态的聊天气泡 HTML
       renderMsg(m) {
         const self = m.send_id === this.me.uuid;
         const av = m.send_avatar;
@@ -520,37 +639,154 @@
         }
         const avHtml = av ? '<img src="' + avatarUrl(av) + '" alt="">' : sender.charAt(0).toUpperCase();
         const senderHtml = !self && this.session?.type === 'group' ? '<div class="message-sender">' + esc(sender) + '</div>' : '';
+
+        // 发送状态指示器：发送中展示微型 Spinner，失败展示红色感叹号
+        let statusHtml = '';
+        if (m.client_msg_id && m.status === 'sending') {
+          statusHtml = `<span class="msg-status sending" id="msg-status-${m.client_msg_id}" title="发送中..."></span>`;
+        } else if (m.client_msg_id && m.status === 'failed') {
+          statusHtml = `<span class="msg-status failed" id="msg-status-${m.client_msg_id}" title="发送失败，点击重试" onclick="App.retryMessage('${m.client_msg_id}')">&#9888;</span>`;
+        }
+
         return '<div class="message ' + (self ? 'sent' : 'received') + '">' +
           '<div class="message-avatar">' + avHtml + '</div>' +
-          '<div class="message-content">' + senderHtml + content + '<div class="message-time">' + fmtMsgTime(m.created_at) + '</div></div></div>';
+          '<div class="message-content">' + senderHtml + content + '<div class="message-time">' + fmtMsgTime(m.created_at) + statusHtml + '</div></div></div>';
       },
+
+      // Step 2.5: 发送聊天消息 (乐观更新，不锁定输入框，自动与手动重试协同)
+      // 来源: 输入框 #chat-input 的文本内容
+      // 用于: 消息先立即假上屏，随后异步通过 WS 或 HTTP 提交
       async sendMessage() {
         const input = document.getElementById('chat-input');
-        const content = input.value.trim();
+        const content = input ? input.value.trim() : '';
         if (!content || !this.session) return;
-        const btn = document.getElementById('chat-send-btn');
-        btn.disabled = true;
-        // Optimistic render
+
+        // Step 2.5.1: 生成全周期唯一消息防重标识 client_msg_id
+        // 来源: 时间戳与随机字符串
+        // 用于: 消息重试全生命周期幂等凭据
+        const client_msg_id = Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+        this.pendingMessages = this.pendingMessages || {};
+        this.pendingMessages[client_msg_id] = {
+          sessionId: this.session.sessionId,
+          type: 1,
+          content,
+          targetId: this.session.targetId,
+          client_msg_id,
+        };
+
+        // Step 2.5.2: 乐观渲染上屏 (附带 status: 'sending')，清空输入框，输入框绝不禁用
         const c = document.getElementById('chat-messages');
-        c.insertAdjacentHTML('beforeend', this.renderMsg({ send_id: this.me.uuid, send_name: this.me.nickname, send_avatar: this.me.avatar, type: 1, content, created_at: new Date().toISOString() }));
+        c.insertAdjacentHTML('beforeend', this.renderMsg({
+          send_id: this.me.uuid,
+          send_name: this.me.nickname,
+          send_avatar: this.me.avatar,
+          type: 1,
+          content,
+          created_at: new Date().toISOString(),
+          client_msg_id,
+          status: 'sending',
+        }));
         this.scrollBottom();
-        input.value = ''; this.autoResizeInput(input);
-        // Send via WS
-        const sent = WS.send({ session_id: this.session.sessionId, type: 1, content, send_id: this.me.uuid, send_name: this.me.nickname, send_avatar: this.me.avatar, receive_id: this.session.targetId, client_msg_id: Date.now() + '-' + Math.random().toString(36).substr(2, 9) });
-        if (!sent) {
-          try { await api.req('/messages/send', { method: 'POST', body: { session_id: this.session.sessionId, content, msg_type: 1 } }); }
-          catch (e) { this.showToast('发送失败: ' + e.message, 'error'); }
+        if (input) {
+          input.value = '';
+          this.autoResizeInput(input);
         }
-        btn.disabled = false;
+
+        // Step 2.5.3: 异步分发发送流程
+        this.dispatchMessage(client_msg_id);
       },
+
+      // Step 2.6: 异步派发消息 (WebSocket 优先，HTTP 兜底并自动退避重试)
+      // 来源: Step 2.5 生成的 client_msg_id
+      // 用于: 执行实际网络调用，成功则清除转圈，失败则挂载红感叹号
+      async dispatchMessage(client_msg_id) {
+        const pending = this.pendingMessages?.[client_msg_id];
+        if (!pending) return;
+
+        const statusEl = document.getElementById(`msg-status-${client_msg_id}`);
+        if (statusEl) {
+          statusEl.className = 'msg-status sending';
+          statusEl.title = '发送中...';
+          statusEl.innerHTML = '';
+          statusEl.onclick = null;
+        }
+
+        try {
+          const wsSent = WS.send({
+            session_id: pending.sessionId,
+            type: pending.type,
+            content: pending.content,
+            send_id: this.me.uuid,
+            send_name: this.me.nickname,
+            send_avatar: this.me.avatar,
+            receive_id: pending.targetId,
+            client_msg_id,
+          });
+
+          if (!wsSent) {
+            // WS 未连接时使用 HTTP POST 兜底，传递完全相同的 client_msg_id
+            await api.req('/messages/send', {
+              method: 'POST',
+              body: {
+                session_id: pending.sessionId,
+                content: pending.content,
+                msg_type: pending.type,
+                client_msg_id,
+              },
+              headers: {
+                'X-Idempotency-Key': client_msg_id,
+              },
+            });
+          }
+
+          // 成功处理：清除 loading 指示器与 pending 暂存
+          if (statusEl) statusEl.remove();
+          delete this.pendingMessages[client_msg_id];
+        } catch (err) {
+          // 彻底失败：转为红色感叹号，绑定点击原地重试
+          if (statusEl) {
+            statusEl.className = 'msg-status failed';
+            statusEl.title = '发送失败，点击重试';
+            statusEl.innerHTML = '&#9888;';
+            statusEl.onclick = () => this.retryMessage(client_msg_id);
+          }
+          this.showToast('消息发送失败，可点击红色感叹号重新发送', 'error');
+        }
+      },
+
+      // Step 2.7: 用户点击红感叹号手动重试
+      // 来源: 用户点击 #msg-status-${client_msg_id} 触发
+      // 用于: 复用原有 client_msg_id 再次尝试派发，防止重复生成消息
+      retryMessage(client_msg_id) {
+        this.dispatchMessage(client_msg_id);
+      },
+
+      // Step 2.8: 接收下行实时消息并更新界面
+      // 来源: WebSocket 接收到的事件 payload d
+      // 用于: 动态追加新消息到聊天流并更新左侧会话列表
       onIncoming(d) {
+        // 如果携带 client_msg_id，清除对应的发送中状态指示器并清理暂存
+        if (d.client_msg_id) {
+          const statusEl = document.getElementById(`msg-status-${d.client_msg_id}`);
+          if (statusEl) statusEl.remove();
+          if (this.pendingMessages?.[d.client_msg_id]) {
+            delete this.pendingMessages[d.client_msg_id];
+          }
+        }
+
         const isCurrent = d.session_id === this.session?.sessionId || d.receive_id === this.session?.targetId || d.send_id === this.session?.targetId;
-        if (isCurrent && document.getElementById('chat-active').style.display !== 'none') {
+        // 若为自己发送且已由乐观 UI 渲染的消息，防止下行广播二次追加导致重影
+        if (d.send_id === this.me?.uuid && d.client_msg_id) {
+          // 状态已由上方清理，跳过重复渲染
+        } else if (isCurrent && document.getElementById('chat-active').style.display !== 'none') {
           document.getElementById('chat-messages').insertAdjacentHTML('beforeend', this.renderMsg(d));
           this.scrollBottom();
         }
-        // Update session list
+        // 更新会话最后消息与时间
         const s = this.sessions.find(s => s.sessionId === d.session_id);
+        if (s) { s.lastMessage = d.content || ''; s.lastTime = d.created_at || new Date().toISOString(); this.renderSessions(); }
+        else { this.loadSessions(); }
+      },
         if (s) { s.lastMessage = d.content || ''; s.lastTime = d.created_at || new Date().toISOString(); this.renderSessions(); }
         else { this.loadSessions(); }
       },

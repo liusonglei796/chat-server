@@ -16,7 +16,7 @@ type GroupInfo struct {
 	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);not null;comment:群组唯一id"`
 
 	// Name 群组名称
-	Name string `gorm:"column:name;type:varchar(20);not null;comment:群名称"`
+	Name string `gorm:"column:name;uniqueIndex:idx_owner_name;type:varchar(20);not null;comment:群名称"`
 
 	// Notice 群公告
 	// 群主或管理员可编辑
@@ -27,7 +27,7 @@ type GroupInfo struct {
 	MemberCnt int `gorm:"column:member_cnt;default:1;comment:群人数"`
 
 	// OwnerId 群主用户 UUID
-	OwnerId string `gorm:"column:owner_id;type:char(20);not null;comment:群主uuid"`
+	OwnerId string `gorm:"column:owner_id;uniqueIndex:idx_owner_name;type:char(20);not null;comment:群主uuid"`
 
 	// AddMode 加群方式
 	// 0=直接加入（无需审批）, 1=需要审核

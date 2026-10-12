@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package message;
 
+import "google/api/annotations.proto";
+
 option go_package = "kama_chat_server/api/gen/message";
 
 service MessageService {
@@ -9,20 +11,68 @@ service MessageService {
     rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
     rpc GetMessageList (GetMessageListRequest) returns (GetMessageListResponse);
     rpc GetGroupMessageList (GetGroupMessageListRequest) returns (GetGroupMessageListResponse);
-    rpc GetMessageListCursor (GetMessageListCursorRequest) returns (GetMessageListCursorResponse);
-    rpc GetGroupMessageListCursor (GetGroupMessageListCursorRequest) returns (GetGroupMessageListCursorResponse);
-    rpc RecallMessage (RecallMessageRequest) returns (RecallMessageResponse);
+    rpc GetMessageListCursor (GetMessageListCursorRequest) returns (GetMessageListCursorResponse) {
+        option (google.api.http) = {
+            get: "/messages/direct"
+        };
+    }
+    rpc GetGroupMessageListCursor (GetGroupMessageListCursorRequest) returns (GetGroupMessageListCursorResponse) {
+        option (google.api.http) = {
+            get: "/messages/group"
+        };
+    }
+    rpc GetMessages (GetMessagesRequest) returns (GetMessagesResponse) {
+        option (google.api.http) = {
+            get: "/messages"
+        };
+    }
+    rpc RecallMessage (RecallMessageRequest) returns (RecallMessageResponse) {
+        option (google.api.http) = {
+            post: "/messages/recall"
+            body: "*"
+        };
+    }
     
     // Session
     rpc CreateSession (CreateSessionRequest) returns (CreateSessionResponse);
-    rpc CheckOpenSessionAllowed (CheckOpenSessionAllowedRequest) returns (CheckOpenSessionAllowedResponse);
-    rpc OpenSession (OpenSessionRequest) returns (OpenSessionResponse);
+    rpc CheckOpenSessionAllowed (CheckOpenSessionAllowedRequest) returns (CheckOpenSessionAllowedResponse) {
+        option (google.api.http) = {
+            get: "/sessions/check"
+        };
+    }
+    rpc OpenSession (OpenSessionRequest) returns (OpenSessionResponse) {
+        option (google.api.http) = {
+            post: "/sessions"
+            body: "*"
+        };
+    }
     rpc GetUserSessionList (GetUserSessionListRequest) returns (GetUserSessionListResponse);
     rpc GetGroupSessionList (GetGroupSessionListRequest) returns (GetGroupSessionListResponse);
-    rpc GetUserSessionListCursor (GetUserSessionListCursorRequest) returns (GetUserSessionListCursorResponse);
-    rpc GetGroupSessionListCursor (GetGroupSessionListCursorRequest) returns (GetGroupSessionListCursorResponse);
-    rpc DeleteSession (DeleteSessionRequest) returns (DeleteSessionResponse);
-    rpc PinSession (PinSessionRequest) returns (PinSessionResponse);
+    rpc GetUserSessionListCursor (GetUserSessionListCursorRequest) returns (GetUserSessionListCursorResponse) {
+        option (google.api.http) = {
+            get: "/sessions/direct"
+        };
+    }
+    rpc GetGroupSessionListCursor (GetGroupSessionListCursorRequest) returns (GetGroupSessionListCursorResponse) {
+        option (google.api.http) = {
+            get: "/sessions/group"
+        };
+    }
+    rpc DeleteSession (DeleteSessionRequest) returns (DeleteSessionResponse) {
+        option (google.api.http) = {
+            delete: "/sessions"
+            body: "*"
+            additional_bindings {
+                delete: "/sessions/{session_id}"
+            }
+        };
+    }
+    rpc PinSession (PinSessionRequest) returns (PinSessionResponse) {
+        option (google.api.http) = {
+            put: "/sessions/pin"
+            body: "*"
+        };
+    }
     rpc DeleteGroupMemberSessions (DeleteGroupMemberSessionsRequest) returns (DeleteGroupMemberSessionsResponse);
     rpc CreateGroupSession (CreateGroupSessionRequest) returns (CreateGroupSessionResponse);
     rpc DeleteFriendSessions (DeleteFriendSessionsRequest) returns (DeleteFriendSessionsResponse);
@@ -115,6 +165,19 @@ message RecallMessageRequest {
 }
 message RecallMessageResponse {}
 
+message GetMessagesRequest {
+    string target_id = 1;
+    string cursor = 2;
+    int32 page_size = 3;
+    string requester_id = 4;
+}
+
+message GetMessagesResponse {
+    repeated GetMessageListRespond list = 1;
+    string next_cursor = 2;
+    bool has_more = 3;
+}
+
 // Session Requests/Responses
 message CreateSessionRequest {
     string send_id = 1;
@@ -127,6 +190,7 @@ message CreateSessionResponse {
 message CheckOpenSessionAllowedRequest {
     string send_id = 1;
     string receive_id = 2;
+    string target_id = 3;
 }
 message CheckOpenSessionAllowedResponse {
     bool allowed = 1;
@@ -135,6 +199,7 @@ message CheckOpenSessionAllowedResponse {
 message OpenSessionRequest {
     string send_id = 1;
     string receive_id = 2;
+    string client_token = 3;
 }
 message OpenSessionResponse {
     string session_id = 1;

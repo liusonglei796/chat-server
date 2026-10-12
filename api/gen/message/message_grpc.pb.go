@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.2
 // - protoc             v7.36.0
-// source: api/proto/message.proto
+// source: message.proto
 
 package message
 
@@ -24,6 +24,7 @@ const (
 	MessageService_GetGroupMessageList_FullMethodName       = "/message.MessageService/GetGroupMessageList"
 	MessageService_GetMessageListCursor_FullMethodName      = "/message.MessageService/GetMessageListCursor"
 	MessageService_GetGroupMessageListCursor_FullMethodName = "/message.MessageService/GetGroupMessageListCursor"
+	MessageService_GetMessages_FullMethodName               = "/message.MessageService/GetMessages"
 	MessageService_RecallMessage_FullMethodName             = "/message.MessageService/RecallMessage"
 	MessageService_CreateSession_FullMethodName             = "/message.MessageService/CreateSession"
 	MessageService_CheckOpenSessionAllowed_FullMethodName   = "/message.MessageService/CheckOpenSessionAllowed"
@@ -49,6 +50,7 @@ type MessageServiceClient interface {
 	GetGroupMessageList(ctx context.Context, in *GetGroupMessageListRequest, opts ...grpc.CallOption) (*GetGroupMessageListResponse, error)
 	GetMessageListCursor(ctx context.Context, in *GetMessageListCursorRequest, opts ...grpc.CallOption) (*GetMessageListCursorResponse, error)
 	GetGroupMessageListCursor(ctx context.Context, in *GetGroupMessageListCursorRequest, opts ...grpc.CallOption) (*GetGroupMessageListCursorResponse, error)
+	GetMessages(ctx context.Context, in *GetMessagesRequest, opts ...grpc.CallOption) (*GetMessagesResponse, error)
 	RecallMessage(ctx context.Context, in *RecallMessageRequest, opts ...grpc.CallOption) (*RecallMessageResponse, error)
 	// Session
 	CreateSession(ctx context.Context, in *CreateSessionRequest, opts ...grpc.CallOption) (*CreateSessionResponse, error)
@@ -117,6 +119,16 @@ func (c *messageServiceClient) GetGroupMessageListCursor(ctx context.Context, in
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetGroupMessageListCursorResponse)
 	err := c.cc.Invoke(ctx, MessageService_GetGroupMessageListCursor_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) GetMessages(ctx context.Context, in *GetMessagesRequest, opts ...grpc.CallOption) (*GetMessagesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMessagesResponse)
+	err := c.cc.Invoke(ctx, MessageService_GetMessages_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -263,6 +275,7 @@ type MessageServiceServer interface {
 	GetGroupMessageList(context.Context, *GetGroupMessageListRequest) (*GetGroupMessageListResponse, error)
 	GetMessageListCursor(context.Context, *GetMessageListCursorRequest) (*GetMessageListCursorResponse, error)
 	GetGroupMessageListCursor(context.Context, *GetGroupMessageListCursorRequest) (*GetGroupMessageListCursorResponse, error)
+	GetMessages(context.Context, *GetMessagesRequest) (*GetMessagesResponse, error)
 	RecallMessage(context.Context, *RecallMessageRequest) (*RecallMessageResponse, error)
 	// Session
 	CreateSession(context.Context, *CreateSessionRequest) (*CreateSessionResponse, error)
@@ -301,6 +314,9 @@ func (UnimplementedMessageServiceServer) GetMessageListCursor(context.Context, *
 }
 func (UnimplementedMessageServiceServer) GetGroupMessageListCursor(context.Context, *GetGroupMessageListCursorRequest) (*GetGroupMessageListCursorResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetGroupMessageListCursor not implemented")
+}
+func (UnimplementedMessageServiceServer) GetMessages(context.Context, *GetMessagesRequest) (*GetMessagesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetMessages not implemented")
 }
 func (UnimplementedMessageServiceServer) RecallMessage(context.Context, *RecallMessageRequest) (*RecallMessageResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RecallMessage not implemented")
@@ -448,6 +464,24 @@ func _MessageService_GetGroupMessageListCursor_Handler(srv interface{}, ctx cont
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MessageServiceServer).GetGroupMessageListCursor(ctx, req.(*GetGroupMessageListCursorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_GetMessages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMessagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).GetMessages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_GetMessages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).GetMessages(ctx, req.(*GetMessagesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -714,6 +748,10 @@ var MessageService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MessageService_GetGroupMessageListCursor_Handler,
 		},
 		{
+			MethodName: "GetMessages",
+			Handler:    _MessageService_GetMessages_Handler,
+		},
+		{
 			MethodName: "RecallMessage",
 			Handler:    _MessageService_RecallMessage_Handler,
 		},
@@ -767,5 +805,5 @@ var MessageService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "api/proto/message.proto",
+	Metadata: "message.proto",
 }

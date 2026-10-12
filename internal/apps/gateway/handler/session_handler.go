@@ -51,8 +51,9 @@ func (h *SessionHandler) OpenSession(c *gin.Context) {
 	}
 
 	rsp, err := grpc_client.MessageClient.OpenSession(ctx, &messagepb.OpenSessionRequest{
-		SendId:    userId.(string),
-		ReceiveId: req.ReceiveId,
+		SendId:      userId.(string),
+		ReceiveId:   req.ReceiveId,
+		ClientToken: req.ClientToken,
 	})
 	if err != nil {
 		HandleError(c, err)

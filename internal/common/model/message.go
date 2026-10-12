@@ -26,7 +26,11 @@ type Message struct {
 
 	// SessionId 会话 UUID
 	// 关联到 Session 表，标识消息属于哪个会话
-	SessionId string `gorm:"column:session_id;type:varchar(64);not null;index:idx_session_uuid,priority:1;comment:会话uuid"`
+	SessionId string `gorm:"column:session_id;type:varchar(64);not null;index:idx_session_uuid,priority:1;index:idx_session_seq,priority:1;comment:会话uuid"`
+
+	// SeqId 会话内单调递增序号
+	// 保证单会话内严格单调自增，用于消除时钟漂移、乐观锁比对与消息空洞自愈（微信/钉钉标准方案）
+	SeqId int64 `gorm:"column:seq_id;not null;default:0;index:idx_session_seq,priority:2;comment:会话内单调递增序号"`
 
 	// Type 消息类型
 	// 0=文本消息, 1=语音消息, 2=文件消息, 3=音视频通话信令

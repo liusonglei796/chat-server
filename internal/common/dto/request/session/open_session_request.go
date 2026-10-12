@@ -7,5 +7,6 @@ package session
 //
 // 注意: SendId 从 JWT 上下文获取，不从请求体传入，防止 IDOR 攻击
 type OpenSessionRequest struct {
-	ReceiveId string `json:"receive_id" binding:"required"`
+	ReceiveId   string `json:"receive_id" binding:"required"`
+	ClientToken string `json:"client_token"`
 }

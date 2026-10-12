@@ -22,6 +22,7 @@ type UserStore interface {
 type GroupStore interface {
 	FindByUuid(ctx context.Context, uuid string) (*model.GroupInfo, error)
 	FindByOwnerIdPaged(ctx context.Context, ownerId string, page, pageSize int) ([]model.GroupInfo, int64, error)
+	FindByOwnerIdAndName(ctx context.Context, ownerId, name string) (*model.GroupInfo, error)
 	FindByUuids(ctx context.Context, uuids []string) ([]model.GroupInfo, error)
 	GetGroupList(ctx context.Context, page, pageSize int) ([]model.GroupInfo, int64, error)
 	CreateGroup(ctx context.Context, group *model.GroupInfo) error
@@ -39,6 +40,7 @@ type FriendshipStore interface {
 	CreateFriendship(ctx context.Context, fs *model.Friendship) error
 	IsFriend(ctx context.Context, userId1, userId2 string) (bool, error)
 	UpdateStatus(ctx context.Context, userId, friendId string, status int8) error
+	UpdateStatusWithExpected(ctx context.Context, userId, friendId string, expectedStatus, targetStatus int8, expectedVersion int64) (bool, error)
 	UpdateRemark(ctx context.Context, userId, friendId, remark string) error
 	SoftDelete(ctx context.Context, userId, friendId string) error
 	SoftDeleteByUsers(ctx context.Context, userUuids []string) error
@@ -47,6 +49,7 @@ type FriendshipStore interface {
 type SessionStore interface {
 	FindByUuid(ctx context.Context, uuid string) (*model.Session, error)
 	FindBySendIdAndReceiveId(ctx context.Context, sendId, receiveId string) (*model.Session, error)
+	FindBySendIdAndReceiveIdUnscoped(ctx context.Context, sendId, receiveId string) (*model.Session, error)
 	FindBySendIdAndTypePaged(ctx context.Context, sendId string, receiveIdPrefix string, page, pageSize int) ([]model.Session, int64, error)
 	FindBySendIdAndTypeCursor(ctx context.Context, sendId string, receiveIdPrefix, cursor string, pageSize int) (*model.CursorPageSessionResult, error)
 	CreateSession(ctx context.Context, session *model.Session) error
@@ -54,7 +57,7 @@ type SessionStore interface {
 	SoftDeleteByUsers(ctx context.Context, userUuids []string) error
 	UpdatePinStatus(ctx context.Context, uuid string, isPinned bool) error
 	UpdateByReceiveId(ctx context.Context, receiveId string, updates map[string]interface{}) error
-	UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time) error
+	UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time, seqId int64) error
 }
 
 type MessageStore interface {
@@ -63,6 +66,8 @@ type MessageStore interface {
 	FindByGroupIdPaged(ctx context.Context, groupId string, page, pageSize int) ([]model.Message, int64, error)
 	FindByGroupIdCursor(ctx context.Context, groupId, cursor string, pageSize int) (*model.CursorPageMessageResult, error)
 	FindBySessionIdCursor(ctx context.Context, sessionId, cursor string, pageSize int) (*model.CursorPageMessageResult, error)
+	FindBySessionIdSync(ctx context.Context, sessionId string, afterSeq int64, limit int) ([]model.Message, error)
+	GetMaxSeqBySessionId(ctx context.Context, sessionId string) (int64, error)
 	FindByUuid(ctx context.Context, uuid string) (*model.Message, error)
 	UpdateStatus(ctx context.Context, uuid string, status int8) error
 	UpdateContent(ctx context.Context, uuid, content string, msgType int8) (bool, error)
@@ -74,7 +79,7 @@ type ApplyStore interface {
 	FindByTargetIdPendingPaged(ctx context.Context, targetId string, page, pageSize int) ([]model.Apply, int64, error)
 	CreateApply(ctx context.Context, apply *model.Apply) error
 	Update(ctx context.Context, apply *model.Apply) error
-	UpdateStatusIfPending(ctx context.Context, uuid string, toStatus int8) (bool, error)
+	UpdateStatusIfPending(ctx context.Context, uuid string, toStatus int8, expectedVersion int32) (bool, error)
 	SoftDelete(ctx context.Context, applicantId, targetId string) error
 	SoftDeleteByUsers(ctx context.Context, userUuids []string) error
 }

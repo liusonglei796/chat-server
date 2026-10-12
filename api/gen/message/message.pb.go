@@ -2,11 +2,12 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        v7.36.0
-// source: api/proto/message.proto
+// source: message.proto
 
 package message
 
 import (
+	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -43,7 +44,7 @@ type SendMessageRequest struct {
 
 func (x *SendMessageRequest) Reset() {
 	*x = SendMessageRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[0]
+	mi := &file_message_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -55,7 +56,7 @@ func (x *SendMessageRequest) String() string {
 func (*SendMessageRequest) ProtoMessage() {}
 
 func (x *SendMessageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[0]
+	mi := &file_message_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -68,7 +69,7 @@ func (x *SendMessageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendMessageRequest.ProtoReflect.Descriptor instead.
 func (*SendMessageRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{0}
+	return file_message_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *SendMessageRequest) GetSessionId() string {
@@ -172,7 +173,7 @@ type SendMessageResponse struct {
 
 func (x *SendMessageResponse) Reset() {
 	*x = SendMessageResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[1]
+	mi := &file_message_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -184,7 +185,7 @@ func (x *SendMessageResponse) String() string {
 func (*SendMessageResponse) ProtoMessage() {}
 
 func (x *SendMessageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[1]
+	mi := &file_message_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -197,7 +198,7 @@ func (x *SendMessageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendMessageResponse.ProtoReflect.Descriptor instead.
 func (*SendMessageResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{1}
+	return file_message_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *SendMessageResponse) GetMessageUuid() string {
@@ -226,7 +227,7 @@ type GetMessageListRequest struct {
 
 func (x *GetMessageListRequest) Reset() {
 	*x = GetMessageListRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[2]
+	mi := &file_message_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -238,7 +239,7 @@ func (x *GetMessageListRequest) String() string {
 func (*GetMessageListRequest) ProtoMessage() {}
 
 func (x *GetMessageListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[2]
+	mi := &file_message_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -251,7 +252,7 @@ func (x *GetMessageListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMessageListRequest.ProtoReflect.Descriptor instead.
 func (*GetMessageListRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{2}
+	return file_message_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *GetMessageListRequest) GetRequesterId() string {
@@ -301,7 +302,7 @@ type GetMessageListRespond struct {
 
 func (x *GetMessageListRespond) Reset() {
 	*x = GetMessageListRespond{}
-	mi := &file_api_proto_message_proto_msgTypes[3]
+	mi := &file_message_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -313,7 +314,7 @@ func (x *GetMessageListRespond) String() string {
 func (*GetMessageListRespond) ProtoMessage() {}
 
 func (x *GetMessageListRespond) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[3]
+	mi := &file_message_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -326,7 +327,7 @@ func (x *GetMessageListRespond) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMessageListRespond.ProtoReflect.Descriptor instead.
 func (*GetMessageListRespond) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{3}
+	return file_message_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetMessageListRespond) GetSendId() string {
@@ -416,7 +417,7 @@ type GetMessageListResponse struct {
 
 func (x *GetMessageListResponse) Reset() {
 	*x = GetMessageListResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[4]
+	mi := &file_message_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -428,7 +429,7 @@ func (x *GetMessageListResponse) String() string {
 func (*GetMessageListResponse) ProtoMessage() {}
 
 func (x *GetMessageListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[4]
+	mi := &file_message_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -441,7 +442,7 @@ func (x *GetMessageListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMessageListResponse.ProtoReflect.Descriptor instead.
 func (*GetMessageListResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{4}
+	return file_message_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetMessageListResponse) GetTotal() int64 {
@@ -470,7 +471,7 @@ type GetGroupMessageListRequest struct {
 
 func (x *GetGroupMessageListRequest) Reset() {
 	*x = GetGroupMessageListRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[5]
+	mi := &file_message_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -482,7 +483,7 @@ func (x *GetGroupMessageListRequest) String() string {
 func (*GetGroupMessageListRequest) ProtoMessage() {}
 
 func (x *GetGroupMessageListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[5]
+	mi := &file_message_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -495,7 +496,7 @@ func (x *GetGroupMessageListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGroupMessageListRequest.ProtoReflect.Descriptor instead.
 func (*GetGroupMessageListRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{5}
+	return file_message_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetGroupMessageListRequest) GetUserId() string {
@@ -536,7 +537,7 @@ type GetGroupMessageListResponse struct {
 
 func (x *GetGroupMessageListResponse) Reset() {
 	*x = GetGroupMessageListResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[6]
+	mi := &file_message_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -548,7 +549,7 @@ func (x *GetGroupMessageListResponse) String() string {
 func (*GetGroupMessageListResponse) ProtoMessage() {}
 
 func (x *GetGroupMessageListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[6]
+	mi := &file_message_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -561,7 +562,7 @@ func (x *GetGroupMessageListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGroupMessageListResponse.ProtoReflect.Descriptor instead.
 func (*GetGroupMessageListResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{6}
+	return file_message_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetGroupMessageListResponse) GetTotal() int64 {
@@ -590,7 +591,7 @@ type GetMessageListCursorRequest struct {
 
 func (x *GetMessageListCursorRequest) Reset() {
 	*x = GetMessageListCursorRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[7]
+	mi := &file_message_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -602,7 +603,7 @@ func (x *GetMessageListCursorRequest) String() string {
 func (*GetMessageListCursorRequest) ProtoMessage() {}
 
 func (x *GetMessageListCursorRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[7]
+	mi := &file_message_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -615,7 +616,7 @@ func (x *GetMessageListCursorRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMessageListCursorRequest.ProtoReflect.Descriptor instead.
 func (*GetMessageListCursorRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{7}
+	return file_message_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetMessageListCursorRequest) GetRequesterId() string {
@@ -657,7 +658,7 @@ type GetMessageListCursorResponse struct {
 
 func (x *GetMessageListCursorResponse) Reset() {
 	*x = GetMessageListCursorResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[8]
+	mi := &file_message_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -669,7 +670,7 @@ func (x *GetMessageListCursorResponse) String() string {
 func (*GetMessageListCursorResponse) ProtoMessage() {}
 
 func (x *GetMessageListCursorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[8]
+	mi := &file_message_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -682,7 +683,7 @@ func (x *GetMessageListCursorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMessageListCursorResponse.ProtoReflect.Descriptor instead.
 func (*GetMessageListCursorResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{8}
+	return file_message_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetMessageListCursorResponse) GetList() []*GetMessageListRespond {
@@ -718,7 +719,7 @@ type GetGroupMessageListCursorRequest struct {
 
 func (x *GetGroupMessageListCursorRequest) Reset() {
 	*x = GetGroupMessageListCursorRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[9]
+	mi := &file_message_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -730,7 +731,7 @@ func (x *GetGroupMessageListCursorRequest) String() string {
 func (*GetGroupMessageListCursorRequest) ProtoMessage() {}
 
 func (x *GetGroupMessageListCursorRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[9]
+	mi := &file_message_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -743,7 +744,7 @@ func (x *GetGroupMessageListCursorRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGroupMessageListCursorRequest.ProtoReflect.Descriptor instead.
 func (*GetGroupMessageListCursorRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{9}
+	return file_message_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetGroupMessageListCursorRequest) GetUserId() string {
@@ -785,7 +786,7 @@ type GetGroupMessageListCursorResponse struct {
 
 func (x *GetGroupMessageListCursorResponse) Reset() {
 	*x = GetGroupMessageListCursorResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[10]
+	mi := &file_message_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -797,7 +798,7 @@ func (x *GetGroupMessageListCursorResponse) String() string {
 func (*GetGroupMessageListCursorResponse) ProtoMessage() {}
 
 func (x *GetGroupMessageListCursorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[10]
+	mi := &file_message_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -810,7 +811,7 @@ func (x *GetGroupMessageListCursorResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GetGroupMessageListCursorResponse.ProtoReflect.Descriptor instead.
 func (*GetGroupMessageListCursorResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{10}
+	return file_message_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetGroupMessageListCursorResponse) GetList() []*GetMessageListRespond {
@@ -844,7 +845,7 @@ type RecallMessageRequest struct {
 
 func (x *RecallMessageRequest) Reset() {
 	*x = RecallMessageRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[11]
+	mi := &file_message_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -856,7 +857,7 @@ func (x *RecallMessageRequest) String() string {
 func (*RecallMessageRequest) ProtoMessage() {}
 
 func (x *RecallMessageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[11]
+	mi := &file_message_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -869,7 +870,7 @@ func (x *RecallMessageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecallMessageRequest.ProtoReflect.Descriptor instead.
 func (*RecallMessageRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{11}
+	return file_message_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RecallMessageRequest) GetUserId() string {
@@ -894,7 +895,7 @@ type RecallMessageResponse struct {
 
 func (x *RecallMessageResponse) Reset() {
 	*x = RecallMessageResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[12]
+	mi := &file_message_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -906,7 +907,7 @@ func (x *RecallMessageResponse) String() string {
 func (*RecallMessageResponse) ProtoMessage() {}
 
 func (x *RecallMessageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[12]
+	mi := &file_message_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -919,7 +920,135 @@ func (x *RecallMessageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecallMessageResponse.ProtoReflect.Descriptor instead.
 func (*RecallMessageResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{12}
+	return file_message_proto_rawDescGZIP(), []int{12}
+}
+
+type GetMessagesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TargetId      string                 `protobuf:"bytes,1,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	Cursor        string                 `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	PageSize      int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	RequesterId   string                 `protobuf:"bytes,4,opt,name=requester_id,json=requesterId,proto3" json:"requester_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetMessagesRequest) Reset() {
+	*x = GetMessagesRequest{}
+	mi := &file_message_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetMessagesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetMessagesRequest) ProtoMessage() {}
+
+func (x *GetMessagesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_message_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetMessagesRequest.ProtoReflect.Descriptor instead.
+func (*GetMessagesRequest) Descriptor() ([]byte, []int) {
+	return file_message_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *GetMessagesRequest) GetTargetId() string {
+	if x != nil {
+		return x.TargetId
+	}
+	return ""
+}
+
+func (x *GetMessagesRequest) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
+}
+
+func (x *GetMessagesRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *GetMessagesRequest) GetRequesterId() string {
+	if x != nil {
+		return x.RequesterId
+	}
+	return ""
+}
+
+type GetMessagesResponse struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	List          []*GetMessageListRespond `protobuf:"bytes,1,rep,name=list,proto3" json:"list,omitempty"`
+	NextCursor    string                   `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	HasMore       bool                     `protobuf:"varint,3,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetMessagesResponse) Reset() {
+	*x = GetMessagesResponse{}
+	mi := &file_message_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetMessagesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetMessagesResponse) ProtoMessage() {}
+
+func (x *GetMessagesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_message_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetMessagesResponse.ProtoReflect.Descriptor instead.
+func (*GetMessagesResponse) Descriptor() ([]byte, []int) {
+	return file_message_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *GetMessagesResponse) GetList() []*GetMessageListRespond {
+	if x != nil {
+		return x.List
+	}
+	return nil
+}
+
+func (x *GetMessagesResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
+}
+
+func (x *GetMessagesResponse) GetHasMore() bool {
+	if x != nil {
+		return x.HasMore
+	}
+	return false
 }
 
 // Session Requests/Responses
@@ -933,7 +1062,7 @@ type CreateSessionRequest struct {
 
 func (x *CreateSessionRequest) Reset() {
 	*x = CreateSessionRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[13]
+	mi := &file_message_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -945,7 +1074,7 @@ func (x *CreateSessionRequest) String() string {
 func (*CreateSessionRequest) ProtoMessage() {}
 
 func (x *CreateSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[13]
+	mi := &file_message_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -958,7 +1087,7 @@ func (x *CreateSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSessionRequest.ProtoReflect.Descriptor instead.
 func (*CreateSessionRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{13}
+	return file_message_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *CreateSessionRequest) GetSendId() string {
@@ -984,7 +1113,7 @@ type CreateSessionResponse struct {
 
 func (x *CreateSessionResponse) Reset() {
 	*x = CreateSessionResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[14]
+	mi := &file_message_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -996,7 +1125,7 @@ func (x *CreateSessionResponse) String() string {
 func (*CreateSessionResponse) ProtoMessage() {}
 
 func (x *CreateSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[14]
+	mi := &file_message_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1009,7 +1138,7 @@ func (x *CreateSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSessionResponse.ProtoReflect.Descriptor instead.
 func (*CreateSessionResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{14}
+	return file_message_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CreateSessionResponse) GetSessionId() string {
@@ -1023,13 +1152,14 @@ type CheckOpenSessionAllowedRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SendId        string                 `protobuf:"bytes,1,opt,name=send_id,json=sendId,proto3" json:"send_id,omitempty"`
 	ReceiveId     string                 `protobuf:"bytes,2,opt,name=receive_id,json=receiveId,proto3" json:"receive_id,omitempty"`
+	TargetId      string                 `protobuf:"bytes,3,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CheckOpenSessionAllowedRequest) Reset() {
 	*x = CheckOpenSessionAllowedRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[15]
+	mi := &file_message_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1041,7 +1171,7 @@ func (x *CheckOpenSessionAllowedRequest) String() string {
 func (*CheckOpenSessionAllowedRequest) ProtoMessage() {}
 
 func (x *CheckOpenSessionAllowedRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[15]
+	mi := &file_message_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1054,7 +1184,7 @@ func (x *CheckOpenSessionAllowedRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckOpenSessionAllowedRequest.ProtoReflect.Descriptor instead.
 func (*CheckOpenSessionAllowedRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{15}
+	return file_message_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *CheckOpenSessionAllowedRequest) GetSendId() string {
@@ -1071,6 +1201,13 @@ func (x *CheckOpenSessionAllowedRequest) GetReceiveId() string {
 	return ""
 }
 
+func (x *CheckOpenSessionAllowedRequest) GetTargetId() string {
+	if x != nil {
+		return x.TargetId
+	}
+	return ""
+}
+
 type CheckOpenSessionAllowedResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Allowed       bool                   `protobuf:"varint,1,opt,name=allowed,proto3" json:"allowed,omitempty"`
@@ -1080,7 +1217,7 @@ type CheckOpenSessionAllowedResponse struct {
 
 func (x *CheckOpenSessionAllowedResponse) Reset() {
 	*x = CheckOpenSessionAllowedResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[16]
+	mi := &file_message_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1092,7 +1229,7 @@ func (x *CheckOpenSessionAllowedResponse) String() string {
 func (*CheckOpenSessionAllowedResponse) ProtoMessage() {}
 
 func (x *CheckOpenSessionAllowedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[16]
+	mi := &file_message_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1105,7 +1242,7 @@ func (x *CheckOpenSessionAllowedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckOpenSessionAllowedResponse.ProtoReflect.Descriptor instead.
 func (*CheckOpenSessionAllowedResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{16}
+	return file_message_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CheckOpenSessionAllowedResponse) GetAllowed() bool {
@@ -1119,13 +1256,14 @@ type OpenSessionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SendId        string                 `protobuf:"bytes,1,opt,name=send_id,json=sendId,proto3" json:"send_id,omitempty"`
 	ReceiveId     string                 `protobuf:"bytes,2,opt,name=receive_id,json=receiveId,proto3" json:"receive_id,omitempty"`
+	ClientToken   string                 `protobuf:"bytes,3,opt,name=client_token,json=clientToken,proto3" json:"client_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OpenSessionRequest) Reset() {
 	*x = OpenSessionRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[17]
+	mi := &file_message_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1137,7 +1275,7 @@ func (x *OpenSessionRequest) String() string {
 func (*OpenSessionRequest) ProtoMessage() {}
 
 func (x *OpenSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[17]
+	mi := &file_message_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1150,7 +1288,7 @@ func (x *OpenSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenSessionRequest.ProtoReflect.Descriptor instead.
 func (*OpenSessionRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{17}
+	return file_message_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *OpenSessionRequest) GetSendId() string {
@@ -1167,6 +1305,13 @@ func (x *OpenSessionRequest) GetReceiveId() string {
 	return ""
 }
 
+func (x *OpenSessionRequest) GetClientToken() string {
+	if x != nil {
+		return x.ClientToken
+	}
+	return ""
+}
+
 type OpenSessionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
@@ -1176,7 +1321,7 @@ type OpenSessionResponse struct {
 
 func (x *OpenSessionResponse) Reset() {
 	*x = OpenSessionResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[18]
+	mi := &file_message_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1188,7 +1333,7 @@ func (x *OpenSessionResponse) String() string {
 func (*OpenSessionResponse) ProtoMessage() {}
 
 func (x *OpenSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[18]
+	mi := &file_message_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1201,7 +1346,7 @@ func (x *OpenSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenSessionResponse.ProtoReflect.Descriptor instead.
 func (*OpenSessionResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{18}
+	return file_message_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *OpenSessionResponse) GetSessionId() string {
@@ -1222,7 +1367,7 @@ type GetUserSessionListRequest struct {
 
 func (x *GetUserSessionListRequest) Reset() {
 	*x = GetUserSessionListRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[19]
+	mi := &file_message_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1234,7 +1379,7 @@ func (x *GetUserSessionListRequest) String() string {
 func (*GetUserSessionListRequest) ProtoMessage() {}
 
 func (x *GetUserSessionListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[19]
+	mi := &file_message_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1247,7 +1392,7 @@ func (x *GetUserSessionListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserSessionListRequest.ProtoReflect.Descriptor instead.
 func (*GetUserSessionListRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{19}
+	return file_message_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GetUserSessionListRequest) GetOwnerId() string {
@@ -1287,7 +1432,7 @@ type UserSessionListRespond struct {
 
 func (x *UserSessionListRespond) Reset() {
 	*x = UserSessionListRespond{}
-	mi := &file_api_proto_message_proto_msgTypes[20]
+	mi := &file_message_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1299,7 +1444,7 @@ func (x *UserSessionListRespond) String() string {
 func (*UserSessionListRespond) ProtoMessage() {}
 
 func (x *UserSessionListRespond) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[20]
+	mi := &file_message_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1312,7 +1457,7 @@ func (x *UserSessionListRespond) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserSessionListRespond.ProtoReflect.Descriptor instead.
 func (*UserSessionListRespond) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{20}
+	return file_message_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *UserSessionListRespond) GetSessionId() string {
@@ -1381,7 +1526,7 @@ type GetUserSessionListResponse struct {
 
 func (x *GetUserSessionListResponse) Reset() {
 	*x = GetUserSessionListResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[21]
+	mi := &file_message_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1393,7 +1538,7 @@ func (x *GetUserSessionListResponse) String() string {
 func (*GetUserSessionListResponse) ProtoMessage() {}
 
 func (x *GetUserSessionListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[21]
+	mi := &file_message_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1406,7 +1551,7 @@ func (x *GetUserSessionListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserSessionListResponse.ProtoReflect.Descriptor instead.
 func (*GetUserSessionListResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{21}
+	return file_message_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GetUserSessionListResponse) GetTotal() int64 {
@@ -1434,7 +1579,7 @@ type GetGroupSessionListRequest struct {
 
 func (x *GetGroupSessionListRequest) Reset() {
 	*x = GetGroupSessionListRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[22]
+	mi := &file_message_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1446,7 +1591,7 @@ func (x *GetGroupSessionListRequest) String() string {
 func (*GetGroupSessionListRequest) ProtoMessage() {}
 
 func (x *GetGroupSessionListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[22]
+	mi := &file_message_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1459,7 +1604,7 @@ func (x *GetGroupSessionListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGroupSessionListRequest.ProtoReflect.Descriptor instead.
 func (*GetGroupSessionListRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{22}
+	return file_message_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetGroupSessionListRequest) GetOwnerId() string {
@@ -1499,7 +1644,7 @@ type GroupSessionListRespond struct {
 
 func (x *GroupSessionListRespond) Reset() {
 	*x = GroupSessionListRespond{}
-	mi := &file_api_proto_message_proto_msgTypes[23]
+	mi := &file_message_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1511,7 +1656,7 @@ func (x *GroupSessionListRespond) String() string {
 func (*GroupSessionListRespond) ProtoMessage() {}
 
 func (x *GroupSessionListRespond) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[23]
+	mi := &file_message_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1524,7 +1669,7 @@ func (x *GroupSessionListRespond) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupSessionListRespond.ProtoReflect.Descriptor instead.
 func (*GroupSessionListRespond) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{23}
+	return file_message_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *GroupSessionListRespond) GetSessionId() string {
@@ -1593,7 +1738,7 @@ type GetGroupSessionListResponse struct {
 
 func (x *GetGroupSessionListResponse) Reset() {
 	*x = GetGroupSessionListResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[24]
+	mi := &file_message_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1605,7 +1750,7 @@ func (x *GetGroupSessionListResponse) String() string {
 func (*GetGroupSessionListResponse) ProtoMessage() {}
 
 func (x *GetGroupSessionListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[24]
+	mi := &file_message_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1618,7 +1763,7 @@ func (x *GetGroupSessionListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGroupSessionListResponse.ProtoReflect.Descriptor instead.
 func (*GetGroupSessionListResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{24}
+	return file_message_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *GetGroupSessionListResponse) GetTotal() int64 {
@@ -1646,7 +1791,7 @@ type GetUserSessionListCursorRequest struct {
 
 func (x *GetUserSessionListCursorRequest) Reset() {
 	*x = GetUserSessionListCursorRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[25]
+	mi := &file_message_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1658,7 +1803,7 @@ func (x *GetUserSessionListCursorRequest) String() string {
 func (*GetUserSessionListCursorRequest) ProtoMessage() {}
 
 func (x *GetUserSessionListCursorRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[25]
+	mi := &file_message_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1671,7 +1816,7 @@ func (x *GetUserSessionListCursorRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserSessionListCursorRequest.ProtoReflect.Descriptor instead.
 func (*GetUserSessionListCursorRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{25}
+	return file_message_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GetUserSessionListCursorRequest) GetOwnerId() string {
@@ -1706,7 +1851,7 @@ type GetUserSessionListCursorResponse struct {
 
 func (x *GetUserSessionListCursorResponse) Reset() {
 	*x = GetUserSessionListCursorResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[26]
+	mi := &file_message_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1718,7 +1863,7 @@ func (x *GetUserSessionListCursorResponse) String() string {
 func (*GetUserSessionListCursorResponse) ProtoMessage() {}
 
 func (x *GetUserSessionListCursorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[26]
+	mi := &file_message_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1731,7 +1876,7 @@ func (x *GetUserSessionListCursorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserSessionListCursorResponse.ProtoReflect.Descriptor instead.
 func (*GetUserSessionListCursorResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{26}
+	return file_message_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetUserSessionListCursorResponse) GetList() []*UserSessionListRespond {
@@ -1766,7 +1911,7 @@ type GetGroupSessionListCursorRequest struct {
 
 func (x *GetGroupSessionListCursorRequest) Reset() {
 	*x = GetGroupSessionListCursorRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[27]
+	mi := &file_message_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1778,7 +1923,7 @@ func (x *GetGroupSessionListCursorRequest) String() string {
 func (*GetGroupSessionListCursorRequest) ProtoMessage() {}
 
 func (x *GetGroupSessionListCursorRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[27]
+	mi := &file_message_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1791,7 +1936,7 @@ func (x *GetGroupSessionListCursorRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGroupSessionListCursorRequest.ProtoReflect.Descriptor instead.
 func (*GetGroupSessionListCursorRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{27}
+	return file_message_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *GetGroupSessionListCursorRequest) GetOwnerId() string {
@@ -1826,7 +1971,7 @@ type GetGroupSessionListCursorResponse struct {
 
 func (x *GetGroupSessionListCursorResponse) Reset() {
 	*x = GetGroupSessionListCursorResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[28]
+	mi := &file_message_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1838,7 +1983,7 @@ func (x *GetGroupSessionListCursorResponse) String() string {
 func (*GetGroupSessionListCursorResponse) ProtoMessage() {}
 
 func (x *GetGroupSessionListCursorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[28]
+	mi := &file_message_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1851,7 +1996,7 @@ func (x *GetGroupSessionListCursorResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GetGroupSessionListCursorResponse.ProtoReflect.Descriptor instead.
 func (*GetGroupSessionListCursorResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{28}
+	return file_message_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *GetGroupSessionListCursorResponse) GetList() []*GroupSessionListRespond {
@@ -1885,7 +2030,7 @@ type DeleteSessionRequest struct {
 
 func (x *DeleteSessionRequest) Reset() {
 	*x = DeleteSessionRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[29]
+	mi := &file_message_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1897,7 +2042,7 @@ func (x *DeleteSessionRequest) String() string {
 func (*DeleteSessionRequest) ProtoMessage() {}
 
 func (x *DeleteSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[29]
+	mi := &file_message_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1910,7 +2055,7 @@ func (x *DeleteSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSessionRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSessionRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{29}
+	return file_message_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *DeleteSessionRequest) GetOwnerId() string {
@@ -1935,7 +2080,7 @@ type DeleteSessionResponse struct {
 
 func (x *DeleteSessionResponse) Reset() {
 	*x = DeleteSessionResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[30]
+	mi := &file_message_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1947,7 +2092,7 @@ func (x *DeleteSessionResponse) String() string {
 func (*DeleteSessionResponse) ProtoMessage() {}
 
 func (x *DeleteSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[30]
+	mi := &file_message_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1960,7 +2105,7 @@ func (x *DeleteSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSessionResponse.ProtoReflect.Descriptor instead.
 func (*DeleteSessionResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{30}
+	return file_message_proto_rawDescGZIP(), []int{32}
 }
 
 type PinSessionRequest struct {
@@ -1974,7 +2119,7 @@ type PinSessionRequest struct {
 
 func (x *PinSessionRequest) Reset() {
 	*x = PinSessionRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[31]
+	mi := &file_message_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1986,7 +2131,7 @@ func (x *PinSessionRequest) String() string {
 func (*PinSessionRequest) ProtoMessage() {}
 
 func (x *PinSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[31]
+	mi := &file_message_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1999,7 +2144,7 @@ func (x *PinSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PinSessionRequest.ProtoReflect.Descriptor instead.
 func (*PinSessionRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{31}
+	return file_message_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *PinSessionRequest) GetUserId() string {
@@ -2031,7 +2176,7 @@ type PinSessionResponse struct {
 
 func (x *PinSessionResponse) Reset() {
 	*x = PinSessionResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[32]
+	mi := &file_message_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2043,7 +2188,7 @@ func (x *PinSessionResponse) String() string {
 func (*PinSessionResponse) ProtoMessage() {}
 
 func (x *PinSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[32]
+	mi := &file_message_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2056,7 +2201,7 @@ func (x *PinSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PinSessionResponse.ProtoReflect.Descriptor instead.
 func (*PinSessionResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{32}
+	return file_message_proto_rawDescGZIP(), []int{34}
 }
 
 type DeleteGroupMemberSessionsRequest struct {
@@ -2069,7 +2214,7 @@ type DeleteGroupMemberSessionsRequest struct {
 
 func (x *DeleteGroupMemberSessionsRequest) Reset() {
 	*x = DeleteGroupMemberSessionsRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[33]
+	mi := &file_message_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2081,7 +2226,7 @@ func (x *DeleteGroupMemberSessionsRequest) String() string {
 func (*DeleteGroupMemberSessionsRequest) ProtoMessage() {}
 
 func (x *DeleteGroupMemberSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[33]
+	mi := &file_message_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2094,7 +2239,7 @@ func (x *DeleteGroupMemberSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteGroupMemberSessionsRequest.ProtoReflect.Descriptor instead.
 func (*DeleteGroupMemberSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{33}
+	return file_message_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *DeleteGroupMemberSessionsRequest) GetGroupId() string {
@@ -2119,7 +2264,7 @@ type DeleteGroupMemberSessionsResponse struct {
 
 func (x *DeleteGroupMemberSessionsResponse) Reset() {
 	*x = DeleteGroupMemberSessionsResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[34]
+	mi := &file_message_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2131,7 +2276,7 @@ func (x *DeleteGroupMemberSessionsResponse) String() string {
 func (*DeleteGroupMemberSessionsResponse) ProtoMessage() {}
 
 func (x *DeleteGroupMemberSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[34]
+	mi := &file_message_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2144,7 +2289,7 @@ func (x *DeleteGroupMemberSessionsResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use DeleteGroupMemberSessionsResponse.ProtoReflect.Descriptor instead.
 func (*DeleteGroupMemberSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{34}
+	return file_message_proto_rawDescGZIP(), []int{36}
 }
 
 type CreateGroupSessionRequest struct {
@@ -2159,7 +2304,7 @@ type CreateGroupSessionRequest struct {
 
 func (x *CreateGroupSessionRequest) Reset() {
 	*x = CreateGroupSessionRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[35]
+	mi := &file_message_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2171,7 +2316,7 @@ func (x *CreateGroupSessionRequest) String() string {
 func (*CreateGroupSessionRequest) ProtoMessage() {}
 
 func (x *CreateGroupSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[35]
+	mi := &file_message_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2184,7 +2329,7 @@ func (x *CreateGroupSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateGroupSessionRequest.ProtoReflect.Descriptor instead.
 func (*CreateGroupSessionRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{35}
+	return file_message_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *CreateGroupSessionRequest) GetGroupId() string {
@@ -2224,7 +2369,7 @@ type CreateGroupSessionResponse struct {
 
 func (x *CreateGroupSessionResponse) Reset() {
 	*x = CreateGroupSessionResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[36]
+	mi := &file_message_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2236,7 +2381,7 @@ func (x *CreateGroupSessionResponse) String() string {
 func (*CreateGroupSessionResponse) ProtoMessage() {}
 
 func (x *CreateGroupSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[36]
+	mi := &file_message_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2249,7 +2394,7 @@ func (x *CreateGroupSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateGroupSessionResponse.ProtoReflect.Descriptor instead.
 func (*CreateGroupSessionResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{36}
+	return file_message_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *CreateGroupSessionResponse) GetSessionId() string {
@@ -2269,7 +2414,7 @@ type DeleteFriendSessionsRequest struct {
 
 func (x *DeleteFriendSessionsRequest) Reset() {
 	*x = DeleteFriendSessionsRequest{}
-	mi := &file_api_proto_message_proto_msgTypes[37]
+	mi := &file_message_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2281,7 +2426,7 @@ func (x *DeleteFriendSessionsRequest) String() string {
 func (*DeleteFriendSessionsRequest) ProtoMessage() {}
 
 func (x *DeleteFriendSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[37]
+	mi := &file_message_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2294,7 +2439,7 @@ func (x *DeleteFriendSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteFriendSessionsRequest.ProtoReflect.Descriptor instead.
 func (*DeleteFriendSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{37}
+	return file_message_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *DeleteFriendSessionsRequest) GetUserOneId() string {
@@ -2319,7 +2464,7 @@ type DeleteFriendSessionsResponse struct {
 
 func (x *DeleteFriendSessionsResponse) Reset() {
 	*x = DeleteFriendSessionsResponse{}
-	mi := &file_api_proto_message_proto_msgTypes[38]
+	mi := &file_message_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2331,7 +2476,7 @@ func (x *DeleteFriendSessionsResponse) String() string {
 func (*DeleteFriendSessionsResponse) ProtoMessage() {}
 
 func (x *DeleteFriendSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_message_proto_msgTypes[38]
+	mi := &file_message_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2344,14 +2489,14 @@ func (x *DeleteFriendSessionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteFriendSessionsResponse.ProtoReflect.Descriptor instead.
 func (*DeleteFriendSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_message_proto_rawDescGZIP(), []int{38}
+	return file_message_proto_rawDescGZIP(), []int{40}
 }
 
-var File_api_proto_message_proto protoreflect.FileDescriptor
+var File_message_proto protoreflect.FileDescriptor
 
-const file_api_proto_message_proto_rawDesc = "" +
+const file_message_proto_rawDesc = "" +
 	"\n" +
-	"\x17api/proto/message.proto\x12\amessage\"\xfd\x02\n" +
+	"\rmessage.proto\x12\amessage\x1a\x1cgoogle/api/annotations.proto\"\xfd\x02\n" +
 	"\x12SendMessageRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
@@ -2431,24 +2576,36 @@ const file_api_proto_message_proto_rawDesc = "" +
 	"\x14RecallMessageRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12!\n" +
 	"\fmessage_uuid\x18\x02 \x01(\tR\vmessageUuid\"\x17\n" +
-	"\x15RecallMessageResponse\"N\n" +
+	"\x15RecallMessageResponse\"\x89\x01\n" +
+	"\x12GetMessagesRequest\x12\x1b\n" +
+	"\ttarget_id\x18\x01 \x01(\tR\btargetId\x12\x16\n" +
+	"\x06cursor\x18\x02 \x01(\tR\x06cursor\x12\x1b\n" +
+	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12!\n" +
+	"\frequester_id\x18\x04 \x01(\tR\vrequesterId\"\x85\x01\n" +
+	"\x13GetMessagesResponse\x122\n" +
+	"\x04list\x18\x01 \x03(\v2\x1e.message.GetMessageListRespondR\x04list\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\x12\x19\n" +
+	"\bhas_more\x18\x03 \x01(\bR\ahasMore\"N\n" +
 	"\x14CreateSessionRequest\x12\x17\n" +
 	"\asend_id\x18\x01 \x01(\tR\x06sendId\x12\x1d\n" +
 	"\n" +
 	"receive_id\x18\x02 \x01(\tR\treceiveId\"6\n" +
 	"\x15CreateSessionResponse\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\"X\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"u\n" +
 	"\x1eCheckOpenSessionAllowedRequest\x12\x17\n" +
 	"\asend_id\x18\x01 \x01(\tR\x06sendId\x12\x1d\n" +
 	"\n" +
-	"receive_id\x18\x02 \x01(\tR\treceiveId\";\n" +
+	"receive_id\x18\x02 \x01(\tR\treceiveId\x12\x1b\n" +
+	"\ttarget_id\x18\x03 \x01(\tR\btargetId\";\n" +
 	"\x1fCheckOpenSessionAllowedResponse\x12\x18\n" +
-	"\aallowed\x18\x01 \x01(\bR\aallowed\"L\n" +
+	"\aallowed\x18\x01 \x01(\bR\aallowed\"o\n" +
 	"\x12OpenSessionRequest\x12\x17\n" +
 	"\asend_id\x18\x01 \x01(\tR\x06sendId\x12\x1d\n" +
 	"\n" +
-	"receive_id\x18\x02 \x01(\tR\treceiveId\"4\n" +
+	"receive_id\x18\x02 \x01(\tR\treceiveId\x12!\n" +
+	"\fclient_token\x18\x03 \x01(\tR\vclientToken\"4\n" +
 	"\x13OpenSessionResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\"g\n" +
@@ -2532,42 +2689,43 @@ const file_api_proto_message_proto_rawDesc = "" +
 	"\x1bDeleteFriendSessionsRequest\x12\x1e\n" +
 	"\vuser_one_id\x18\x01 \x01(\tR\tuserOneId\x12\x1e\n" +
 	"\vuser_two_id\x18\x02 \x01(\tR\tuserTwoId\"\x1e\n" +
-	"\x1cDeleteFriendSessionsResponse2\xb5\r\n" +
+	"\x1cDeleteFriendSessionsResponse2\x92\x10\n" +
 	"\x0eMessageService\x12H\n" +
 	"\vSendMessage\x12\x1b.message.SendMessageRequest\x1a\x1c.message.SendMessageResponse\x12Q\n" +
 	"\x0eGetMessageList\x12\x1e.message.GetMessageListRequest\x1a\x1f.message.GetMessageListResponse\x12`\n" +
-	"\x13GetGroupMessageList\x12#.message.GetGroupMessageListRequest\x1a$.message.GetGroupMessageListResponse\x12c\n" +
-	"\x14GetMessageListCursor\x12$.message.GetMessageListCursorRequest\x1a%.message.GetMessageListCursorResponse\x12r\n" +
-	"\x19GetGroupMessageListCursor\x12).message.GetGroupMessageListCursorRequest\x1a*.message.GetGroupMessageListCursorResponse\x12N\n" +
-	"\rRecallMessage\x12\x1d.message.RecallMessageRequest\x1a\x1e.message.RecallMessageResponse\x12N\n" +
-	"\rCreateSession\x12\x1d.message.CreateSessionRequest\x1a\x1e.message.CreateSessionResponse\x12l\n" +
-	"\x17CheckOpenSessionAllowed\x12'.message.CheckOpenSessionAllowedRequest\x1a(.message.CheckOpenSessionAllowedResponse\x12H\n" +
-	"\vOpenSession\x12\x1b.message.OpenSessionRequest\x1a\x1c.message.OpenSessionResponse\x12]\n" +
+	"\x13GetGroupMessageList\x12#.message.GetGroupMessageListRequest\x1a$.message.GetGroupMessageListResponse\x12}\n" +
+	"\x14GetMessageListCursor\x12$.message.GetMessageListCursorRequest\x1a%.message.GetMessageListCursorResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/messages/direct\x12\x8b\x01\n" +
+	"\x19GetGroupMessageListCursor\x12).message.GetGroupMessageListCursorRequest\x1a*.message.GetGroupMessageListCursorResponse\"\x17\x82\xd3\xe4\x93\x02\x11\x12\x0f/messages/group\x12[\n" +
+	"\vGetMessages\x12\x1b.message.GetMessagesRequest\x1a\x1c.message.GetMessagesResponse\"\x11\x82\xd3\xe4\x93\x02\v\x12\t/messages\x12k\n" +
+	"\rRecallMessage\x12\x1d.message.RecallMessageRequest\x1a\x1e.message.RecallMessageResponse\"\x1b\x82\xd3\xe4\x93\x02\x15:\x01*\"\x10/messages/recall\x12N\n" +
+	"\rCreateSession\x12\x1d.message.CreateSessionRequest\x1a\x1e.message.CreateSessionResponse\x12\x85\x01\n" +
+	"\x17CheckOpenSessionAllowed\x12'.message.CheckOpenSessionAllowedRequest\x1a(.message.CheckOpenSessionAllowedResponse\"\x17\x82\xd3\xe4\x93\x02\x11\x12\x0f/sessions/check\x12^\n" +
+	"\vOpenSession\x12\x1b.message.OpenSessionRequest\x1a\x1c.message.OpenSessionResponse\"\x14\x82\xd3\xe4\x93\x02\x0e:\x01*\"\t/sessions\x12]\n" +
 	"\x12GetUserSessionList\x12\".message.GetUserSessionListRequest\x1a#.message.GetUserSessionListResponse\x12`\n" +
-	"\x13GetGroupSessionList\x12#.message.GetGroupSessionListRequest\x1a$.message.GetGroupSessionListResponse\x12o\n" +
-	"\x18GetUserSessionListCursor\x12(.message.GetUserSessionListCursorRequest\x1a).message.GetUserSessionListCursorResponse\x12r\n" +
-	"\x19GetGroupSessionListCursor\x12).message.GetGroupSessionListCursorRequest\x1a*.message.GetGroupSessionListCursorResponse\x12N\n" +
-	"\rDeleteSession\x12\x1d.message.DeleteSessionRequest\x1a\x1e.message.DeleteSessionResponse\x12E\n" +
+	"\x13GetGroupSessionList\x12#.message.GetGroupSessionListRequest\x1a$.message.GetGroupSessionListResponse\x12\x89\x01\n" +
+	"\x18GetUserSessionListCursor\x12(.message.GetUserSessionListCursorRequest\x1a).message.GetUserSessionListCursorResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/sessions/direct\x12\x8b\x01\n" +
+	"\x19GetGroupSessionListCursor\x12).message.GetGroupSessionListCursorRequest\x1a*.message.GetGroupSessionListCursorResponse\"\x17\x82\xd3\xe4\x93\x02\x11\x12\x0f/sessions/group\x12~\n" +
+	"\rDeleteSession\x12\x1d.message.DeleteSessionRequest\x1a\x1e.message.DeleteSessionResponse\".\x82\xd3\xe4\x93\x02(:\x01*Z\x18*\x16/sessions/{session_id}*\t/sessions\x12_\n" +
 	"\n" +
-	"PinSession\x12\x1a.message.PinSessionRequest\x1a\x1b.message.PinSessionResponse\x12r\n" +
+	"PinSession\x12\x1a.message.PinSessionRequest\x1a\x1b.message.PinSessionResponse\"\x18\x82\xd3\xe4\x93\x02\x12:\x01*\x1a\r/sessions/pin\x12r\n" +
 	"\x19DeleteGroupMemberSessions\x12).message.DeleteGroupMemberSessionsRequest\x1a*.message.DeleteGroupMemberSessionsResponse\x12]\n" +
 	"\x12CreateGroupSession\x12\".message.CreateGroupSessionRequest\x1a#.message.CreateGroupSessionResponse\x12c\n" +
 	"\x14DeleteFriendSessions\x12$.message.DeleteFriendSessionsRequest\x1a%.message.DeleteFriendSessionsResponseB\"Z kama_chat_server/api/gen/messageb\x06proto3"
 
 var (
-	file_api_proto_message_proto_rawDescOnce sync.Once
-	file_api_proto_message_proto_rawDescData []byte
+	file_message_proto_rawDescOnce sync.Once
+	file_message_proto_rawDescData []byte
 )
 
-func file_api_proto_message_proto_rawDescGZIP() []byte {
-	file_api_proto_message_proto_rawDescOnce.Do(func() {
-		file_api_proto_message_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_api_proto_message_proto_rawDesc), len(file_api_proto_message_proto_rawDesc)))
+func file_message_proto_rawDescGZIP() []byte {
+	file_message_proto_rawDescOnce.Do(func() {
+		file_message_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_message_proto_rawDesc), len(file_message_proto_rawDesc)))
 	})
-	return file_api_proto_message_proto_rawDescData
+	return file_message_proto_rawDescData
 }
 
-var file_api_proto_message_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
-var file_api_proto_message_proto_goTypes = []any{
+var file_message_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
+var file_message_proto_goTypes = []any{
 	(*SendMessageRequest)(nil),                // 0: message.SendMessageRequest
 	(*SendMessageResponse)(nil),               // 1: message.SendMessageResponse
 	(*GetMessageListRequest)(nil),             // 2: message.GetMessageListRequest
@@ -2581,105 +2739,110 @@ var file_api_proto_message_proto_goTypes = []any{
 	(*GetGroupMessageListCursorResponse)(nil), // 10: message.GetGroupMessageListCursorResponse
 	(*RecallMessageRequest)(nil),              // 11: message.RecallMessageRequest
 	(*RecallMessageResponse)(nil),             // 12: message.RecallMessageResponse
-	(*CreateSessionRequest)(nil),              // 13: message.CreateSessionRequest
-	(*CreateSessionResponse)(nil),             // 14: message.CreateSessionResponse
-	(*CheckOpenSessionAllowedRequest)(nil),    // 15: message.CheckOpenSessionAllowedRequest
-	(*CheckOpenSessionAllowedResponse)(nil),   // 16: message.CheckOpenSessionAllowedResponse
-	(*OpenSessionRequest)(nil),                // 17: message.OpenSessionRequest
-	(*OpenSessionResponse)(nil),               // 18: message.OpenSessionResponse
-	(*GetUserSessionListRequest)(nil),         // 19: message.GetUserSessionListRequest
-	(*UserSessionListRespond)(nil),            // 20: message.UserSessionListRespond
-	(*GetUserSessionListResponse)(nil),        // 21: message.GetUserSessionListResponse
-	(*GetGroupSessionListRequest)(nil),        // 22: message.GetGroupSessionListRequest
-	(*GroupSessionListRespond)(nil),           // 23: message.GroupSessionListRespond
-	(*GetGroupSessionListResponse)(nil),       // 24: message.GetGroupSessionListResponse
-	(*GetUserSessionListCursorRequest)(nil),   // 25: message.GetUserSessionListCursorRequest
-	(*GetUserSessionListCursorResponse)(nil),  // 26: message.GetUserSessionListCursorResponse
-	(*GetGroupSessionListCursorRequest)(nil),  // 27: message.GetGroupSessionListCursorRequest
-	(*GetGroupSessionListCursorResponse)(nil), // 28: message.GetGroupSessionListCursorResponse
-	(*DeleteSessionRequest)(nil),              // 29: message.DeleteSessionRequest
-	(*DeleteSessionResponse)(nil),             // 30: message.DeleteSessionResponse
-	(*PinSessionRequest)(nil),                 // 31: message.PinSessionRequest
-	(*PinSessionResponse)(nil),                // 32: message.PinSessionResponse
-	(*DeleteGroupMemberSessionsRequest)(nil),  // 33: message.DeleteGroupMemberSessionsRequest
-	(*DeleteGroupMemberSessionsResponse)(nil), // 34: message.DeleteGroupMemberSessionsResponse
-	(*CreateGroupSessionRequest)(nil),         // 35: message.CreateGroupSessionRequest
-	(*CreateGroupSessionResponse)(nil),        // 36: message.CreateGroupSessionResponse
-	(*DeleteFriendSessionsRequest)(nil),       // 37: message.DeleteFriendSessionsRequest
-	(*DeleteFriendSessionsResponse)(nil),      // 38: message.DeleteFriendSessionsResponse
+	(*GetMessagesRequest)(nil),                // 13: message.GetMessagesRequest
+	(*GetMessagesResponse)(nil),               // 14: message.GetMessagesResponse
+	(*CreateSessionRequest)(nil),              // 15: message.CreateSessionRequest
+	(*CreateSessionResponse)(nil),             // 16: message.CreateSessionResponse
+	(*CheckOpenSessionAllowedRequest)(nil),    // 17: message.CheckOpenSessionAllowedRequest
+	(*CheckOpenSessionAllowedResponse)(nil),   // 18: message.CheckOpenSessionAllowedResponse
+	(*OpenSessionRequest)(nil),                // 19: message.OpenSessionRequest
+	(*OpenSessionResponse)(nil),               // 20: message.OpenSessionResponse
+	(*GetUserSessionListRequest)(nil),         // 21: message.GetUserSessionListRequest
+	(*UserSessionListRespond)(nil),            // 22: message.UserSessionListRespond
+	(*GetUserSessionListResponse)(nil),        // 23: message.GetUserSessionListResponse
+	(*GetGroupSessionListRequest)(nil),        // 24: message.GetGroupSessionListRequest
+	(*GroupSessionListRespond)(nil),           // 25: message.GroupSessionListRespond
+	(*GetGroupSessionListResponse)(nil),       // 26: message.GetGroupSessionListResponse
+	(*GetUserSessionListCursorRequest)(nil),   // 27: message.GetUserSessionListCursorRequest
+	(*GetUserSessionListCursorResponse)(nil),  // 28: message.GetUserSessionListCursorResponse
+	(*GetGroupSessionListCursorRequest)(nil),  // 29: message.GetGroupSessionListCursorRequest
+	(*GetGroupSessionListCursorResponse)(nil), // 30: message.GetGroupSessionListCursorResponse
+	(*DeleteSessionRequest)(nil),              // 31: message.DeleteSessionRequest
+	(*DeleteSessionResponse)(nil),             // 32: message.DeleteSessionResponse
+	(*PinSessionRequest)(nil),                 // 33: message.PinSessionRequest
+	(*PinSessionResponse)(nil),                // 34: message.PinSessionResponse
+	(*DeleteGroupMemberSessionsRequest)(nil),  // 35: message.DeleteGroupMemberSessionsRequest
+	(*DeleteGroupMemberSessionsResponse)(nil), // 36: message.DeleteGroupMemberSessionsResponse
+	(*CreateGroupSessionRequest)(nil),         // 37: message.CreateGroupSessionRequest
+	(*CreateGroupSessionResponse)(nil),        // 38: message.CreateGroupSessionResponse
+	(*DeleteFriendSessionsRequest)(nil),       // 39: message.DeleteFriendSessionsRequest
+	(*DeleteFriendSessionsResponse)(nil),      // 40: message.DeleteFriendSessionsResponse
 }
-var file_api_proto_message_proto_depIdxs = []int32{
+var file_message_proto_depIdxs = []int32{
 	3,  // 0: message.GetMessageListResponse.list:type_name -> message.GetMessageListRespond
 	3,  // 1: message.GetGroupMessageListResponse.list:type_name -> message.GetMessageListRespond
 	3,  // 2: message.GetMessageListCursorResponse.list:type_name -> message.GetMessageListRespond
 	3,  // 3: message.GetGroupMessageListCursorResponse.list:type_name -> message.GetMessageListRespond
-	20, // 4: message.GetUserSessionListResponse.list:type_name -> message.UserSessionListRespond
-	23, // 5: message.GetGroupSessionListResponse.list:type_name -> message.GroupSessionListRespond
-	20, // 6: message.GetUserSessionListCursorResponse.list:type_name -> message.UserSessionListRespond
-	23, // 7: message.GetGroupSessionListCursorResponse.list:type_name -> message.GroupSessionListRespond
-	0,  // 8: message.MessageService.SendMessage:input_type -> message.SendMessageRequest
-	2,  // 9: message.MessageService.GetMessageList:input_type -> message.GetMessageListRequest
-	5,  // 10: message.MessageService.GetGroupMessageList:input_type -> message.GetGroupMessageListRequest
-	7,  // 11: message.MessageService.GetMessageListCursor:input_type -> message.GetMessageListCursorRequest
-	9,  // 12: message.MessageService.GetGroupMessageListCursor:input_type -> message.GetGroupMessageListCursorRequest
-	11, // 13: message.MessageService.RecallMessage:input_type -> message.RecallMessageRequest
-	13, // 14: message.MessageService.CreateSession:input_type -> message.CreateSessionRequest
-	15, // 15: message.MessageService.CheckOpenSessionAllowed:input_type -> message.CheckOpenSessionAllowedRequest
-	17, // 16: message.MessageService.OpenSession:input_type -> message.OpenSessionRequest
-	19, // 17: message.MessageService.GetUserSessionList:input_type -> message.GetUserSessionListRequest
-	22, // 18: message.MessageService.GetGroupSessionList:input_type -> message.GetGroupSessionListRequest
-	25, // 19: message.MessageService.GetUserSessionListCursor:input_type -> message.GetUserSessionListCursorRequest
-	27, // 20: message.MessageService.GetGroupSessionListCursor:input_type -> message.GetGroupSessionListCursorRequest
-	29, // 21: message.MessageService.DeleteSession:input_type -> message.DeleteSessionRequest
-	31, // 22: message.MessageService.PinSession:input_type -> message.PinSessionRequest
-	33, // 23: message.MessageService.DeleteGroupMemberSessions:input_type -> message.DeleteGroupMemberSessionsRequest
-	35, // 24: message.MessageService.CreateGroupSession:input_type -> message.CreateGroupSessionRequest
-	37, // 25: message.MessageService.DeleteFriendSessions:input_type -> message.DeleteFriendSessionsRequest
-	1,  // 26: message.MessageService.SendMessage:output_type -> message.SendMessageResponse
-	4,  // 27: message.MessageService.GetMessageList:output_type -> message.GetMessageListResponse
-	6,  // 28: message.MessageService.GetGroupMessageList:output_type -> message.GetGroupMessageListResponse
-	8,  // 29: message.MessageService.GetMessageListCursor:output_type -> message.GetMessageListCursorResponse
-	10, // 30: message.MessageService.GetGroupMessageListCursor:output_type -> message.GetGroupMessageListCursorResponse
-	12, // 31: message.MessageService.RecallMessage:output_type -> message.RecallMessageResponse
-	14, // 32: message.MessageService.CreateSession:output_type -> message.CreateSessionResponse
-	16, // 33: message.MessageService.CheckOpenSessionAllowed:output_type -> message.CheckOpenSessionAllowedResponse
-	18, // 34: message.MessageService.OpenSession:output_type -> message.OpenSessionResponse
-	21, // 35: message.MessageService.GetUserSessionList:output_type -> message.GetUserSessionListResponse
-	24, // 36: message.MessageService.GetGroupSessionList:output_type -> message.GetGroupSessionListResponse
-	26, // 37: message.MessageService.GetUserSessionListCursor:output_type -> message.GetUserSessionListCursorResponse
-	28, // 38: message.MessageService.GetGroupSessionListCursor:output_type -> message.GetGroupSessionListCursorResponse
-	30, // 39: message.MessageService.DeleteSession:output_type -> message.DeleteSessionResponse
-	32, // 40: message.MessageService.PinSession:output_type -> message.PinSessionResponse
-	34, // 41: message.MessageService.DeleteGroupMemberSessions:output_type -> message.DeleteGroupMemberSessionsResponse
-	36, // 42: message.MessageService.CreateGroupSession:output_type -> message.CreateGroupSessionResponse
-	38, // 43: message.MessageService.DeleteFriendSessions:output_type -> message.DeleteFriendSessionsResponse
-	26, // [26:44] is the sub-list for method output_type
-	8,  // [8:26] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	3,  // 4: message.GetMessagesResponse.list:type_name -> message.GetMessageListRespond
+	22, // 5: message.GetUserSessionListResponse.list:type_name -> message.UserSessionListRespond
+	25, // 6: message.GetGroupSessionListResponse.list:type_name -> message.GroupSessionListRespond
+	22, // 7: message.GetUserSessionListCursorResponse.list:type_name -> message.UserSessionListRespond
+	25, // 8: message.GetGroupSessionListCursorResponse.list:type_name -> message.GroupSessionListRespond
+	0,  // 9: message.MessageService.SendMessage:input_type -> message.SendMessageRequest
+	2,  // 10: message.MessageService.GetMessageList:input_type -> message.GetMessageListRequest
+	5,  // 11: message.MessageService.GetGroupMessageList:input_type -> message.GetGroupMessageListRequest
+	7,  // 12: message.MessageService.GetMessageListCursor:input_type -> message.GetMessageListCursorRequest
+	9,  // 13: message.MessageService.GetGroupMessageListCursor:input_type -> message.GetGroupMessageListCursorRequest
+	13, // 14: message.MessageService.GetMessages:input_type -> message.GetMessagesRequest
+	11, // 15: message.MessageService.RecallMessage:input_type -> message.RecallMessageRequest
+	15, // 16: message.MessageService.CreateSession:input_type -> message.CreateSessionRequest
+	17, // 17: message.MessageService.CheckOpenSessionAllowed:input_type -> message.CheckOpenSessionAllowedRequest
+	19, // 18: message.MessageService.OpenSession:input_type -> message.OpenSessionRequest
+	21, // 19: message.MessageService.GetUserSessionList:input_type -> message.GetUserSessionListRequest
+	24, // 20: message.MessageService.GetGroupSessionList:input_type -> message.GetGroupSessionListRequest
+	27, // 21: message.MessageService.GetUserSessionListCursor:input_type -> message.GetUserSessionListCursorRequest
+	29, // 22: message.MessageService.GetGroupSessionListCursor:input_type -> message.GetGroupSessionListCursorRequest
+	31, // 23: message.MessageService.DeleteSession:input_type -> message.DeleteSessionRequest
+	33, // 24: message.MessageService.PinSession:input_type -> message.PinSessionRequest
+	35, // 25: message.MessageService.DeleteGroupMemberSessions:input_type -> message.DeleteGroupMemberSessionsRequest
+	37, // 26: message.MessageService.CreateGroupSession:input_type -> message.CreateGroupSessionRequest
+	39, // 27: message.MessageService.DeleteFriendSessions:input_type -> message.DeleteFriendSessionsRequest
+	1,  // 28: message.MessageService.SendMessage:output_type -> message.SendMessageResponse
+	4,  // 29: message.MessageService.GetMessageList:output_type -> message.GetMessageListResponse
+	6,  // 30: message.MessageService.GetGroupMessageList:output_type -> message.GetGroupMessageListResponse
+	8,  // 31: message.MessageService.GetMessageListCursor:output_type -> message.GetMessageListCursorResponse
+	10, // 32: message.MessageService.GetGroupMessageListCursor:output_type -> message.GetGroupMessageListCursorResponse
+	14, // 33: message.MessageService.GetMessages:output_type -> message.GetMessagesResponse
+	12, // 34: message.MessageService.RecallMessage:output_type -> message.RecallMessageResponse
+	16, // 35: message.MessageService.CreateSession:output_type -> message.CreateSessionResponse
+	18, // 36: message.MessageService.CheckOpenSessionAllowed:output_type -> message.CheckOpenSessionAllowedResponse
+	20, // 37: message.MessageService.OpenSession:output_type -> message.OpenSessionResponse
+	23, // 38: message.MessageService.GetUserSessionList:output_type -> message.GetUserSessionListResponse
+	26, // 39: message.MessageService.GetGroupSessionList:output_type -> message.GetGroupSessionListResponse
+	28, // 40: message.MessageService.GetUserSessionListCursor:output_type -> message.GetUserSessionListCursorResponse
+	30, // 41: message.MessageService.GetGroupSessionListCursor:output_type -> message.GetGroupSessionListCursorResponse
+	32, // 42: message.MessageService.DeleteSession:output_type -> message.DeleteSessionResponse
+	34, // 43: message.MessageService.PinSession:output_type -> message.PinSessionResponse
+	36, // 44: message.MessageService.DeleteGroupMemberSessions:output_type -> message.DeleteGroupMemberSessionsResponse
+	38, // 45: message.MessageService.CreateGroupSession:output_type -> message.CreateGroupSessionResponse
+	40, // 46: message.MessageService.DeleteFriendSessions:output_type -> message.DeleteFriendSessionsResponse
+	28, // [28:47] is the sub-list for method output_type
+	9,  // [9:28] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
-func init() { file_api_proto_message_proto_init() }
-func file_api_proto_message_proto_init() {
-	if File_api_proto_message_proto != nil {
+func init() { file_message_proto_init() }
+func file_message_proto_init() {
+	if File_message_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_message_proto_rawDesc), len(file_api_proto_message_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_message_proto_rawDesc), len(file_message_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   39,
+			NumMessages:   41,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_api_proto_message_proto_goTypes,
-		DependencyIndexes: file_api_proto_message_proto_depIdxs,
-		MessageInfos:      file_api_proto_message_proto_msgTypes,
+		GoTypes:           file_message_proto_goTypes,
+		DependencyIndexes: file_message_proto_depIdxs,
+		MessageInfos:      file_message_proto_msgTypes,
 	}.Build()
-	File_api_proto_message_proto = out.File
-	file_api_proto_message_proto_goTypes = nil
-	file_api_proto_message_proto_depIdxs = nil
+	File_message_proto = out.File
+	file_message_proto_goTypes = nil
+	file_message_proto_depIdxs = nil
 }

@@ -37,9 +37,10 @@ func (h *ApplyHandler) ApplyFriend(c *gin.Context) {
 	}
 
 	if _, err := grpc_client.ApplyClient.ApplyFriend(ctx, &applypb.ApplyFriendRequest{
-		UserId:   userId.(string),
-		FriendId: req.FriendId,
-		Message:  req.Message,
+		UserId:      userId.(string),
+		FriendId:    req.FriendId,
+		Message:     req.Message,
+		ClientToken: req.ClientToken,
 	}); err != nil {
 		HandleError(c, err)
 		return
@@ -64,9 +65,10 @@ func (h *ApplyHandler) ApplyGroup(c *gin.Context) {
 	}
 
 	if _, err := grpc_client.ApplyClient.ApplyGroup(ctx, &applypb.ApplyGroupRequest{
-		UserId:  userId.(string),
-		GroupId: req.GroupId,
-		Message: req.Message,
+		UserId:      userId.(string),
+		GroupId:     req.GroupId,
+		Message:     req.Message,
+		ClientToken: req.ClientToken,
 	}); err != nil {
 		HandleError(c, err)
 		return

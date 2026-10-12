@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -28,6 +29,7 @@ import (
 	"kama_chat_server/pkg/enum/group/add_mode"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
+	"kama_chat_server/pkg/idempotent"
 )
 
 // applyUoW 申请服务的 UoW 接口：事务/事件能力 + 仅本服务拥有的 Apply Store
@@ -47,248 +49,255 @@ type ApplyService struct {
 	uow         applyUoW
 	cache       store.AsyncCacheService
 	cacheHelper *cacheutil.Helper
+	guard       idempotent.Guard
 }
 
 // NewApplyService 构造函数
-func NewApplyService(uow applyUoW, cacheService store.AsyncCacheService) *ApplyService {
+func NewApplyService(uow applyUoW, cacheService store.AsyncCacheService, guard ...idempotent.Guard) *ApplyService {
+	var g idempotent.Guard
+	if len(guard) > 0 && guard[0] != nil {
+		g = guard[0]
+	} else if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc.Client() != nil {
+		g = idempotent.NewRedisGuard(rc.Client())
+	}
 	return &ApplyService{
 		uow:         uow,
 		cache:       cacheService,
 		cacheHelper: cacheutil.NewHelper(cacheService),
+		guard:       g,
 	}
 }
 
-// ApplyFriend 申请添加好友
 // ApplyFriend 申请添加好友
 // userId: 发起申请的用户ID
 // req: 包含目标好友ID和申请信息的请求对象
 func (u *ApplyService) ApplyFriend(ctx context.Context, userId string, req applyreq.ApplyFriendRequest) error {
-	// 1. 参数校验
-	// 校验好友ID是否为空，如果为空则返回参数无效错误，防止后续空指针或逻辑错误
-	if len(req.FriendId) == 0 {
-		return errorx.New(errorx.CodeInvalidParam, "好友ID不能为空")
-	}
-
-	// 校验不能添加自己为好友
-	if userId == req.FriendId {
-		return errorx.New(errorx.CodeInvalidParam, "不能添加自己为好友")
-	}
-
-	// 2. 检查目标用户是否存在与状态
-	// 通过 user_service 的 GetUserStatus 校验，防止向不存在或已禁用的用户发送申请
-	// 也避免跨服务直读 user 表
-	userStatusRsp, err := grpc_client.UserClient.GetUserStatus(ctx, &userpb.GetUserStatusRequest{UserId: req.FriendId})
-	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			return errorx.New(errorx.CodeUserNotExist, "该用户不存在")
+	// Step 1.1: 声明好友申请执行体闭包
+	// 来源: userId 与 req.FriendId, req.Message
+	// 用于: Step 1.2 被第三代状态机幂等探针执行或直接执行
+	action := func(execCtx context.Context) (struct{}, error) {
+		// 1. 参数校验
+		if len(req.FriendId) == 0 {
+			return struct{}{}, errorx.New(errorx.CodeInvalidParam, "好友ID不能为空")
 		}
-		return errorx.ErrServerBusy
-	}
 
-	// 检查目标用户状态
-	// 检查目标用户账号状态是否为禁用，防止与已被封禁或注销的用户建立关系
-	if int8(userStatusRsp.Status) == user_status.DISABLE {
-		return errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
-	}
+		if userId == req.FriendId {
+			return struct{}{}, errorx.New(errorx.CodeInvalidParam, "不能添加自己为好友")
+		}
 
-	// 4. 检查是否已经是好友
-	// 查询联系表，确认双方是否已经存在正常的好友关系
-	// 避免重复添加好友，防止产生脏数据和冗余记录
-	statusVal, err := grpc_client.CheckFriendshipStatus(ctx, userId, req.FriendId)
-	if err == nil && statusVal == friendship_status.NORMAL {
-		return errorx.New(errorx.CodeInvalidParam, "你们已经是好友")
-	}
-
-	// 5. 查询之前的申请记录
-	// 查询是否已经存在申请记录（无论当前状态是待处理、已拒绝还是黑名单）
-	// 这用于判断是创建新申请、更新旧申请，还是因为黑名单而被拦截
-	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, userId, req.FriendId)
-	if err != nil {
-		// 如果错误是未找到记录，说明是首次申请
-		if errorx.IsNotFound(err) {
-			// 初始化一个新的申请模型对象
-			apply = &model.Apply{
-				Uuid:        fmt.Sprintf("A%s", snowflake.GenerateIDString()), // 生成唯一的申请记录UUID
-				ApplicantId: userId,                                           // 设置申请人ID
-				TargetId:    req.FriendId,                                     // 设置目标用户ID
-				ContactType: apply_type.USER,                                  // 设置联系类型为用户
-				Status:      apply_status.PENDING,                             // 初始状态为待处理
-				Message:     req.Message,                                      // 设置申请附带的留言信息
-				LastApplyAt: time.Now(),                                       // 设置申请时间为当前时间
+		// 2. 检查目标用户是否存在与状态
+		userStatusRsp, err := grpc_client.UserClient.GetUserStatus(execCtx, &userpb.GetUserStatusRequest{UserId: req.FriendId})
+		if err != nil {
+			if status.Code(err) == codes.NotFound {
+				return struct{}{}, errorx.New(errorx.CodeUserNotExist, "该用户不存在")
 			}
-			// 保存新的申请记录到数据库
-			if err := u.uow.ApplyStore().CreateApply(ctx, apply); err != nil {
-				if dberr.IsDuplicateKey(err) {
-					// 并发时被其他请求抢先插入，优雅转为更新已有记录
-					if existing, getErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, userId, req.FriendId); getErr == nil {
-						if existing.Status == apply_status.BLACK {
-							return errorx.New(errorx.CodeInvalidParam, "对方已将你拉黑，无法发送申请")
-						}
-						existing.LastApplyAt = time.Now()
-						existing.Status = apply_status.PENDING
-						existing.Message = req.Message
-						return u.uow.ApplyStore().Update(ctx, existing)
-					}
+			return struct{}{}, errorx.ErrServerBusy
+		}
+
+		if int8(userStatusRsp.Status) == user_status.DISABLE {
+			return struct{}{}, errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
+		}
+
+		// 3. 检查是否已经是好友
+		statusVal, err := grpc_client.CheckFriendshipStatus(execCtx, userId, req.FriendId)
+		if err == nil && statusVal == friendship_status.NORMAL {
+			return struct{}{}, errorx.New(errorx.CodeInvalidParam, "你们已经是好友")
+		}
+
+		// 4. 查询之前的申请记录
+		apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(execCtx, userId, req.FriendId)
+		if err != nil {
+			if errorx.IsNotFound(err) {
+				apply = &model.Apply{
+					Uuid:        fmt.Sprintf("A%s", snowflake.GenerateIDString()),
+					ApplicantId: userId,
+					TargetId:    req.FriendId,
+					ContactType: apply_type.USER,
+					Status:      apply_status.PENDING,
+					Message:     req.Message,
+					LastApplyAt: time.Now(),
+					Version:     1,
 				}
-				// 如果保存失败，记录日志并返回服务器繁忙错误
-				zap.L().Error("Create friend apply error", zap.Error(err))
-				return errorx.ErrServerBusy
+				if err := u.uow.ApplyStore().CreateApply(execCtx, apply); err != nil {
+					if dberr.IsDuplicateKey(err) {
+						if existing, getErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(execCtx, userId, req.FriendId); getErr == nil {
+							if existing.Status == apply_status.BLACK {
+								return struct{}{}, errorx.New(errorx.CodeInvalidParam, "对方已将你拉黑，无法发送申请")
+							}
+							existing.Uuid = fmt.Sprintf("A%s", snowflake.GenerateIDString())
+							existing.LastApplyAt = time.Now()
+							existing.Status = apply_status.PENDING
+							existing.Message = req.Message
+							existing.Version += 1
+							return struct{}{}, u.uow.ApplyStore().Update(execCtx, existing)
+						}
+					}
+					zap.L().Error("Create friend apply error", zap.Error(err))
+					return struct{}{}, errorx.ErrServerBusy
+				}
+				return struct{}{}, nil
 			}
-			// 新申请创建成功，直接返回nil
-			return nil
+			zap.L().Error("Find friend apply error", zap.Error(err))
+			return struct{}{}, errorx.ErrServerBusy
 		}
-		// 如果查询过程出现其他数据库错误，记录日志并返回
-		zap.L().Error("Find friend apply error", zap.Error(err))
-		return errorx.ErrServerBusy
+
+		// 5. 黑名单检查
+		if apply.Status == apply_status.BLACK {
+			return struct{}{}, errorx.New(errorx.CodeInvalidParam, "对方已将你拉黑，无法发送申请")
+		}
+
+		// 6. 更新旧申请记录（重置状态并刷新 Uuid 与 Version，防止前代审批时序倒退穿透）
+		apply.Uuid = fmt.Sprintf("A%s", snowflake.GenerateIDString())
+		apply.LastApplyAt = time.Now()
+		apply.Status = apply_status.PENDING
+		apply.Message = req.Message
+		apply.Version += 1
+
+		if err := u.uow.ApplyStore().Update(execCtx, apply); err != nil {
+			zap.L().Error("Update friend apply error", zap.Error(err))
+			return struct{}{}, errorx.ErrServerBusy
+		}
+
+		return struct{}{}, nil
 	}
 
-	// 6. 黑名单检查
-	// 如果已存在的申请记录状态为 BLACK，说明对方已将申请人拉黑
-	// 直接返回错误，防止被拉黑用户持续骚扰
-	if apply.Status == apply_status.BLACK {
-		return errorx.New(errorx.CodeInvalidParam, "对方已将你拉黑，无法发送申请")
+	// Step 1.2: 接入第三代状态机幂等保护
+	// 来源: req.ClientToken 与 u.guard
+	// 用于: 短租约防重与重试 0ms 回显
+	if u.guard != nil && req.ClientToken != "" {
+		key := "apply:friend:" + req.ClientToken
+		_, _, err := idempotent.ExecuteJSON(ctx, u.guard, key, 5*time.Second, 24*time.Hour, action)
+		return err
 	}
 
-	// 7. 更新旧申请记录
-	// 如果存在旧申请且未被拉黑，则复用该记录
-	// 更新申请时间为当前时间
-	apply.LastApplyAt = time.Now()
-	// 重置申请状态为待处理（PENDING），以便对方重新审核
-	apply.Status = apply_status.PENDING
-	// 更新最新的留言信息
-	apply.Message = req.Message
-
-	// 将更新后的申请记录保存到数据库
-	if err := u.uow.ApplyStore().Update(ctx, apply); err != nil {
-		// 如果更新失败，记录日志并返回错误
-		zap.L().Error("Update friend apply error", zap.Error(err))
-		return errorx.ErrServerBusy
-	}
-
-	// 申请处理成功，返回nil
-	return nil
+	// Step 1.3: 无防重凭证时的直接执行兜底
+	// 来源: Step 1.1 的 action 闭包
+	// 用于: 直接产出申请结果
+	_, err := action(ctx)
+	return err
 }
 
 // ApplyGroup 申请加入群组
-// ApplyGroup 申请加入群组的逻辑处理
 // userId: 申请人的用户ID
 // req: 包含目标群组ID和申请信息的请求对象
 func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req applyreq.ApplyGroupRequest) error {
-	// 1. 参数校验
-	// 检查群组ID是否为空
-	if len(req.GroupId) == 0 {
-		return errorx.New(errorx.CodeInvalidParam, "群组ID不能为空")
-	}
-
-	// 2. 检查群组是否存在
-	// 调用群组仓库查找目标群组
-	// 防止申请加入不存在的群组
-	groupRsp, err := grpc_client.GetGroupDetail(ctx, userId, req.GroupId)
-	if err != nil {
-		return err // grpc_client 已经封装好不存在或被禁用的错误
-	}
-
-	// 4. 检查是否已经是群成员
-	// 通过 GroupMember 表查询，确认是否已经在群中
-	// 防止重复加群
-	isMember, err := grpc_client.CheckGroupMember(ctx, req.GroupId, userId)
-	if err == nil && isMember {
-		return errorx.New(errorx.CodeInvalidParam, "你已在该群中")
-	}
-
-	// 5. 查询之前的申请记录
-	// 核心修复：先查询申请记录，检查黑名单
-	// 这里查询是为了后续判断是否被拉黑，以及复用已有记录
-	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, userId, req.GroupId)
-	if err != nil {
-		// 如果查询出错且不是未找到错误，记录日志并返回
-		if !errorx.IsNotFound(err) {
-			zap.L().Error("Find group apply error", zap.Error(err))
-			return errorx.ErrServerBusy
+	// Step 2.1: 声明入群申请执行体闭包
+	// 来源: userId 与 req.GroupId, req.Message
+	// 用于: Step 2.2 被第三代状态机幂等探针执行或直接执行
+	action := func(execCtx context.Context) (struct{}, error) {
+		// 1. 参数校验
+		if len(req.GroupId) == 0 {
+			return struct{}{}, errorx.New(errorx.CodeInvalidParam, "群组ID不能为空")
 		}
-		// 如果未找到记录，apply置为nil
-		apply = nil
-	}
 
-	// 6. 黑名单检查
-	// 无论为何种加群模式（包括免审核），如果处于黑名单中，都必须拒绝
-	// 防止黑名单用户通过直接入群模式绕过限制
-	if apply != nil && apply.Status == apply_status.BLACK {
-		return errorx.New(errorx.CodeInvalidParam, "该群已将你拉黑，无法发送申请")
-	}
-
-	// 7. 处理免审核入群逻辑
-	// 如果群组设置了免审核模式 (DIRECT)，则直接处理入群逻辑
-	if groupRsp.AddMode == int32(add_mode.DIRECT) {
-		// 使用事务保证入群操作的原子性：
-		// 1. 清理旧的申请记录（如果有）
-		// 2. 写入 outbox 表 (group_apply_passed 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
-		err := store.WithTx(u.uow, func(tx applyUoW) error {
-			if apply != nil {
-				_ = tx.ApplyStore().SoftDelete(ctx, userId, req.GroupId)
-			}
-			payload, _ := json.Marshal(event.GroupApplyPassedEvent{
-				GroupId: req.GroupId,
-				UserId:  userId,
-			})
-			return tx.RecordEvent(ctx, event.EventGroupApplyPassed, payload)
-		})
-
-		// 如果事务执行失败，返回服务器繁忙
+		// 2. 检查群组是否存在
+		groupRsp, err := grpc_client.GetGroupDetail(execCtx, userId, req.GroupId)
 		if err != nil {
-			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
+			return struct{}{}, err
 		}
 
-		// 8. 异步更新缓存
-		u.cache.SubmitTask(func() {
-			_ = u.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+req.GroupId)
-			_ = u.cache.Delete(context.Background(), constants.CacheKeyGroupMembers+req.GroupId)
-		})
-
-		return nil
-	}
-
-	// 9. 处理需要审核的入群逻辑
-	// 如果不是免审核模式，则创建或更新申请记录
-	if apply == nil {
-		// 情况A：没有旧申请，创建新申请
-		apply = &model.Apply{
-			Uuid:        fmt.Sprintf("A%s", snowflake.GenerateIDString()),
-			ApplicantId: userId,
-			TargetId:    req.GroupId,
-			ContactType: apply_type.GROUP,
-			Status:      apply_status.PENDING, // 初始状态为待处理
-			Message:     req.Message,
-			LastApplyAt: time.Now(),
+		// 3. 检查是否已经是群成员
+		isMember, err := grpc_client.CheckGroupMember(execCtx, req.GroupId, userId)
+		if err == nil && isMember {
+			return struct{}{}, errorx.New(errorx.CodeInvalidParam, "你已在该群中")
 		}
-		// 保存新申请
-		if err := u.uow.ApplyStore().CreateApply(ctx, apply); err != nil {
-			if dberr.IsDuplicateKey(err) {
-				// 并发时被其他请求抢先插入，优雅转为更新已有记录
-				if existing, getErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, userId, req.GroupId); getErr == nil {
-					existing.LastApplyAt = time.Now()
-					existing.Status = apply_status.PENDING
-					existing.Message = req.Message
-					return u.uow.ApplyStore().Update(ctx, existing)
-				}
+
+		// 4. 查询之前的申请记录
+		apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(execCtx, userId, req.GroupId)
+		if err != nil {
+			if !errorx.IsNotFound(err) {
+				zap.L().Error("Find group apply error", zap.Error(err))
+				return struct{}{}, errorx.ErrServerBusy
 			}
-			zap.L().Error("Create group apply error", zap.Error(err))
-			return errorx.ErrServerBusy
+			apply = nil
 		}
-	} else {
-		// 情况B：存在旧申请，更新其状态和信息
-		apply.LastApplyAt = time.Now()
-		apply.Status = apply_status.PENDING // 重置为待处理
-		apply.Message = req.Message
-		// 更新旧申请
-		if err := u.uow.ApplyStore().Update(ctx, apply); err != nil {
-			zap.L().Error("Update group apply error", zap.Error(err))
-			return errorx.ErrServerBusy
+
+		// 5. 黑名单检查
+		if apply != nil && apply.Status == apply_status.BLACK {
+			return struct{}{}, errorx.New(errorx.CodeInvalidParam, "该群已将你拉黑，无法发送申请")
 		}
+
+		// 6. 处理免审核入群逻辑
+		if groupRsp.AddMode == int32(add_mode.DIRECT) {
+			err := store.WithTx(u.uow, func(tx applyUoW) error {
+				if apply != nil {
+					_ = tx.ApplyStore().SoftDelete(execCtx, userId, req.GroupId)
+				}
+				payload, _ := json.Marshal(event.GroupApplyPassedEvent{
+					GroupId: req.GroupId,
+					UserId:  userId,
+				})
+				return tx.RecordEvent(execCtx, event.EventGroupApplyPassed, payload)
+			})
+
+			if err != nil {
+				zap.L().Error("service error", zap.Error(err))
+				return struct{}{}, errorx.ErrServerBusy
+			}
+
+			u.cache.SubmitTask(func() {
+				_ = u.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+req.GroupId)
+				_ = u.cache.Delete(context.Background(), constants.CacheKeyGroupMembers+req.GroupId)
+			})
+
+			return struct{}{}, nil
+		}
+
+		// 7. 处理需要审核的入群逻辑
+		if apply == nil {
+			apply = &model.Apply{
+				Uuid:        fmt.Sprintf("A%s", snowflake.GenerateIDString()),
+				ApplicantId: userId,
+				TargetId:    req.GroupId,
+				ContactType: apply_type.GROUP,
+				Status:      apply_status.PENDING,
+				Message:     req.Message,
+				LastApplyAt: time.Now(),
+				Version:     1,
+			}
+			if err := u.uow.ApplyStore().CreateApply(execCtx, apply); err != nil {
+				if dberr.IsDuplicateKey(err) {
+					if existing, getErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(execCtx, userId, req.GroupId); getErr == nil {
+						existing.Uuid = fmt.Sprintf("A%s", snowflake.GenerateIDString())
+						existing.LastApplyAt = time.Now()
+						existing.Status = apply_status.PENDING
+						existing.Message = req.Message
+						existing.Version += 1
+						return struct{}{}, u.uow.ApplyStore().Update(execCtx, existing)
+					}
+				}
+				zap.L().Error("Create group apply error", zap.Error(err))
+				return struct{}{}, errorx.ErrServerBusy
+			}
+		} else {
+			apply.Uuid = fmt.Sprintf("A%s", snowflake.GenerateIDString())
+			apply.LastApplyAt = time.Now()
+			apply.Status = apply_status.PENDING
+			apply.Message = req.Message
+			apply.Version += 1
+			if err := u.uow.ApplyStore().Update(execCtx, apply); err != nil {
+				zap.L().Error("Update group apply error", zap.Error(err))
+				return struct{}{}, errorx.ErrServerBusy
+			}
+		}
+
+		return struct{}{}, nil
 	}
 
-	return nil
+	// Step 2.2: 接入第三代状态机幂等保护
+	// 来源: req.ClientToken 与 u.guard
+	// 用于: 短租约防重与重试 0ms 回显
+	if u.guard != nil && req.ClientToken != "" {
+		key := "apply:group:" + req.ClientToken
+		_, _, err := idempotent.ExecuteJSON(ctx, u.guard, key, 5*time.Second, 24*time.Hour, action)
+		return err
+	}
+
+	// Step 2.3: 无防重凭证时的直接执行兜底
+	// 来源: Step 2.1 的 action 闭包
+	// 用于: 直接产出加群申请结果
+	_, err := action(ctx)
+	return err
 }
 
 // GetFriendApplyList 获取收到的好友申请列表
@@ -464,27 +473,31 @@ func (u *ApplyService) GetGroupApplyList(ctx context.Context, userId, groupId st
 }
 
 // PassFriendApply 通过好友申请
-// PassFriendApply 通过好友申请
 // userId: 操作者ID（即被申请人）
 // applicantId: 申请人ID（即发起好友申请的用户）
 func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, applicantId string) error {
-	// 1. 查询申请记录
-	// 确认申请是否存在，以及是否是指向当前用户的申请
+	// Step 1.1: 查询好友申请记录
+	// 来源: applicantId 与 userId
+	// 用于: Step 1.2 校验申请存在性及审批状态
 	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 	if err != nil {
 		zap.L().Error("Find friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
-	// 1.1 校验申请状态：仅允许处理待审核的申请
+	// Step 1.2: 终态幂等自愈检查与状态校验
+	// 来源: Step 1.1 查询到的 apply.Status
+	// 用于: 命中已通过终态时静默自愈返回，防止网络重试报错；非待审核状态阻断非法操作
+	if apply.Status == apply_status.AGREE {
+		return nil
+	}
 	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	// 2. 校验申请人状态
-	// 再次检查用户状态：虽然申请时已校验，但用户可能在申请后、审批前被禁用
-	// 防止审批通过时的竞态条件（Race Condition），确保不与禁用用户建立关系
-	// 通过 user_service 的 GetUserStatus 校验，避免跨服务直读 user 表
+	// Step 1.3: 校验申请人账号状态
+	// 来源: applicantId
+	// 用于: 防止审批通过已被禁用或注销的用户
 	applicantStatusRsp, err := grpc_client.UserClient.GetUserStatus(ctx, &userpb.GetUserStatusRequest{UserId: applicantId})
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
@@ -497,18 +510,41 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 		return errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
 	}
 
-	// 3. 开启事务
-	// 本地事务更新申请状态为 AGREE，同时写入 outbox 表 (friend_apply_passed)
-	// 由 Canal CDC 监听到 INSERT 后推入 Kafka，下游 friendship_service 异步建立双向好友并推送信令
+	// Step 1.4: 事务原子跃迁与 Outbox 事件投递
+	// 来源: apply.Uuid 及申请双方身份
+	// 用于: 仅首次成功跃迁写入 friend_apply_passed 事件，并发抢占落后时幂等自愈
+	var alreadyAgreed bool
 	err = store.WithTx(u.uow, func(tx applyUoW) error {
-		// 4. 更新申请状态（原子跃迁锁：仅当为 PENDING 时更新为 AGREE）
-		ok, err := tx.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.AGREE)
+		ok, err := tx.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.AGREE, apply.Version)
 		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		if !ok {
-			return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+			// Step 1.4.1: 检查 CAS 执行结果（RowsAffected == 0），反查真实记录并按规范分流
+			// 来源: UpdateStatusIfPending 的 ok == false
+			// 用于: 拦截越权/非法状态，或终态放行
+			cur, queryErr := tx.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, userId)
+			if queryErr != nil || cur == nil {
+				return errorx.New(errorx.CodeNotFound, "申请记录不存在")
+			}
+			// 【先拦截 1】：用户不匹配（越权操作，最严重的合规问题优先拦截）
+			if cur.TargetId != userId {
+				return errorx.New(errorx.CodeForbidden, "无权处理该好友申请")
+			}
+			// 【先拦截 2】：已被拒绝 / 已被拉黑（非法的前置终态）
+			if cur.Status == apply_status.REFUSE {
+				return errorx.New(errorx.CodeInvalidParam, "该申请已被拒绝")
+			}
+			if cur.Status == apply_status.BLACK {
+				return errorx.New(errorx.CodeInvalidParam, "该申请已被拉黑")
+			}
+			// 【最后放行】：确认确实是网络抖动导致的重复请求，静默放行掐断副作用
+			if cur.Status == apply_status.AGREE {
+				alreadyAgreed = true
+				return nil
+			}
+			return errorx.ErrServerBusy
 		}
 
 		payload, _ := json.Marshal(event.FriendApplyPassedEvent{
@@ -527,8 +563,13 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 		return errorx.ErrServerBusy
 	}
 
-	// 5. 异步清除缓存
-	// 异步清除双方的联系列表缓存，确保双方下次请求联系列表时能获取到最新的好友关系
+	if alreadyAgreed {
+		return nil
+	}
+
+	// Step 1.5: 异步清除双方联系列表缓存
+	// 来源: userId 与 applicantId
+	// 用于: 确保双方后续拉取最新好友关系
 	u.cache.SubmitTask(func() {
 		_ = u.cache.DeleteByPattern(context.Background(), constants.CacheKeyFriendRelUser+userId+"*")
 		_ = u.cache.DeleteByPattern(context.Background(), constants.CacheKeyFriendRelUser+applicantId+"*")
@@ -538,43 +579,72 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 }
 
 // PassGroupApply 通过入群申请
-// operatorId 必须是群主或管理员
-// PassGroupApply 通过入群申请
 // operatorId: 操作者ID（必须是群主或管理员）
 // groupId: 目标群组ID
 // applicantId: 申请入群的用户ID
 func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, applicantId string) error {
-	// 1. 权限校验
-	// 查询操作者在群组中的角色
-	// 防止普通成员或其他未经授权的用户审批入群申请
+	// Step 2.1: 权限校验
+	// 来源: operatorId 与 groupId
+	// 用于: 防止非群成员操作审批
 	isMember, err := grpc_client.CheckGroupMember(ctx, groupId, operatorId)
 	if err != nil || !isMember {
 		return errorx.New(errorx.CodeForbidden, "你不是该群成员或无权限")
 	}
 
-	// 2. 查找申请记录
+	// Step 2.2: 查找申请记录
+	// 来源: applicantId 与 groupId
+	// 用于: Step 2.3 校验申请状态及终态自愈
 	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 	if err != nil {
 		zap.L().Error("Find group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
-	// 2.1 校验申请状态：仅允许处理待审核的申请
+	// Step 2.3: 终态幂等自愈检查与状态校验
+	// 来源: Step 2.2 查询到的 apply.Status
+	// 用于: 已通过终态直接自愈返回，防止重试误报
+	if apply.Status == apply_status.AGREE {
+		return nil
+	}
 	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	// 3. 开启事务
-	// 保证入群操作（更新申请、添加成员、增加计数、添加联系）的原子性
+	// Step 2.4: 开启事务执行 CAS 状态跃迁与 Outbox 事件投递
+	// 来源: apply.Uuid 及 groupId, applicantId
+	// 用于: 仅首次成功跃迁写入 group_apply_passed 事件
+	var alreadyAgreed bool
 	err = store.WithTx(u.uow, func(tx applyUoW) error {
-		// 3.2 更新申请状态为 AGREE（原子跃迁锁：仅当为 PENDING 时更新为 AGREE）
-		ok, err := tx.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.AGREE)
+		ok, err := tx.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.AGREE, apply.Version)
 		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		if !ok {
-			return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+			// Step 2.4.1: 检查 CAS 执行结果（RowsAffected == 0），反查真实记录并按规范分流
+			// 来源: UpdateStatusIfPending 的 ok == false
+			// 用于: 拦截越权/非法状态，或终态放行
+			cur, queryErr := tx.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
+			if queryErr != nil || cur == nil {
+				return errorx.New(errorx.CodeNotFound, "申请记录不存在")
+			}
+			// 【先拦截 1】：目标群组不匹配（越权操作，最严重的合规问题优先拦截）
+			if cur.TargetId != groupId {
+				return errorx.New(errorx.CodeForbidden, "目标群组不匹配")
+			}
+			// 【先拦截 2】：已被拒绝 / 已被拉黑（非法的前置终态）
+			if cur.Status == apply_status.REFUSE {
+				return errorx.New(errorx.CodeInvalidParam, "该申请已被拒绝")
+			}
+			if cur.Status == apply_status.BLACK {
+				return errorx.New(errorx.CodeInvalidParam, "该申请已被拉黑")
+			}
+			// 【最后放行】：确认确实是网络抖动导致的重复请求，静默放行掐断副作用
+			if cur.Status == apply_status.AGREE {
+				alreadyAgreed = true
+				return nil
+			}
+			return errorx.ErrServerBusy
 		}
 
 		payload, _ := json.Marshal(event.GroupApplyPassedEvent{
@@ -593,7 +663,13 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 		return errorx.ErrServerBusy
 	}
 
-	// 4. 异步更新缓存
+	if alreadyAgreed {
+		return nil
+	}
+
+	// Step 2.5: 异步失效群信息与群成员缓存
+	// 来源: groupId
+	// 用于: 保证后续群信息及群成员读取一致性
 	u.cache.SubmitTask(func() {
 		_ = u.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+groupId)
 		_ = u.cache.Delete(context.Background(), constants.CacheKeyGroupMembers+groupId)
@@ -606,24 +682,57 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 // userId: 操作者ID
 // applicantId: 申请人ID
 func (u *ApplyService) RefuseFriendApply(ctx context.Context, userId string, applicantId string) error {
-	// 1. 查找申请记录
+	// Step 3.1: 查找申请记录
+	// 来源: applicantId 与 userId
+	// 用于: Step 3.2 校验状态与终态幂等自愈
 	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 	if err != nil {
 		zap.L().Error("Find friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
-	// 1.1 校验申请状态：仅允许处理待审核的申请
+
+	// Step 3.2: 终态幂等检查
+	// 来源: Step 3.1 查询到的 apply.Status
+	// 用于: 处于 REFUSE 终态时静默自愈返回
+	if apply.Status == apply_status.REFUSE {
+		return nil
+	}
 	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
-	// 2. 更新状态为 REFUSE（原子跃迁锁：仅当为 PENDING 时更新）
-	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.REFUSE)
+
+	// Step 3.3: 原子 CAS 跃迁至 REFUSE
+	// 来源: apply.Uuid 与 apply.Version
+	// 用于: 状态更新并支持并发重试自愈
+	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.REFUSE, apply.Version)
 	if err != nil {
 		zap.L().Error("Update friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	if !ok {
-		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+		// Step 3.4: 检查 CAS 执行结果（RowsAffected == 0），反查真实记录并按规范分流
+		// 来源: UpdateStatusIfPending 的 ok == false
+		// 用于: 拦截越权/非法状态，或终态放行
+		cur, queryErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, userId)
+		if queryErr != nil || cur == nil {
+			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
+		}
+		// 【先拦截 1】：用户不匹配（越权操作，最严重的合规问题优先拦截）
+		if cur.TargetId != userId {
+			return errorx.New(errorx.CodeForbidden, "无权处理该好友申请")
+		}
+		// 【先拦截 2】：已被同意 / 已被拉黑（非法的前置终态）
+		if cur.Status == apply_status.AGREE {
+			return errorx.New(errorx.CodeInvalidParam, "该申请已被同意，无法拒绝")
+		}
+		if cur.Status == apply_status.BLACK {
+			return errorx.New(errorx.CodeInvalidParam, "该申请已被拉黑")
+		}
+		// 【最后放行】：确认确实是网络抖动导致的重复请求，静默放行
+		if cur.Status == apply_status.REFUSE {
+			return nil
+		}
+		return errorx.ErrServerBusy
 	}
 	return nil
 }
@@ -633,33 +742,65 @@ func (u *ApplyService) RefuseFriendApply(ctx context.Context, userId string, app
 // groupId: 目标群组ID
 // applicantId: 申请入群的用户ID
 func (u *ApplyService) RefuseGroupApply(ctx context.Context, operatorId, groupId, applicantId string) error {
-	// 1. 权限校验
-	// 查询操作者权限
+	// Step 4.1: 权限校验
+	// 来源: groupId 与 operatorId
+	// 用于: 确认操作者具备群成员身份
 	isMember, err := grpc_client.CheckGroupMember(ctx, groupId, operatorId)
 	if err != nil || !isMember {
 		return errorx.New(errorx.CodeForbidden, "你不是该群成员或无权限")
 	}
 
-	// 2. 查找申请记录
+	// Step 4.2: 查找申请记录
+	// 来源: applicantId 与 groupId
+	// 用于: Step 4.3 终态幂等自愈与状态校验
 	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 	if err != nil {
 		zap.L().Error("Find group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 
-	// 2.1 校验申请状态：仅允许处理待审核的申请
+	// Step 4.3: 终态幂等自愈检查
+	// 来源: Step 4.2 查询到的 apply.Status
+	// 用于: 处于 REFUSE 终态时静默自愈返回
+	if apply.Status == apply_status.REFUSE {
+		return nil
+	}
 	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	// 3. 更新状态为 REFUSE（原子跃迁锁：仅当为 PENDING 时更新）
-	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.REFUSE)
+	// Step 4.4: 原子 CAS 跃迁至 REFUSE
+	// 来源: apply.Uuid 与 apply.Version
+	// 用于: 状态更新并支持并发重试自愈
+	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.REFUSE, apply.Version)
 	if err != nil {
 		zap.L().Error("Update group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	if !ok {
-		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+		// Step 4.5: 检查 CAS 执行结果（RowsAffected == 0），反查真实记录并按规范分流
+		// 来源: UpdateStatusIfPending 的 ok == false
+		// 用于: 拦截越权/非法状态，或终态放行
+		cur, queryErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
+		if queryErr != nil || cur == nil {
+			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
+		}
+		// 【先拦截 1】：目标群组不匹配（越权操作，最严重的合规问题优先拦截）
+		if cur.TargetId != groupId {
+			return errorx.New(errorx.CodeForbidden, "目标群组不匹配")
+		}
+		// 【先拦截 2】：已被同意 / 已被拉黑（非法的前置终态）
+		if cur.Status == apply_status.AGREE {
+			return errorx.New(errorx.CodeInvalidParam, "该申请已被同意，无法拒绝")
+		}
+		if cur.Status == apply_status.BLACK {
+			return errorx.New(errorx.CodeInvalidParam, "该申请已被拉黑")
+		}
+		// 【最后放行】：确认确实是网络抖动导致的重复请求，静默放行
+		if cur.Status == apply_status.REFUSE {
+			return nil
+		}
+		return errorx.ErrServerBusy
 	}
 	return nil
 }
@@ -668,7 +809,9 @@ func (u *ApplyService) RefuseGroupApply(ctx context.Context, operatorId, groupId
 // userId: 操作者ID
 // applicantId: 申请人ID
 func (u *ApplyService) BlackFriendApply(ctx context.Context, userId string, applicantId string) error {
-	// 1. 查找申请记录
+	// Step 5.1: 查找申请记录
+	// 来源: applicantId 与 userId
+	// 用于: Step 5.2 终态幂等自愈与状态校验
 	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
@@ -678,20 +821,48 @@ func (u *ApplyService) BlackFriendApply(ctx context.Context, userId string, appl
 		return errorx.ErrServerBusy
 	}
 
-	// 1.1 校验申请状态：仅允许对待审核的申请执行拉黑
+	// Step 5.2: 终态幂等自愈检查
+	// 来源: Step 5.1 查询到的 apply.Status
+	// 用于: 处于 BLACK 终态时静默自愈返回
+	if apply.Status == apply_status.BLACK {
+		return nil
+	}
 	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	// 2. 更新状态为 BLACK（原子跃迁锁：仅当为 PENDING 时更新）
-	// 拉黑后，对方将无法再次发送申请（ApplyFriend会在检查黑名单时拦截）
-	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.BLACK)
+	// Step 5.3: 原子 CAS 跃迁至 BLACK
+	// 来源: apply.Uuid 与 apply.Version
+	// 用于: 状态更新并支持并发重试自愈
+	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.BLACK, apply.Version)
 	if err != nil {
 		zap.L().Error("Update friend apply status error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	if !ok {
-		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+		// Step 5.4: 检查 CAS 执行结果（RowsAffected == 0），反查真实记录并按规范分流
+		// 来源: UpdateStatusIfPending 的 ok == false
+		// 用于: 拦截越权/非法状态，或终态放行
+		cur, queryErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, userId)
+		if queryErr != nil || cur == nil {
+			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
+		}
+		// 【先拦截 1】：用户不匹配（越权操作，最严重的合规问题优先拦截）
+		if cur.TargetId != userId {
+			return errorx.New(errorx.CodeForbidden, "无权处理该好友申请")
+		}
+		// 【先拦截 2】：已被同意 / 已被拒绝（非法的前置终态）
+		if cur.Status == apply_status.AGREE {
+			return errorx.New(errorx.CodeInvalidParam, "该申请已被同意，无法拉黑")
+		}
+		if cur.Status == apply_status.REFUSE {
+			return errorx.New(errorx.CodeInvalidParam, "该申请已被拒绝，无法拉黑")
+		}
+		// 【最后放行】：确认确实是网络抖动导致的重复请求，静默放行
+		if cur.Status == apply_status.BLACK {
+			return nil
+		}
+		return errorx.ErrServerBusy
 	}
 	return nil
 }
@@ -701,8 +872,9 @@ func (u *ApplyService) BlackFriendApply(ctx context.Context, userId string, appl
 // groupId: 目标群组ID
 // applicantId: 申请入群的用户ID
 func (u *ApplyService) BlackGroupApply(ctx context.Context, operatorId, groupId, applicantId string) error {
-	// 1. 权限校验
-	// 跨服务查角色（group_member 表归 group 库），仅群主或管理员 (Role >= 2) 可审批
+	// Step 6.1: 权限校验
+	// 来源: groupId 与 operatorId
+	// 用于: 仅群主或管理员 (Role >= 2) 可审批
 	role, err := grpc_client.GetGroupMemberRole(ctx, groupId, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
@@ -715,7 +887,9 @@ func (u *ApplyService) BlackGroupApply(ctx context.Context, operatorId, groupId,
 		return errorx.New(errorx.CodeForbidden, "你没有审批权限")
 	}
 
-	// 2. 查找申请记录
+	// Step 6.2: 查找申请记录
+	// 来源: applicantId 与 groupId
+	// 用于: Step 6.3 终态幂等自愈与状态校验
 	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
@@ -725,20 +899,48 @@ func (u *ApplyService) BlackGroupApply(ctx context.Context, operatorId, groupId,
 		return errorx.ErrServerBusy
 	}
 
-	// 2.1 校验申请状态：仅允许对待审核的申请执行拉黑
+	// Step 6.3: 终态幂等自愈检查
+	// 来源: Step 6.2 查询到的 apply.Status
+	// 用于: 处于 BLACK 终态时静默自愈返回
+	if apply.Status == apply_status.BLACK {
+		return nil
+	}
 	if apply.Status != apply_status.PENDING {
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	// 3. 更新状态为 BLACK（原子跃迁锁：仅当为 PENDING 时更新）
-	// 拉黑后，对方将无法再次申请入群
-	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.BLACK)
+	// Step 6.4: 原子 CAS 跃迁至 BLACK
+	// 来源: apply.Uuid 与 apply.Version
+	// 用于: 状态更新并支持并发重试自愈
+	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.BLACK, apply.Version)
 	if err != nil {
 		zap.L().Error("Update group apply status error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	if !ok {
-		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+		// Step 6.5: 检查 CAS 执行结果（RowsAffected == 0），反查真实记录并按规范分流
+		// 来源: UpdateStatusIfPending 的 ok == false
+		// 用于: 拦截越权/非法状态，或终态放行
+		cur, queryErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
+		if queryErr != nil || cur == nil {
+			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
+		}
+		// 【先拦截 1】：目标群组不匹配（越权操作，最严重的合规问题优先拦截）
+		if cur.TargetId != groupId {
+			return errorx.New(errorx.CodeForbidden, "目标群组不匹配")
+		}
+		// 【先拦截 2】：已被同意 / 已被拒绝（非法的前置终态）
+		if cur.Status == apply_status.AGREE {
+			return errorx.New(errorx.CodeInvalidParam, "该申请已被同意，无法拉黑")
+		}
+		if cur.Status == apply_status.REFUSE {
+			return errorx.New(errorx.CodeInvalidParam, "该申请已被拒绝，无法拉黑")
+		}
+		// 【最后放行】：确认确实是网络抖动导致的重复请求，静默放行
+		if cur.Status == apply_status.BLACK {
+			return nil
+		}
+		return errorx.ErrServerBusy
 	}
 	return nil
 }

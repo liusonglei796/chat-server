@@ -11,5 +11,6 @@ type UserSessionListRespond struct {
 	LastMessage     string `json:"last_message"`
 	LastMessageTime string `json:"last_message_time"`
 	LastMessageType int8   `json:"last_message_type"`
+	LastSeqId       int64  `json:"last_seq_id"`
 	IsPinned        bool   `json:"is_pinned"`
 }

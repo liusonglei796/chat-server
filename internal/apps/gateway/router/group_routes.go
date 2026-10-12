@@ -23,7 +23,7 @@ func (rt *Router) RegisterGroupRoutes(rg *gin.RouterGroup) {
 		// ===== 群成员管理 =====
 		groupGroup.GET("/members", rt.handlers.Group.GetGroupMemberList)    // 获取群成员列表
 		groupGroup.DELETE("/members", rt.handlers.Group.RemoveGroupMembers) // 移除群成员
-		groupGroup.POST("/members/mute", rt.handlers.Group.MuteMember)      // 禁言/取消禁言
+		groupGroup.PUT("/members/mute", rt.handlers.Group.MuteMember)       // 禁言/取消禁言
 
 		// ===== 加群 =====
 		groupGroup.GET("/add-mode", rt.handlers.Group.CheckGroupAddMode)       // 检查加群方式

@@ -1,0 +1,91 @@
+routes:
+  # Step 1: 认证服务路由 (直连 Kratos user_service HTTP 端点)
+  - id: route_auth
+    uri: /auth/*
+    priority: 10
+    upstream:
+      nodes:
+        "user-service:8002": 1
+      type: roundrobin
+
+  # Step 2: 用户资料服务路由 (直连 Kratos user_service HTTP 端点)
+  - id: route_user
+    uri: /user/*
+    priority: 10
+    upstream:
+      nodes:
+        "user-service:8002": 1
+      type: roundrobin
+
+  # Step 3: 好友与群聊申请路由 (直连 Kratos apply_service HTTP 端点)
+  - id: route_apply_friends
+    uri: /friends/appl*
+    priority: 12
+    upstream:
+      nodes:
+        "apply-service:8004": 1
+      type: roundrobin
+
+  - id: route_apply_groups
+    uri: /groups/appl*
+    priority: 12
+    upstream:
+      nodes:
+        "apply-service:8004": 1
+      type: roundrobin
+
+  # Step 4: 好友关系与备注管理路由 (直连 Kratos friendship_service HTTP 端点)
+  - id: route_friendship
+    uri: /friends*
+    priority: 10
+    upstream:
+      nodes:
+        "friendship-service:8003": 1
+      type: roundrobin
+
+  # Step 5: 群组与群成员管理路由 (直连 Kratos group_service HTTP 端点)
+  - id: route_group
+    uri: /groups*
+    priority: 10
+    upstream:
+      nodes:
+        "group-service:8005": 1
+      type: roundrobin
+
+  # Step 6: 会话管理路由 (直连 Kratos message_service HTTP 端点)
+  - id: route_session
+    uri: /sessions*
+    priority: 10
+    upstream:
+      nodes:
+        "message-service:8006": 1
+      type: roundrobin
+
+  # Step 7: 消息查询与撤回路由 (直连 Kratos message_service HTTP 端点)
+  - id: route_message
+    uri: /messages*
+    priority: 10
+    upstream:
+      nodes:
+        "message-service:8006": 1
+      type: roundrobin
+
+  # Step 8: WebSocket 长连接专用路由 (转发至专职 ConnService)
+  - id: route_ws
+    uri: /ws*
+    priority: 15
+    enable_websocket: true
+    upstream:
+      nodes:
+        "chat-server:8000": 1
+      type: roundrobin
+
+  # Step 9: 静态资源与平滑灰度兜底路由
+  - id: route_legacy_fallback
+    uri: /*
+    priority: 1
+    upstream:
+      nodes:
+        "chat-server:8000": 1
+      type: roundrobin
+#END

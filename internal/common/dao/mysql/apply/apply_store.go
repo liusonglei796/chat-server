@@ -87,33 +87,50 @@ func (r *applyStore) Update(ctx context.Context, apply *model.Apply) error {
 	return nil
 }
 
-// UpdateStatusIfPending 仅在申请状态为 PENDING 时原子更新为目标状态（状态机乐观锁）
-func (r *applyStore) UpdateStatusIfPending(ctx context.Context, uuid string, toStatus int8) (bool, error) {
-	result := r.db.WithContext(ctx).Model(&model.Apply{}).
-		Where("uuid = ? AND status = ?", uuid, apply_status.PENDING).
-		Update("status", toStatus)
+// UpdateStatusIfPending 仅在申请状态为 PENDING 且版本匹配时原子更新为目标状态（状态机与版本号双重乐观锁）
+// 来源: PassFriendApply / PassGroupApply / Refuse / Black 审批跃迁
+// 用于: 并发防重、ABA 阻断与迟到审批穿透拦截，仅当状态为 PENDING 且版本号匹配时更新，依赖 RowsAffected > 0 判定成功
+func (r *applyStore) UpdateStatusIfPending(ctx context.Context, uuid string, toStatus int8, expectedVersion int32) (bool, error) {
+	// Step 1.1: 构建更新载荷与递增版本表达式
+	// 来源: 目标状态 toStatus
+	// 用于: 原子跃迁申请状态并递增版本号
+	updates := map[string]interface{}{
+		"status":  toStatus,
+		"version": gorm.Expr("version + 1"),
+	}
+
+	// Step 1.2: 执行带 uuid、pending 状态及版本号约束的原子更新
+	// 来源: uuid, apply_status.PENDING, expectedVersion
+	// 用于: 防重试穿透与生命周期跨代串号，产出影响行数校验结果
+	query := r.db.WithContext(ctx).Model(&model.Apply{}).
+		Where("uuid = ? AND status = ?", uuid, apply_status.PENDING)
+	if expectedVersion > 0 {
+		query = query.Where("version = ?", expectedVersion)
+	}
+
+	result := query.Updates(updates)
 	if result.Error != nil {
-		return false, dberr.WrapDBErrorf(result.Error, "状态机更新申请状态 uuid=%s", uuid)
+		return false, dberr.WrapDBErrorf(result.Error, "状态机更新申请状态 uuid=%s version=%d", uuid, expectedVersion)
 	}
 	return result.RowsAffected > 0, nil
 }
 
-// SoftDelete 软删除申请记录
+// SoftDelete 删除申请记录（物理删除，释放唯一索引槽位避免再次申请冲突）
 func (r *applyStore) SoftDelete(ctx context.Context, applicantId, targetId string) error {
-	if err := r.db.WithContext(ctx).Where("applicant_id = ? AND target_id = ?", applicantId, targetId).Delete(&model.Apply{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Unscoped().Where("applicant_id = ? AND target_id = ?", applicantId, targetId).Delete(&model.Apply{}).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "删除申请 applicant_id=%s target_id=%s", applicantId, targetId)
 	}
 	return nil
 }
 
-// SoftDeleteByUsers 批量软删除指定用户的所有申请
+// SoftDeleteByUsers 批量删除指定用户的所有申请（物理删除，释放唯一索引槽位）
 // 删除用户发出的和收到的所有申请
 func (r *applyStore) SoftDeleteByUsers(ctx context.Context, userUuids []string) error {
 	if len(userUuids) == 0 {
 		return nil
 	}
 	// 使用 OR 条件删除用户发出和收到的所有申请
-	if err := r.db.WithContext(ctx).Where("applicant_id IN ? OR target_id IN ?", userUuids, userUuids).Delete(&model.Apply{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Unscoped().Where("applicant_id IN ? OR target_id IN ?", userUuids, userUuids).Delete(&model.Apply{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除联系人申请")
 	}
 	return nil

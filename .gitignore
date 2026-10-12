@@ -47,3 +47,5 @@ your log path/
 /refactor_*.py
 /report.json
 /test_exhaustive_apis.py
+/.tmp/
+/tools/bin/

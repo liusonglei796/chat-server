@@ -17,7 +17,7 @@ func (rt *Router) RegisterFriendRoutes(rg *gin.RouterGroup) {
 
 		// ===== 好友关系管理 =====
 		friendGroup.DELETE("", rt.handlers.Friendship.DeleteFriend)        // 删除好友
-		friendGroup.POST("/block", rt.handlers.Friendship.BlockFriend)     // 拉黑好友
+		friendGroup.PUT("/block", rt.handlers.Friendship.BlockFriend)      // 拉黑好友
 		friendGroup.DELETE("/block", rt.handlers.Friendship.UnblockFriend) // 取消拉黑
 		friendGroup.PUT("/remark", rt.handlers.Friendship.UpdateRemark)    // 更新好友备注
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
@@ -302,4 +303,86 @@ func TestRegister_DuplicateNickname(t *testing.T) {
 		t.Fatalf("expected CodeUserExist, got %v", err)
 	}
 }
+
+type mockTestUserGuard struct {
+	store map[string]string
+}
+
+func (m *mockTestUserGuard) Execute(ctx context.Context, key string, leaseTTL, successTTL time.Duration, fn func(context.Context) (string, error)) (string, bool, error) {
+	if val, ok := m.store[key]; ok {
+		return val, true, nil // 模拟命中历史成功结果回显
+	}
+	res, err := fn(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	m.store[key] = res
+	return res, false, nil
+}
+
+func TestRegister_Idempotent_Replay(t *testing.T) {
+	// Step 1.1: 初始化上下文与内存模拟存储
+	// 来源: 单元测试上下文
+	// 用于: Step 1.2 构造带 Mock 幂等守卫的 UserService
+	ctx := context.Background()
+	store := &fakeUserStore{users: make(map[string]model.UserInfo)}
+	guard := &mockTestUserGuard{store: make(map[string]string)}
+	svc := NewUserService(&fakeUOW{userStore: store}, &fakeCache{}, guard)
+
+	req := auth.RegisterRequest{
+		Username:    "alice_replay",
+		Password:    "password123",
+		ClientToken: "client-token-abc-123",
+	}
+
+	// Step 1.2: 首次发起注册并断言用户实体落库
+	// 来源: req 注册凭据
+	// 用于: Step 1.3 验证首次注册成功生成 Uuid 与用户档案
+	rsp1, err1 := svc.Register(ctx, req, "127.0.0.1")
+	if err1 != nil {
+		t.Fatalf("first Register failed: %v", err1)
+	}
+	if rsp1 == nil || rsp1.Uuid == "" {
+		t.Fatal("expected non-empty user uuid in first register response")
+	}
+	if rsp1.Nickname != "alice_replay" {
+		t.Errorf("expected nickname alice_replay, got %s", rsp1.Nickname)
+	}
+	if len(store.users) != 1 {
+		t.Fatalf("expected 1 user in store, got %d", len(store.users))
+	}
+
+	// Step 1.3: 模拟网络超时后，携带相同 ClientToken 重试注册
+	// 来源: 相同 req 与 ClientToken
+	// 用于: 验证状态机幂等拦截：不报“用户名已被占用”错误，并 0ms 安全回显原注册实体
+	rsp2, err2 := svc.Register(ctx, req, "127.0.0.1")
+	if err2 != nil {
+		t.Fatalf("idempotent replay Register should succeed, but got error: %v", err2)
+	}
+	if rsp2.Uuid != rsp1.Uuid {
+		t.Fatalf("expected replayed uuid %s, got %s", rsp1.Uuid, rsp2.Uuid)
+	}
+	if rsp2.Nickname != rsp1.Nickname {
+		t.Fatalf("expected replayed nickname %s, got %s", rsp1.Nickname, rsp2.Nickname)
+	}
+	if len(store.users) != 1 {
+		t.Fatalf("store should still contain exactly 1 user, got %d", len(store.users))
+	}
+
+	// Step 1.4: 不带 ClientToken 再次注册同名用户，断言正常触发业务唯一性冲突拦截
+	// 来源: 相同 Username 但无 ClientToken
+	// 用于: 验证非幂等重试场景下的系统保护
+	reqNoToken := auth.RegisterRequest{
+		Username: "alice_replay",
+		Password: "password123",
+	}
+	_, err3 := svc.Register(ctx, reqNoToken, "127.0.0.1")
+	if err3 == nil {
+		t.Fatal("expected CodeUserExist for duplicate register without token, got nil")
+	}
+	if !errorx.IsCode(err3, errorx.CodeUserExist) {
+		t.Errorf("expected CodeUserExist, got %v", err3)
+	}
+}
+
 
