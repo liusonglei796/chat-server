@@ -9,7 +9,7 @@ import (
 )
 
 func TestGatewayGrpcServer_PushMessage_Offline(t *testing.T) {
-	hub := chat.NewClientHub(nil, "127.0.0.1:8001")
+	hub := chat.NewConnHub(nil, "127.0.0.1:8001")
 	server := NewGatewayGrpcServer(hub)
 
 	resp, err := server.PushMessage(context.Background(), &gatewaypb.PushMessageRequest{
@@ -26,7 +26,7 @@ func TestGatewayGrpcServer_PushMessage_Offline(t *testing.T) {
 }
 
 func TestGatewayGrpcServer_PushMessage_EmptyTarget(t *testing.T) {
-	hub := chat.NewClientHub(nil, "127.0.0.1:8001")
+	hub := chat.NewConnHub(nil, "127.0.0.1:8001")
 	server := NewGatewayGrpcServer(hub)
 
 	resp, err := server.PushMessage(context.Background(), &gatewaypb.PushMessageRequest{
@@ -43,7 +43,7 @@ func TestGatewayGrpcServer_PushMessage_EmptyTarget(t *testing.T) {
 }
 
 func TestGatewayGrpcServer_PushMessage_Online(t *testing.T) {
-	hub := chat.NewClientHub(nil, "127.0.0.1:8001")
+	hub := chat.NewConnHub(nil, "127.0.0.1:8001")
 	server := NewGatewayGrpcServer(hub)
 
 	// Simulate client in hub.Clients
@@ -79,7 +79,7 @@ func TestGatewayGrpcServer_PushMessage_Online(t *testing.T) {
 }
 
 func TestGatewayGrpcServer_BatchPushMessage(t *testing.T) {
-	hub := chat.NewClientHub(nil, "127.0.0.1:8001")
+	hub := chat.NewConnHub(nil, "127.0.0.1:8001")
 	server := NewGatewayGrpcServer(hub)
 
 	client := &chat.UserConn{

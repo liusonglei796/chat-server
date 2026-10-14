@@ -89,7 +89,7 @@ func main() {
 	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
 	zap.L().Info("gRPC 客户端初始化成功")
 
-	// 9. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 ClientHub)
+	// 9. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 ConnHub)
 	handlers := handler.NewHandlers(chatServer.GetHub())
 	zap.L().Info("Handler 层初始化成功")
 

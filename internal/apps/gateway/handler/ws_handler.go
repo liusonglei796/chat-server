@@ -15,19 +15,19 @@ import (
 
 // WsHandler WebSocket 请求处理器
 type WsHandler struct {
-	hub *chat.ClientHub
+	hub *chat.ConnHub
 }
 
 // NewWsHandler 创建 WebSocket 处理器实例
-// 来源: 依赖注入传入的全局 ClientHub 长连接管理器
+// 来源: 依赖注入传入的全局 ConnHub 长连接管理器
 // 用于: 处理 WebSocket 握手登录与断开登出
-func NewWsHandler(hub *chat.ClientHub) *WsHandler {
+func NewWsHandler(hub *chat.ConnHub) *WsHandler {
 	return &WsHandler{hub: hub}
 }
 
 // extractWsUserID 提取 WebSocket 握手请求的用户身份
 // 来源: APISIX 透传的 X-User-Id 请求头、Gin 上下文 user_id、或 Query 参数 token
-// 用于: 校验连接发起人并作为 ClientHub 的唯一会话 key
+// 用于: 校验连接发起人并作为 ConnHub 的唯一会话 key
 func extractWsUserID(c *gin.Context) string {
 	if uid := c.GetHeader("X-User-Id"); uid != "" {
 		return uid
@@ -62,7 +62,7 @@ func (h *WsHandler) WsLoginHandler(c *gin.Context) {
 	}
 
 	// Step 1.2: 升级 HTTP 连接并初始化长连接会话
-	// 来源: Step 1.1 提取的 userId 及注入的 ClientHub
+	// 来源: Step 1.1 提取的 userId 及注入的 ConnHub
 	// 用于: 注册客户端到在线列表并启动心跳与读写协程
 	chat.NewClientInit(c, userId, h.hub)
 }

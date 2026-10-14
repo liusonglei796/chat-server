@@ -10,11 +10,11 @@ import (
 // GatewayGrpcServer 网关内部 gRPC 服务实现
 type GatewayGrpcServer struct {
 	gatewaypb.UnimplementedGatewayServiceServer
-	hub *chat.ClientHub
+	hub *chat.ConnHub
 }
 
 // NewGatewayGrpcServer 创建网关内部 gRPC 服务实例
-func NewGatewayGrpcServer(hub *chat.ClientHub) *GatewayGrpcServer {
+func NewGatewayGrpcServer(hub *chat.ConnHub) *GatewayGrpcServer {
 	return &GatewayGrpcServer{
 		hub: hub,
 	}

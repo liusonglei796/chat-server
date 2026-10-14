@@ -14,9 +14,9 @@ import (
 	"kama_chat_server/pkg/constants"
 )
 
-// ClientHub 网关长连接生命周期中心
+// ConnHub 网关长连接生命周期中心
 // 负责维护本网关节点在线连接，以及在 Redis 动态路由表中登记与注销用户路由
-type ClientHub struct {
+type ConnHub struct {
 	Clients         *ConnManager
 	Login           chan *UserConn
 	Logout          chan *UserConn
@@ -26,8 +26,8 @@ type ClientHub struct {
 	gatewayGrpcAddr string
 }
 
-func NewClientHub(cache store.AsyncCacheService, gatewayGrpcAddr string) *ClientHub {
-	return &ClientHub{
+func NewConnHub(cache store.AsyncCacheService, gatewayGrpcAddr string) *ConnHub {
+	return &ConnHub{
 		Clients:         NewConnManager(),
 		Login:           make(chan *UserConn, 1024),
 		Logout:          make(chan *UserConn, 1024),
@@ -38,7 +38,7 @@ func NewClientHub(cache store.AsyncCacheService, gatewayGrpcAddr string) *Client
 }
 
 // RenewUserLocation 续期用户在 Redis 中的网关路由 TTL
-func (h *ClientHub) RenewUserLocation(userId string) {
+func (h *ConnHub) RenewUserLocation(userId string) {
 	if h.cache != nil && h.gatewayGrpcAddr != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_ = h.cache.Expire(ctx, constants.CacheKeyUserGateway+userId, 120*time.Second)
@@ -46,7 +46,7 @@ func (h *ClientHub) RenewUserLocation(userId string) {
 	}
 }
 
-func (h *ClientHub) Start() {
+func (h *ConnHub) Start() {
 	defer func() {
 		if r := recover(); r != nil {
 			zap.L().Error(fmt.Sprintf("chat server client hub panic: %v", r))
@@ -95,25 +95,25 @@ func (h *ClientHub) Start() {
 	}
 }
 
-func (h *ClientHub) Close() {
+func (h *ConnHub) Close() {
 	h.closeOnce.Do(func() {
 		close(h.Login)
 		close(h.Logout)
 	})
 }
 
-func (h *ClientHub) GetClient(userId string) *UserConn {
+func (h *ConnHub) GetClient(userId string) *UserConn {
 	return h.Clients.Get(userId)
 }
 
-func (h *ClientHub) GetOnlineCount() int64 {
+func (h *ConnHub) GetOnlineCount() int64 {
 	return h.Clients.Count()
 }
 
-func (h *ClientHub) RegisterClient(client *UserConn) {
+func (h *ConnHub) RegisterClient(client *UserConn) {
 	h.Login <- client
 }
 
-func (h *ClientHub) UnregisterClient(client *UserConn) {
+func (h *ConnHub) UnregisterClient(client *UserConn) {
 	h.Logout <- client
 }

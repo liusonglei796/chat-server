@@ -56,7 +56,7 @@ type UserConn struct {
 	Conn        *websocket.Conn   // 底层 WebSocket 连接（通往用户浏览器的 TCP 管道）
 	Uuid        string            // 用户 ID（来自 JWT，可信）
 	SendBack    chan *MessageBack // 待推送消息队列：gRPC 直推写入 → Write goroutine 读取并推送到浏览器
-	hub         *ClientHub        // 网关长连接生命周期中心，用于心跳续期、注销连接等
+	hub         *ConnHub          // 网关长连接生命周期中心，用于心跳续期、注销连接等
 	cleanupOnce sync.Once         // 确保 cleanup 只执行一次（Read 退出和 ClientLogout 可能并发触发）
 }
 
@@ -218,7 +218,7 @@ func (c *UserConn) Write() {
 
 // NewClientInit 当接受到前端有登录消息时，会调用该函数
 // hub: 网关长连接生命周期中心，通过依赖注入传入
-func NewClientInit(c *gin.Context, clientId string, hub *ClientHub) { // [第三方库: github.com/gin-gonic/gin] gin.Context 为 HTTP 请求上下文
+func NewClientInit(c *gin.Context, clientId string, hub *ConnHub) { // [第三方库: github.com/gin-gonic/gin] gin.Context 为 HTTP 请求上下文
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil) // [第三方库: github.com/gorilla/websocket] Upgrader.Upgrade 将 HTTP 升级为 WebSocket
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
@@ -244,7 +244,7 @@ func NewClientInit(c *gin.Context, clientId string, hub *ClientHub) { // [第三
 
 // ClientLogout 当接受到前端有登出消息时，会调用该函数
 // 通过 cleanup 统一释放资源（sync.Once 保证幂等）
-func ClientLogout(clientId string, hub *ClientHub) error {
+func ClientLogout(clientId string, hub *ConnHub) error {
 	client := hub.GetClient(clientId)
 	if client != nil {
 		client.cleanup()
