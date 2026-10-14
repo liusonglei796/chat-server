@@ -29,7 +29,7 @@ import (
 // groupUoW 群组服务的 UoW 接口：事务/事件能力 + 仅本服务拥有的 Group/GroupMember Store
 type groupUoW interface {
 	store.TxExecutor
-	RecordEvent(ctx context.Context, eventType string, payload []byte) error
+	RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error
 	GroupStore() store.GroupStore
 	GroupMemberStore() store.GroupMemberStore
 }
@@ -111,7 +111,7 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 				GroupName:   newGroup.Name,
 				GroupAvatar: newGroup.Avatar,
 			})
-			return tx.RecordEvent(c, event.EventGroupCreated, payload)
+			return tx.RecordEvent(c, newGroup.Uuid, event.EventGroupCreated, payload)
 		})
 
 		if err != nil {
@@ -289,7 +289,7 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 				GroupId: groupId,
 				UserId:  userId,
 			})
-			return tx.RecordEvent(ctx, event.EventGroupMemberLeft, payload)
+			return tx.RecordEvent(ctx, groupId, event.EventGroupMemberLeft, payload)
 		}
 		return nil
 	})
@@ -347,7 +347,7 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 		payload, _ := json.Marshal(event.GroupDismissedEvent{
 			GroupId: groupId,
 		})
-		return tx.RecordEvent(ctx, event.EventGroupDismissed, payload)
+		return tx.RecordEvent(ctx, groupId, event.EventGroupDismissed, payload)
 	})
 
 	if err != nil {
@@ -604,7 +604,7 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 				OperatorId:  operatorId,
 				MemberUuids: req.UuidList,
 			})
-			return tx.RecordEvent(ctx, event.EventGroupMemberRemoved, payload)
+			return tx.RecordEvent(ctx, req.GroupId, event.EventGroupMemberRemoved, payload)
 		}
 		return nil
 	})

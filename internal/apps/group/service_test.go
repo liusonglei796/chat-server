@@ -118,7 +118,7 @@ func (f *fakeGroupUOW) GroupMemberStore() store.GroupMemberStore {
 	return f.groupMemberStore
 }
 
-func (f *fakeGroupUOW) RecordEvent(_ context.Context, _ string, _ []byte) error {
+func (f *fakeGroupUOW) RecordEvent(_ context.Context, _ string, _ string, _ []byte) error {
 	return nil
 }
 

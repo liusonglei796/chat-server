@@ -25,7 +25,7 @@ import (
 // friendshipUoW 好友关系服务的 UoW 接口：事务/事件能力 + 仅本服务拥有的 Friendship Store
 type friendshipUoW interface {
 	store.TxExecutor
-	RecordEvent(ctx context.Context, eventType string, payload []byte) error
+	RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error
 	FriendshipStore() store.FriendshipStore
 }
 
@@ -184,7 +184,7 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 			UserId:   userId,
 			FriendId: friendId,
 		})
-		return tx.RecordEvent(ctx, event.EventFriendBlacked, payload)
+		return tx.RecordEvent(ctx, userId, event.EventFriendBlacked, payload)
 	})
 
 	if err != nil {
@@ -299,7 +299,7 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			UserId:   userId,
 			FriendId: friendId,
 		})
-		return tx.RecordEvent(ctx, event.EventFriendBlacked, payload)
+		return tx.RecordEvent(ctx, userId, event.EventFriendBlacked, payload)
 	})
 
 	if err != nil {

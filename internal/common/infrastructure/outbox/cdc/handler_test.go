@@ -16,6 +16,7 @@ func TestOutboxEventHandler_OnRow(t *testing.T) {
 	var publishedKey string
 	var publishedPayload string
 	var publishedEventType string
+	var publishedEventId string
 	callCount := 0
 
 	mockPublish := func(ctx context.Context, key []byte, payload []byte, headers []kgo.RecordHeader) error {
@@ -25,6 +26,9 @@ func TestOutboxEventHandler_OnRow(t *testing.T) {
 		for _, h := range headers {
 			if h.Key == outbox.EventTypeHeader {
 				publishedEventType = string(h.Value)
+			}
+			if h.Key == "event_id" {
+				publishedEventId = string(h.Value)
 			}
 		}
 		return nil
@@ -44,7 +48,18 @@ func TestOutboxEventHandler_OnRow(t *testing.T) {
 		},
 	}
 
-	t.Run("insert action on outbox table should trigger kafka publish", func(t *testing.T) {
+	testTableWithAggregate := &schema.Table{
+		Schema: "chat_group",
+		Name:   "outbox",
+		Columns: []schema.TableColumn{
+			{Name: "uuid"},
+			{Name: "aggregate_id"},
+			{Name: "event_type"},
+			{Name: "payload"},
+		},
+	}
+
+	t.Run("insert action on outbox table should trigger kafka publish with fallback uuid", func(t *testing.T) {
 		callCount = 0
 		event := &canal.RowsEvent{
 			Table:  testTable,
@@ -67,8 +82,36 @@ func TestOutboxEventHandler_OnRow(t *testing.T) {
 		if publishedEventType != "group_created" {
 			t.Errorf("expected event_type group_created, got %s", publishedEventType)
 		}
+		if publishedEventId != "O1234567890" {
+			t.Errorf("expected event_id O1234567890, got %s", publishedEventId)
+		}
 		if publishedPayload != `{"group_id":"G1001","group_name":"Golang Group"}` {
 			t.Errorf("expected payload %s, got %s", `{"group_id":"G1001","group_name":"Golang Group"}`, publishedPayload)
+		}
+	})
+
+	t.Run("insert action on outbox with aggregate_id should route by aggregate_id", func(t *testing.T) {
+		callCount = 0
+		event := &canal.RowsEvent{
+			Table:  testTableWithAggregate,
+			Action: canal.InsertAction,
+			Rows: [][]interface{}{
+				{"O1234567890", "G1001", "group_created", `{"group_id":"G1001","group_name":"Golang Group"}`},
+			},
+		}
+
+		err := handler.OnRow(event)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if callCount != 1 {
+			t.Fatalf("expected 1 publish call, got %d", callCount)
+		}
+		if publishedKey != "G1001" {
+			t.Errorf("expected key G1001 for partition ordering, got %s", publishedKey)
+		}
+		if publishedEventId != "O1234567890" {
+			t.Errorf("expected event_id O1234567890 in header, got %s", publishedEventId)
 		}
 	})
 

@@ -107,7 +107,7 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 			GroupName:   group.Name,
 			GroupAvatar: group.Avatar,
 		})
-		return tx.RecordEvent(ctx, event.EventGroupJoined, joinedPayload)
+		return tx.RecordEvent(ctx, e.GroupId, event.EventGroupJoined, joinedPayload)
 	})
 	if err != nil {
 		if dberr.IsDuplicateKey(err) {

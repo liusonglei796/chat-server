@@ -26,7 +26,7 @@ import (
 // userUoW 用户服务的 UoW 接口：事务/事件能力 + 仅本服务拥有的 User Store
 type userUoW interface {
 	store.TxExecutor
-	RecordEvent(ctx context.Context, eventType string, payload []byte) error
+	RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error
 	UserStore() store.UserStore
 }
 

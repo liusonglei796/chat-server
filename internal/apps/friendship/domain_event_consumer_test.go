@@ -68,7 +68,7 @@ type fakeUOW struct {
 
 func (f *fakeUOW) FriendshipStore() store.FriendshipStore { return f.friendshipStore }
 
-func (f *fakeUOW) RecordEvent(_ context.Context, _ string, _ []byte) error { return nil }
+func (f *fakeUOW) RecordEvent(_ context.Context, _ string, _ string, _ []byte) error { return nil }
 
 func (f *fakeUOW) WithTx(fn func(tx any) error) error { return fn(f) }
 

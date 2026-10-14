@@ -129,7 +129,7 @@ func (f *fakeUOW) UserStore() store.UserStore {
 	return f.userStore
 }
 
-func (f *fakeUOW) RecordEvent(_ context.Context, eventType string, _ []byte) error {
+func (f *fakeUOW) RecordEvent(_ context.Context, _ string, eventType string, _ []byte) error {
 	if f.outboxStore != nil {
 		f.outboxStore.lastType = eventType
 	}

@@ -58,7 +58,7 @@ func (u *mockFriendshipUOW) FriendshipStore() store.FriendshipStore {
 	return u.store
 }
 
-func (u *mockFriendshipUOW) RecordEvent(_ context.Context, eventType string, _ []byte) error {
+func (u *mockFriendshipUOW) RecordEvent(_ context.Context, _ string, eventType string, _ []byte) error {
 	u.outbox.events = append(u.outbox.events, eventType)
 	return nil
 }

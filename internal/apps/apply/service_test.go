@@ -50,7 +50,7 @@ func (f *fakeApplyUOW) ApplyStore() store.ApplyStore {
 	return f.applyStore
 }
 
-func (f *fakeApplyUOW) RecordEvent(_ context.Context, _ string, _ []byte) error {
+func (f *fakeApplyUOW) RecordEvent(_ context.Context, _ string, _ string, _ []byte) error {
 	return nil
 }
 

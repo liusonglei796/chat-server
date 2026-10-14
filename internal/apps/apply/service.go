@@ -35,7 +35,7 @@ import (
 // applyUoW 申请服务的 UoW 接口：事务/事件能力 + 仅本服务拥有的 Apply Store
 type applyUoW interface {
 	store.TxExecutor
-	RecordEvent(ctx context.Context, eventType string, payload []byte) error
+	RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error
 	ApplyStore() store.ApplyStore
 }
 
@@ -227,7 +227,7 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req applyr
 					GroupId: req.GroupId,
 					UserId:  userId,
 				})
-				return tx.RecordEvent(execCtx, event.EventGroupApplyPassed, payload)
+				return tx.RecordEvent(execCtx, req.GroupId, event.EventGroupApplyPassed, payload)
 			})
 
 			if err != nil {
@@ -551,7 +551,7 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 			UserId:   userId,
 			FriendId: applicantId,
 		})
-		return tx.RecordEvent(ctx, event.EventFriendApplyPassed, payload)
+		return tx.RecordEvent(ctx, userId, event.EventFriendApplyPassed, payload)
 	})
 
 	if err != nil {
@@ -651,7 +651,7 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 			GroupId: groupId,
 			UserId:  applicantId,
 		})
-		return tx.RecordEvent(ctx, event.EventGroupApplyPassed, payload)
+		return tx.RecordEvent(ctx, groupId, event.EventGroupApplyPassed, payload)
 	})
 
 	if err != nil {

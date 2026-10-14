@@ -51,7 +51,7 @@ func (m *mockConsumerUOW) GroupMemberStore() store.GroupMemberStore {
 	return m.mStore
 }
 
-func (m *mockConsumerUOW) RecordEvent(_ context.Context, eventType string, _ []byte) error {
+func (m *mockConsumerUOW) RecordEvent(_ context.Context, _ string, eventType string, _ []byte) error {
 	m.recordedEvt = true
 	m.eventTypes = append(m.eventTypes, eventType)
 	return nil

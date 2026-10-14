@@ -47,12 +47,15 @@ func (h *OutboxEventHandler) OnRow(e *canal.RowsEvent) error {
 
 	// 解析列索引
 	uuidIdx := -1
+	aggregateIdx := -1
 	typeIdx := -1
 	payloadIdx := -1
 	for idx, col := range e.Table.Columns {
 		switch col.Name {
 		case "uuid":
 			uuidIdx = idx
+		case "aggregate_id":
+			aggregateIdx = idx
 		case "event_type":
 			typeIdx = idx
 		case "payload":
@@ -81,11 +84,21 @@ func (h *OutboxEventHandler) OnRow(e *canal.RowsEvent) error {
 			continue
 		}
 
-		headers := []kgo.RecordHeader{
-			{Key: outbox.EventTypeHeader, Value: []byte(eventType)},
+		// 核心优化：优先使用业务聚合标识（如 user_id, group_id）作为 Kafka Key，保证同一实体事件严格落入同一分区按序消费
+		// 若历史数据或表结构未配置 aggregate_id，则安全降级为 uuid
+		partitionKey := uuid
+		if aggregateIdx != -1 && aggregateIdx < len(row) {
+			if agg := toString(row[aggregateIdx]); agg != "" {
+				partitionKey = agg
+			}
 		}
 
-		err := h.publishFn(ctx, []byte(uuid), []byte(payloadStr), headers)
+		headers := []kgo.RecordHeader{
+			{Key: outbox.EventTypeHeader, Value: []byte(eventType)},
+			{Key: "event_id", Value: []byte(uuid)},
+		}
+
+		err := h.publishFn(ctx, []byte(partitionKey), []byte(payloadStr), headers)
 		if err != nil {
 			zap.L().Error("cdc publish domain event to kafka failed",
 				zap.String("schema", e.Table.Schema),
