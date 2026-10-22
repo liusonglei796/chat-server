@@ -47,9 +47,14 @@ spec:
               value: "0"
             - name: KAFKA_NUM_PARTITIONS
               value: "3"
+            # 【修复】旧 manifest 把 PVC 挂在 /tmp/kafka-logs，
+            # 而 apache/kafka 镜像在 KRaft 模式下的默认数据目录是 /tmp/kraft-combined-logs，
+            # 结果数据写在容器可写层（ephemeral），PVC 形同虚设。
+            - name: KAFKA_LOG_DIRS
+              value: "/var/lib/kafka/data"
           volumeMounts:
             - name: kafka-data
-              mountPath: /tmp/kafka-logs
+              mountPath: "/var/lib/kafka/data"
   volumeClaimTemplates:
     - metadata:
         name: kafka-data

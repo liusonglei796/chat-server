@@ -1,41 +1,45 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: relation-service
+  name: group-service
   namespace: chat-system
   labels:
-    app: relation-service
+    app: group-service
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: relation-service
+      app: group-service
   template:
     metadata:
       labels:
-        app: relation-service
+        app: group-service
     spec:
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                    - key: app
-                      operator: In
-                      values:
-                        - relation-service
-                topologyKey: "kubernetes.io/hostname"
       containers:
-        - name: relation-service
-          image: myregistry.com/relation-service:latest
-          imagePullPolicy: Always
+        - name: group-service
+          image: kama-chat/group-service:latest
+          imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 50053
+            - containerPort: 50055
           env:
             - name: ETCD_ENDPOINTS
               value: "etcd:2379"
+            - name: DB_NAME
+              value: "chat_group"
+            - name: MYSQL_USER
+              value: "svc_group"
+            - name: MYSQL_PASSWORD
+              value: "svc_group_pwd"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: REDIS_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: JWT_SECRET
           resources:
             requests:
               cpu: "100m"
@@ -45,12 +49,12 @@ spec:
               memory: "512Mi"
           readinessProbe:
             tcpSocket:
-              port: 50053
+              port: 50055
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             tcpSocket:
-              port: 50053
+              port: 50055
             initialDelaySeconds: 15
             periodSeconds: 20
           volumeMounts:
@@ -67,12 +71,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: relation-service
+  name: group-service
   namespace: chat-system
 spec:
   selector:
-    app: relation-service
+    app: group-service
   ports:
     - protocol: TCP
-      port: 50053
-      targetPort: 50053
+      port: 50055
+      targetPort: 50055

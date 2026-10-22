@@ -13,10 +13,12 @@ import (
 	"kama_chat_server/internal/common/dto/event"
 	"kama_chat_server/internal/common/grpc_client"
 	kafkainfra "kama_chat_server/internal/common/infrastructure/kafka"
+	"kama_chat_server/internal/common/infrastructure/metrics"
 	"kama_chat_server/internal/common/infrastructure/outbox"
 	"kama_chat_server/internal/common/infrastructure/snowflake"
 	"kama_chat_server/internal/common/model"
 	"kama_chat_server/pkg/constants"
+	otelx "kama_chat_server/pkg/otel"
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
 )
 
@@ -56,7 +58,12 @@ func (c *DomainEventConsumer) Start() {
 				continue
 			}
 			eventType := outbox.ExtractEventType(msg.Headers)
-			if err := c.handleEvent(context.Background(), eventType, msg.Value); err != nil {
+			// 从消息头还原上游 trace context，并以 producer span 的子 span 承载本次处理
+			handleCtx, span := otelx.StartKafkaConsumerSpan(context.Background(), msg.Headers, "kafka consume "+eventType)
+			err = c.handleEvent(handleCtx, eventType, msg.Value)
+			otelx.EndSpan(span, err)
+			if err != nil {
+				metrics.KafkaConsumeErrors.Inc()
 				zap.L().Error("handle domain event error", zap.String("type", eventType), zap.Error(err))
 				continue // 下游处理失败，不提交位点，等待重试
 			}
@@ -123,9 +130,6 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 	}
 
 	if c.cache != nil {
-		_ = c.cache.DeleteByPattern(ctx, constants.CacheKeyFriendRelUser+e.UserId+"*")
-		_ = c.cache.DeleteByPattern(ctx, constants.CacheKeyFriendRelUser+e.FriendId+"*")
-
 		if gatewayAddr, err := c.cache.Get(ctx, constants.CacheKeyUserGateway+e.FriendId); err == nil && gatewayAddr != "" {
 			notice, _ := json.Marshal(map[string]interface{}{
 				"type":      "system",

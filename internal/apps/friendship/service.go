@@ -16,7 +16,6 @@ import (
 	userrsp "kama_chat_server/internal/common/dto/respond/user"
 	"kama_chat_server/internal/common/grpc_client"
 	"kama_chat_server/internal/common/model"
-	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
@@ -41,15 +40,6 @@ func NewFriendshipService(uow friendshipUoW, cacheService store.AsyncCacheServic
 		uow:   uow,
 		cache: cacheService,
 	}
-}
-
-// clearFriendRelationCache 清理好友关系相关的缓存（DRY: DeleteFriend/BlackFriend 共用）
-func (s *FriendshipService) clearFriendRelationCache(userId, friendId string) {
-	s.cache.SubmitTask(func() {
-		//从好友set中移除一个好友
-		_ = s.cache.RemoveFromSet(context.Background(), constants.CacheKeyFriendRelUser+userId, friendId)
-		_ = s.cache.RemoveFromSet(context.Background(), constants.CacheKeyFriendRelUser+friendId, userId)
-	})
 }
 
 // GetFriendList 获取好友列表（分页）
@@ -157,19 +147,23 @@ func (s *FriendshipService) GetFriendInfo(ctx context.Context, userId, friendId 
 	}, nil
 }
 
-// DeleteFriend 删除好友（双向删除）
+// DeleteFriend 删除好友（微信同款单向删除：仅删除本人与对方的关系记录，对方仍保留单向好友）
 func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId string) error {
 	if userId == friendId {
 		return errorx.New(errorx.CodeInvalidParam, "不能删除自己")
 	}
 
-	isFriend, err := s.uow.FriendshipStore().IsFriend(ctx, userId, friendId)
+	// 幂等自愈：检查主动方 (userId) 通讯录是否还保留该好友记录
+	fs, err := s.uow.FriendshipStore().FindByUserIdAndFriendId(ctx, userId, friendId)
 	if err != nil {
+		if errorx.IsNotFound(err) {
+			// 终态幂等自愈：若当前已不是好友（前序删除重试已成功），静默放行并阻断重复事件
+			return nil
+		}
 		zap.L().Error("Check friend relationship error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
-	if !isFriend {
-		// 终态幂等自愈：若当前已不是好友（前序删除重试已成功），静默放行并阻断重复事件
+	if fs == nil {
 		return nil
 	}
 
@@ -179,12 +173,12 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 			return errorx.ErrServerBusy
 		}
 
-		// 写入 outbox 表 (friend_blacked 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦
-		payload, _ := json.Marshal(event.FriendBlackedEvent{
+		// 写入 outbox 表 (friend_deleted 事件)，由 Canal CDC 捕获并推至 Kafka 异步解耦单向会话
+		payload, _ := json.Marshal(event.FriendDeletedEvent{
 			UserId:   userId,
 			FriendId: friendId,
 		})
-		return tx.RecordEvent(ctx, userId, event.EventFriendBlacked, payload)
+		return tx.RecordEvent(ctx, userId, event.EventFriendDeleted, payload)
 	})
 
 	if err != nil {
@@ -192,7 +186,6 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 		return errorx.ErrServerBusy
 	}
 
-	s.clearFriendRelationCache(userId, friendId)
 	return nil
 }
 
@@ -310,10 +303,6 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 		return errorx.ErrServerBusy
 	}
 
-	// Step 1.3: 清理好友关系本地缓存
-	// 来源: Step 1.2 成功完成的拉黑事务
-	// 用于: 失效双方好友关系缓存
-	s.clearFriendRelationCache(userId, friendId)
 	return nil
 }
 
@@ -419,14 +408,6 @@ func (s *FriendshipService) UnblackFriend(ctx context.Context, userId string, fr
 		return errorx.ErrServerBusy
 	}
 
-	// Step 2.3: 异步回写恢复好友关系缓存
-	// 来源: Step 2.2 成功提交的解除拉黑事务
-	// 用于: 重新将双方加入 Redis 好友关系集合
-	s.cache.SubmitTask(func() {
-		_ = s.cache.AddToSet(context.Background(), constants.CacheKeyFriendRelUser+userId, friendId)
-		_ = s.cache.AddToSet(context.Background(), constants.CacheKeyFriendRelUser+friendId, userId)
-	})
-
 	return nil
 }
 
@@ -458,25 +439,42 @@ func (s *FriendshipService) UpdateRemark(ctx context.Context, userId, friendId, 
 	return nil
 }
 
-// GetFriendshipStatus 返回好友关系状态（对外契约）
-// 0=非好友 1=正常 2=已拉黑对方 3=被对方拉黑
+// GetFriendshipStatus 返回好友关系状态（微信同款对外契约，基于发送方与接收方双向判决）
+// 0=非好友(发送方未添加/已删对方) 1=正常好友 2=已拉黑对方(享有单向发信特权) 3=被对方拉黑(拒收) 4=被对方单向删除(朋友验证)
 func (s *FriendshipService) GetFriendshipStatus(ctx context.Context, userId, friendId string) (int8, error) {
-	fs, err := s.uow.FriendshipStore().FindByUserIdAndFriendId(ctx, userId, friendId)
+	// 1. 检查发送方 (userId) 通讯录是否拥有 friendId
+	senderFs, err := s.uow.FriendshipStore().FindByUserIdAndFriendId(ctx, userId, friendId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return 0, nil
+			return 0, nil // 发送方未添加或已删除对方
 		}
-		zap.L().Error("query friendship error", zap.Error(err))
+		zap.L().Error("query sender friendship error", zap.Error(err))
 		return 0, errorx.ErrServerBusy
 	}
-	switch fs.Status {
-	case friendship_status.BE_BLACK: // 被对方拉黑
-		return 3, nil
-	case friendship_status.BLACK: // 拉黑对方
-		return 2, nil
-	default: // NORMAL
-		return 1, nil
+
+	// 2. 检查接收方 (friendId) 对发送方的记录与态度（微信权威判决核心）
+	recipientFs, err := s.uow.FriendshipStore().FindByUserIdAndFriendId(ctx, friendId, userId)
+	if err != nil {
+		if errorx.IsNotFound(err) {
+			// 接收方单向删除了发送方（发送方成了“僵尸粉”，触发朋友验证）
+			return 4, nil
+		}
+		zap.L().Error("query recipient friendship error", zap.Error(err))
+		return 0, errorx.ErrServerBusy
 	}
+
+	// 3. 优先级判定：接收方是否拉黑了发送方（拉黑拦截优先级高于一切）
+	if recipientFs.Status == friendship_status.BLACK || senderFs.Status == friendship_status.BE_BLACK {
+		return 3, nil // 被对方拉黑 -> 提示“消息已发出，但被对方拒收了”
+	}
+
+	// 4. 发送方拉黑了接收方（享有微信同款单向发信特权）
+	if senderFs.Status == friendship_status.BLACK {
+		return 2, nil // 已拉黑对方，放行单向发送
+	}
+
+	// 5. 双方均正常
+	return 1, nil
 }
 
 // EstablishFriendship 跨服务建立双向好友关系（供加好友审批通过后同步 RPC 调用）
@@ -521,6 +519,5 @@ func (s *FriendshipService) EstablishFriendship(ctx context.Context, userId, fri
 		return errorx.ErrServerBusy
 	}
 
-	s.clearFriendRelationCache(userId, friendId)
 	return nil
 }

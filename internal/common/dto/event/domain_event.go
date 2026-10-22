@@ -6,11 +6,10 @@ const (
 	EventGroupCreated   = "group_created"
 	EventGroupJoined    = "group_joined"
 	EventGroupDismissed = "group_dismissed"
-	EventGroupUpdated   = "group_updated"
-	EventUserUpdated    = "user_updated"
 	EventGroupApplyPassed = "group_apply_passed"
 	EventFriendApplyPassed = "friend_apply_passed"
 	EventFriendBlacked   = "friend_blacked"
+	EventFriendDeleted   = "friend_deleted"
 	EventGroupMemberRemoved = "group_member_removed"
 	EventGroupMemberLeft    = "group_member_left"
 )
@@ -36,20 +35,6 @@ type GroupDismissedEvent struct {
 	GroupId string `json:"group_id"`
 }
 
-// GroupUpdatedEvent 群信息变更事件（relation → message）
-type GroupUpdatedEvent struct {
-	GroupId string  `json:"group_id"`
-	Name    *string `json:"name,omitempty"`
-	Avatar  *string `json:"avatar,omitempty"`
-}
-
-// UserUpdatedEvent 用户资料变更事件（user → message）
-type UserUpdatedEvent struct {
-	UserId   string  `json:"user_id"`
-	Nickname *string `json:"nickname,omitempty"`
-	Avatar   *string `json:"avatar,omitempty"`
-}
-
 // GroupApplyPassedEvent 同意加群事件（apply → group）
 type GroupApplyPassedEvent struct {
 	GroupId string `json:"group_id"`
@@ -66,6 +51,12 @@ type FriendApplyPassedEvent struct {
 type FriendBlackedEvent struct {
 	UserId   string `json:"user_id"`
 	FriendId string `json:"friend_id"`
+}
+
+// FriendDeletedEvent 删除好友事件（friendship → message，仅软删操作人单侧私聊会话）
+type FriendDeletedEvent struct {
+	UserId   string `json:"user_id"`   // 操作人（主动删除方）
+	FriendId string `json:"friend_id"` // 被删除方
 }
 
 // GroupMemberRemovedEvent 移出群成员事件（group → message/gateway）

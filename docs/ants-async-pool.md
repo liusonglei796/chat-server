@@ -247,7 +247,7 @@ return NewRedisCache(client, 15)   // 15 = Worker 数量
 `WithPanicHandler` 捕获了 panic 并记日志，Worker 继续复用。但注意：**panic 所在任务本身已经丢了**，所以任务逻辑里还是要自己处理错误。
 
 **Q: 这个池和 Kafka 消费是什么关系？**
-两回事。Kafka 消费（`kafka_processor.go`）是**消息驱动的并发**（一个消息一个 goroutine，来自 Kafka 消费者组）；这个池是**任务队列的并发**（Service 主动提交的缓存操作）。别混淆。
+两回事。Kafka 消费（各服务的 `domain_event_consumer.go`）是**消息驱动的并发**（一个事件一个 goroutine，来自 Kafka 消费者组）；这个池是**任务队列的并发**（Service 主动提交的缓存操作）。别混淆。
 
 ---
 

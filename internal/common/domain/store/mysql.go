@@ -69,7 +69,6 @@ type MessageStore interface {
 	FindBySessionIdSync(ctx context.Context, sessionId string, afterSeq int64, limit int) ([]model.Message, error)
 	GetMaxSeqBySessionId(ctx context.Context, sessionId string) (int64, error)
 	FindByUuid(ctx context.Context, uuid string) (*model.Message, error)
-	UpdateStatus(ctx context.Context, uuid string, status int8) error
 	UpdateContent(ctx context.Context, uuid, content string, msgType int8) (bool, error)
 	Create(ctx context.Context, message *model.Message) error
 }

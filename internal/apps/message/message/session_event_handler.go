@@ -83,14 +83,6 @@ func (h *SessionEventHandler) Handle(ctx context.Context, eventType string, payl
 		}
 		return h.sessionStore.SoftDeleteByUsers(ctx, []string{e.GroupId})
 
-	case event.EventGroupUpdated:
-		// session 表已移除冗余字段，无需同步
-		return nil
-
-	case event.EventUserUpdated:
-		// session 表已移除冗余字段，无需同步
-		return nil
-
 	case event.EventFriendBlacked:
 		var e event.FriendBlackedEvent
 		if err := json.Unmarshal(payload, &e); err != nil {
@@ -106,6 +98,14 @@ func (h *SessionEventHandler) Handle(ctx context.Context, eventType string, payl
 			"friend_id": e.FriendId,
 		})
 		return nil
+
+	case event.EventFriendDeleted:
+		var e event.FriendDeletedEvent
+		if err := json.Unmarshal(payload, &e); err != nil {
+			return err
+		}
+		// 微信同款单向会话清理：仅软删除主动删除方 A 与 B 的单向私聊会话，B 侧会话与历史消息完好保留
+		return h.softDeleteSingleFriendSession(ctx, e.UserId, e.FriendId)
 
 	case event.EventGroupMemberRemoved:
 		var e event.GroupMemberRemovedEvent
@@ -157,6 +157,14 @@ func (h *SessionEventHandler) softDeleteFriendSessions(ctx context.Context, user
 		return nil
 	}
 	return h.sessionStore.SoftDeleteByUuids(ctx, uuids)
+}
+
+// softDeleteSingleFriendSession 单向删除好友时仅软删除操作人自身会话（幂等：不存在则跳过）
+func (h *SessionEventHandler) softDeleteSingleFriendSession(ctx context.Context, userId, friendId string) error {
+	if sess, err := h.sessionStore.FindBySendIdAndReceiveId(ctx, userId, friendId); err == nil && sess != nil {
+		return h.sessionStore.SoftDeleteByUuids(ctx, []string{sess.Uuid})
+	}
+	return nil
 }
 
 // softDeleteGroupMemberSessions 成员退群或被移出时软删除对应的群会话

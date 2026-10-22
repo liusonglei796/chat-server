@@ -162,6 +162,21 @@ message CheckGroupMemberResponse { bool is_member = 1; }
 
 ## 第 3 步：写路径事件化 + Outbox
 
+> **⚠️ 后续演进（本文档为 2026-08-03 的设计稿，落地时已调整）**
+>
+> 1. **发布机制从「轮询 Publisher」改成了「Canal CDC」**：实际实现见
+>    `internal/common/infrastructure/outbox/cdc/`，由独立的 `cmd/cdc_service` 订阅 outbox 表的
+>    INSERT binlog 直接投递 Kafka，位点用 GTID 持久化在 Redis。因此 outbox 表**没有**
+>    `status` / `attempt` / `sent_at` 这些轮询式发布器才需要的列，改为
+>    `uuid / aggregate_id / event_type / payload / trace_parent / trace_state / created_at`。
+> 2. **事件全集比本文多**：`group_member_removed` / `group_member_left` / `friend_blacked` /
+>    `friend_deleted` / `group_apply_passed` / `friend_apply_passed` 是后续补的。
+> 3. **`group_updated` / `user_updated` 已废弃**：session 表的冗余字段被移除后没有生产者，
+>    事件常量与消费分支一并删除。
+> 4. **去重方式换了**：不是 Redis SETNX，而是靠业务幂等（唯一索引冲突判定 + 存在性检查）。
+>
+> 以 `docs/cqrs.md` 为准。
+
 ### 3.1 Outbox 表（每库一张，归属该库服务）
 
 ```sql

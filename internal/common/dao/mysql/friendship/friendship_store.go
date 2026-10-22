@@ -121,13 +121,13 @@ func (r *friendshipStore) UpdateStatusWithExpected(ctx context.Context, userId, 
 	return result.RowsAffected > 0, nil
 }
 
-// SoftDelete 删除好友关系（双向删除，采用物理删除释放唯一索引槽位，允许重新加好友）
+// SoftDelete 删除好友关系（微信同款单向删除：物理删除 userId -> friendId 单向记录，释放唯一索引槽位，允许重新加回）
 func (r *friendshipStore) SoftDelete(ctx context.Context, userId, friendId string) error {
 	if err := r.db.WithContext(ctx).Unscoped().Where(
-		"(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
-		userId, friendId, friendId, userId,
+		"user_id = ? AND friend_id = ?",
+		userId, friendId,
 	).Delete(&model.Friendship{}).Error; err != nil {
-		return dberr.WrapDBErrorf(err, "删除好友关系 user_id=%s friend_id=%s", userId, friendId)
+		return dberr.WrapDBErrorf(err, "删除单向好友关系 user_id=%s friend_id=%s", userId, friendId)
 	}
 	return nil
 }

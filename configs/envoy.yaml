@@ -68,8 +68,11 @@ static_resources:
                 num_retries: 2
                 per_try_timeout: 2s
                 retry_back_off:
-                  base_interval: 25ms
-                  max_interval: 250ms
+                  # protobuf Duration 只接受以单个 's' 结尾的秒数形式，
+                  # 写成 "25ms"/"250ms" 会让 Envoy 启动时直接报
+                  # "duration must end with a single 's'" 而退出。
+                  base_interval: 0.025s
+                  max_interval: 0.25s
               routes:
               # Step 1: WebSocket 长连接专用路由 (转发至专职 ConnService)
               - match:
@@ -79,8 +82,11 @@ static_resources:
                   timeout: 0s
                   max_stream_duration:
                     grpc_timeout_header_max: 0s
-                upgrade_configs:
-                - upgrade_type: "websocket"
+                  # 【修复】upgrade_configs 属于 RouteAction，必须嵌在 route: 里面。
+                  # 写在 route: 外面会被 Envoy 判为未知字段：
+                  # "no such field: 'upgrade_configs'"，Envoy 直接启动失败。
+                  upgrade_configs:
+                  - upgrade_type: "websocket"
 
               # Step 2: 认证服务路由 (转码调用 user_service gRPC 50051)
               - match:
@@ -155,6 +161,12 @@ static_resources:
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_json_transcoder.v3.GrpcJsonTranscoder
               proto_descriptor: "/etc/envoy/proto.pb"
+              # 【关键】默认情况下 Envoy 用「转码后的 gRPC 路径」（如 /apply.ApplyService/ApplyFriend）
+              # 去匹配路由表，于是下面这些按 HTTP 语义写的 prefix 全部失配：
+              #   /friends/appl -> 实际路径是 /apply.ApplyService/... -> 落到 "/" 兜底路由
+              # 结果 apply / group / message 三个服务的接口经 Envoy 全部打到 chat-server。
+              # 置为 true 后按「原始 HTTP 路径」匹配，与下面的 prefix 表一致。
+              match_incoming_request_route: true
               services:
               - "user.UserService"
               - "auth.AuthService"

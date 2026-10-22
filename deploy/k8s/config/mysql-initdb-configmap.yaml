@@ -1,0 +1,44 @@
+# MySQL 初始化脚本：创建拆分后的 5 个业务库与 6 个最小权限账号。
+# 挂载到 /docker-entrypoint-initdb.d/ 后由 mysql:8.0 官方镜像在首次启动时自动执行。
+#
+# 【为什么必须挂】k8s 旧 manifest 完全没有挂这个脚本，导致：
+#   1) chat_user/chat_apply/chat_friendship/chat_group/chat_message 五个库不存在，
+#      而 GORM 的 AutoMigrate 只能建表不能建库；
+#   2) svc_cdc 等服务账号不存在，CDC 无法以最小权限账号订阅 binlog。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-initdb
+  namespace: chat-system
+data:
+  split_db.sql: |
+    -- 拆分：user 库
+    CREATE DATABASE IF NOT EXISTS chat_user CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    -- 拆分：apply 库
+    CREATE DATABASE IF NOT EXISTS chat_apply CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    -- 拆分：friendship 库
+    CREATE DATABASE IF NOT EXISTS chat_friendship CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    -- 拆分：group 库
+    CREATE DATABASE IF NOT EXISTS chat_group CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    -- 拆分：message 库
+    CREATE DATABASE IF NOT EXISTS chat_message CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+    -- 服务账号
+    CREATE USER IF NOT EXISTS 'svc_user'@'%' IDENTIFIED BY 'svc_user_pwd';
+    CREATE USER IF NOT EXISTS 'svc_apply'@'%' IDENTIFIED BY 'svc_apply_pwd';
+    CREATE USER IF NOT EXISTS 'svc_friendship'@'%' IDENTIFIED BY 'svc_friendship_pwd';
+    CREATE USER IF NOT EXISTS 'svc_group'@'%' IDENTIFIED BY 'svc_group_pwd';
+    CREATE USER IF NOT EXISTS 'svc_message'@'%' IDENTIFIED BY 'svc_message_pwd';
+    CREATE USER IF NOT EXISTS 'svc_cdc'@'%' IDENTIFIED BY 'svc_cdc_pwd';
+
+    -- 最小权限原则：各服务只能访问自己的库
+    GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP ON chat_user.* TO 'svc_user'@'%';
+    GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP ON chat_apply.* TO 'svc_apply'@'%';
+    GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP ON chat_friendship.* TO 'svc_friendship'@'%';
+    GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP ON chat_group.* TO 'svc_group'@'%';
+    GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP ON chat_message.* TO 'svc_message'@'%';
+
+    -- CDC 服务账号：需要监听 binlog 复制流及元数据读取
+    GRANT REPLICATION SLAVE, REPLICATION CLIENT, SELECT ON *.* TO 'svc_cdc'@'%';
+
+    FLUSH PRIVILEGES;

@@ -2,12 +2,16 @@ package cdc
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/go-mysql-org/go-mysql/canal"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/schema"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 
 	"kama_chat_server/internal/common/infrastructure/outbox"
 )
@@ -172,8 +176,117 @@ func TestOutboxEventHandler_OnRow(t *testing.T) {
 	})
 }
 
-func TestMemoryGTIDStore(t *testing.T) {
-	store := NewMemoryGTIDStore()
+// TestOutboxEventHandler_TracePropagation 验证事件落库时记录的 trace context
+// 会被还原并注入到 Kafka 消息头，使消费侧能接回同一条 trace
+func TestOutboxEventHandler_TracePropagation(t *testing.T) {
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	const (
+		originTraceID = "4bf92f3577b34da6a3ce929d0e0e4736"
+		originSpanID  = "00f067aa0ba902b7"
+	)
+	traceParent := "00-" + originTraceID + "-" + originSpanID + "-01"
+
+	var headerTraceParent string
+	var ctxTraceID string
+	mockPublish := func(ctx context.Context, key []byte, payload []byte, headers []kgo.RecordHeader) error {
+		for _, h := range headers {
+			if h.Key == "traceparent" {
+				headerTraceParent = string(h.Value)
+			}
+		}
+		if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+			ctxTraceID = sc.TraceID().String()
+		}
+		return nil
+	}
+
+	handler := NewOutboxEventHandler(NewMemoryGTIDStore(), mockPublish)
+
+	testTable := &schema.Table{
+		Schema: "chat_group",
+		Name:   "outbox",
+		Columns: []schema.TableColumn{
+			{Name: "uuid"},
+			{Name: "aggregate_id"},
+			{Name: "event_type"},
+			{Name: "payload"},
+			{Name: "trace_parent"},
+			{Name: "trace_state"},
+		},
+	}
+
+	event := &canal.RowsEvent{
+		Table:  testTable,
+		Action: canal.InsertAction,
+		Rows: [][]interface{}{
+			{"O1234567890", "G1001", "group_created", `{"group_id":"G1001"}`, traceParent, ""},
+		},
+	}
+
+	if err := handler.OnRow(event); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if headerTraceParent == "" {
+		t.Fatal("expected traceparent injected into kafka headers")
+	}
+	if !strings.Contains(headerTraceParent, originTraceID) {
+		t.Errorf("expected traceparent to carry the origin trace id %s, got %s", originTraceID, headerTraceParent)
+	}
+	if ctxTraceID != originTraceID {
+		t.Errorf("expected publish ctx to belong to trace %s, got %s", originTraceID, ctxTraceID)
+	}
+}
+
+// TestOutboxEventHandler_TracePropagationMissing 事件没有 trace context 时不应报错
+func TestOutboxEventHandler_TracePropagationMissing(t *testing.T) {
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	callCount := 0
+	mockPublish := func(ctx context.Context, key []byte, payload []byte, headers []kgo.RecordHeader) error {
+		callCount++
+		return nil
+	}
+
+	handler := NewOutboxEventHandler(NewMemoryGTIDStore(), mockPublish)
+
+	testTable := &schema.Table{
+		Schema: "chat_group",
+		Name:   "outbox",
+		Columns: []schema.TableColumn{
+			{Name: "uuid"},
+			{Name: "aggregate_id"},
+			{Name: "event_type"},
+			{Name: "payload"},
+			{Name: "trace_parent"},
+			{Name: "trace_state"},
+		},
+	}
+
+	event := &canal.RowsEvent{
+		Table:  testTable,
+		Action: canal.InsertAction,
+		Rows: [][]interface{}{
+			{"O1234567890", "G1001", "group_created", `{"group_id":"G1001"}`, "", ""},
+		},
+	}
+
+	if err := handler.OnRow(event); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if callCount != 1 {
+		t.Fatalf("expected 1 publish call, got %d", callCount)
+	}
+}
+
+func TestMemoryGTIDStore(t *testing.T) {	store := NewMemoryGTIDStore()
 	ctx := context.Background()
 
 	set, err := store.Get(ctx)

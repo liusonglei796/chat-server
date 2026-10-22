@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: friendship-service
+  namespace: chat-system
+  labels:
+    app: friendship
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: friendship
+  template:
+    metadata:
+      labels:
+        app: friendship
+    spec:
+      containers:
+        - name: friendship-service
+          image: kama-chat/friendship-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50054
+          env:
+            - name: ETCD_ENDPOINTS
+              value: "etcd:2379"
+            # 拆库：friendship_service 只访问 chat_friendship
+            - name: DB_NAME
+              value: "chat_friendship"
+            - name: MYSQL_USER
+              value: "svc_friendship"
+            - name: MYSQL_PASSWORD
+              value: "svc_friendship_pwd"
+            # 【Toxiproxy 插桩点】拉黑写接口的事务全部走这两个地址，
+            # 由 toxiproxy 注入延迟/断连以验证原子性与幂等性。
+            # 其它服务仍直连 mysql:3306 / redis:6379，避免把 CDC 的 binlog 位点
+            # 也拖进故障域。
+            - name: MYSQL_HOST
+              value: "toxiproxy"
+            - name: MYSQL_PORT
+              value: "33066"
+            - name: REDIS_HOST
+              value: "toxiproxy"
+            - name: REDIS_PORT
+              value: "63855"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: REDIS_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: JWT_SECRET
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            tcpSocket:
+              port: 50054
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50054
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/configs/config.toml
+              subPath: config.toml
+
+      volumes:
+        - name: config-volume
+          configMap:
+            name: chat-config
+
+---
+# 【劫持后的 Service】friendship_service 把自身地址以服务名形式注册到 etcd
+# （cmd/friendship_service/main.go 里硬编码 "friendship-service:50054"），
+# 因此把同名 Service 的 selector 指向 toxiproxy Pod，
+# 所有 gRPC 客户端（Envoy / Gin 网关 / apply / message）都会自动经过代理，
+# 无需改动任何 Go 代码。
+# 真实后端由下方 friendship-service-real 暴露。
+apiVersion: v1
+kind: Service
+metadata:
+  name: friendship-service
+  namespace: chat-system
+spec:
+  selector:
+    app: toxiproxy
+  ports:
+    - protocol: TCP
+      name: grpc
+      port: 50054
+      targetPort: 50054
+---
+# 真实后端 Service：仅被 toxiproxy 作为 upstream 使用
+apiVersion: v1
+kind: Service
+metadata:
+  name: friendship-service-real
+  namespace: chat-system
+spec:
+  selector:
+    app: friendship
+  ports:
+    - protocol: TCP
+      name: grpc
+      port: 50054
+      targetPort: 50054

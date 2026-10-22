@@ -18,6 +18,11 @@ import (
 	"kama_chat_server/pkg/constants"
 	msgtype "kama_chat_server/pkg/enum/message/message_type"
 	"kama_chat_server/pkg/errorx"
+
+	friendshippb "kama_chat_server/api/gen/friendship"
+	"kama_chat_server/internal/common/grpc_client"
+
+	"google.golang.org/grpc"
 )
 
 type mockMsgStore struct {
@@ -64,9 +69,6 @@ func (m *mockMsgStore) GetMaxSeqBySessionId(ctx context.Context, sessionId strin
 }
 func (m *mockMsgStore) FindByUuid(ctx context.Context, uuid string) (*model.Message, error) {
 	return nil, nil
-}
-func (m *mockMsgStore) UpdateStatus(ctx context.Context, uuid string, status int8) error {
-	return nil
 }
 func (m *mockMsgStore) UpdateContent(ctx context.Context, uuid, content string, msgType int8) (bool, error) {
 	return true, nil
@@ -743,3 +745,75 @@ func TestSyncMessages(t *testing.T) {
 		t.Fatalf("expected seq 1 and 2, got %d and %d", res[0].SeqId, res[1].SeqId)
 	}
 }
+
+type mockFriendshipClient struct {
+	friendshippb.FriendshipServiceClient
+	status int32
+}
+
+func (m *mockFriendshipClient) CheckFriendship(ctx context.Context, in *friendshippb.CheckFriendshipRequest, opts ...grpc.CallOption) (*friendshippb.CheckFriendshipResponse, error) {
+	return &friendshippb.CheckFriendshipResponse{Status: m.status}, nil
+}
+
+func TestCheckSendPermission_FriendshipStatuses(t *testing.T) {
+	svc := NewMessageService(&mockMsgStore{}, &mockSessStore{}, newMockCache())
+	ctx := context.Background()
+
+	// 保存原本的 client，在测试结束时复原
+	oldClient := grpc_client.FriendshipClient
+	defer func() {
+		grpc_client.FriendshipClient = oldClient
+	}()
+
+	tests := []struct {
+		name          string
+		status        int32
+		expectedError string
+	}{
+		{
+			name:          "Status 0 - 非好友，拦截并提示添加好友",
+			status:        0,
+			expectedError: "你们不是好友，请先添加好友",
+		},
+		{
+			name:          "Status 1 - 正常好友，鉴权通过放行",
+			status:        1,
+			expectedError: "",
+		},
+		{
+			name:          "Status 2 - 我拉黑了对方，微信同款单向特权放行发送",
+			status:        2,
+			expectedError: "",
+		},
+		{
+			name:          "Status 3 - 被对方拉黑，拦截并提示拒收",
+			status:        3,
+			expectedError: "消息已发出，但被对方拒收了",
+		},
+		{
+			name:          "Status 4 - 被对方单向删除（僵尸粉），拦截并提示朋友验证",
+			status:        4,
+			expectedError: "开启了朋友验证，你还不是他（她）朋友",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			grpc_client.FriendshipClient = &mockFriendshipClient{status: tt.status}
+			err := svc.checkSendPermission(ctx, "U1001", "U1002")
+			if tt.expectedError == "" {
+				if err != nil {
+					t.Fatalf("expected nil error for status %d, got: %v", tt.status, err)
+				}
+			} else {
+				if err == nil {
+					t.Fatalf("expected error for status %d, got nil", tt.status)
+				}
+				if !strings.Contains(err.Error(), tt.expectedError) {
+					t.Fatalf("expected error containing %q, got: %v", tt.expectedError, err)
+				}
+			}
+		})
+	}
+}
+

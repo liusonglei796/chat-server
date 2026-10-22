@@ -13,6 +13,7 @@ import (
 
 	kafkainfra "kama_chat_server/internal/common/infrastructure/kafka"
 	"kama_chat_server/internal/common/infrastructure/outbox"
+	otelx "kama_chat_server/pkg/otel"
 )
 
 // PublishFunc 投递消息的可注入函数，支持单元测试
@@ -50,6 +51,8 @@ func (h *OutboxEventHandler) OnRow(e *canal.RowsEvent) error {
 	aggregateIdx := -1
 	typeIdx := -1
 	payloadIdx := -1
+	traceParentIdx := -1
+	traceStateIdx := -1
 	for idx, col := range e.Table.Columns {
 		switch col.Name {
 		case "uuid":
@@ -60,6 +63,10 @@ func (h *OutboxEventHandler) OnRow(e *canal.RowsEvent) error {
 			typeIdx = idx
 		case "payload":
 			payloadIdx = idx
+		case "trace_parent":
+			traceParentIdx = idx
+		case "trace_state":
+			traceStateIdx = idx
 		}
 	}
 
@@ -98,7 +105,15 @@ func (h *OutboxEventHandler) OnRow(e *canal.RowsEvent) error {
 			{Key: "event_id", Value: []byte(uuid)},
 		}
 
-		err := h.publishFn(ctx, []byte(partitionKey), []byte(payloadStr), headers)
+		// 还原事件落库时记录的 trace context，使 Kafka 消费侧的 span 能挂回原始业务请求的 trace
+		publishCtx := otelx.RestoreTraceContext(ctx,
+			colValue(traceParentIdx, row),
+			colValue(traceStateIdx, row),
+		)
+		publishCtx, span := otelx.StartKafkaProducerSpan(publishCtx, &headers, "kafka publish "+eventType)
+
+		err := h.publishFn(publishCtx, []byte(partitionKey), []byte(payloadStr), headers)
+		otelx.EndSpan(span, err)
 		if err != nil {
 			zap.L().Error("cdc publish domain event to kafka failed",
 				zap.String("schema", e.Table.Schema),
@@ -149,6 +164,14 @@ func toString(val interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+// colValue 安全读取指定列的字符串值，列不存在或越界时返回空字符串
+func colValue(idx int, row []interface{}) string {
+	if idx < 0 || idx >= len(row) {
+		return ""
+	}
+	return toString(row[idx])
 }
 
 // MakeKafkaPublishFunc 构造默认向 Kafka 发送消息的函数

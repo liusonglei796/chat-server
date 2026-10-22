@@ -101,16 +101,6 @@ func (r *messageStore) FindByGroupIdPaged(ctx context.Context, receiveId string,
 	return messages, total, nil
 }
 
-// UpdateStatus 更新消息状态
-// uuid: 消息唯一标识
-// status: 新状态值
-// 返回: 操作错误
-func (r *messageStore) UpdateStatus(ctx context.Context, uuid string, status int8) error {
-	if err := r.db.WithContext(ctx).Model(&model.Message{}).Where("uuid = ?", uuid).Update("status", status).Error; err != nil {
-		return dberr.WrapDBErrorf(err, "更新消息状态 uuid=%s", uuid)
-	}
-	return nil
-}
 
 // Create 创建新消息
 // message: 消息结构体

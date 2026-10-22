@@ -6,7 +6,7 @@ metadata:
   labels:
     app: message-service
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: message-service
@@ -15,27 +15,33 @@ spec:
       labels:
         app: message-service
     spec:
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                    - key: app
-                      operator: In
-                      values:
-                        - message-service
-                topologyKey: "kubernetes.io/hostname"
       containers:
         - name: message-service
-          image: myregistry.com/message-service:latest
-          imagePullPolicy: Always
+          image: kama-chat/message-service:latest
+          imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 50054
+            # 【修复】旧 manifest 占用了 50054，那是 friendship_service 的端口。
+            # message_service 实际监听 50056（cmd/message_service/main.go）。
+            - containerPort: 50056
           env:
             - name: ETCD_ENDPOINTS
               value: "etcd:2379"
+            - name: DB_NAME
+              value: "chat_message"
+            - name: MYSQL_USER
+              value: "svc_message"
+            - name: MYSQL_PASSWORD
+              value: "svc_message_pwd"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: REDIS_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: JWT_SECRET
           resources:
             requests:
               cpu: "100m"
@@ -45,12 +51,12 @@ spec:
               memory: "512Mi"
           readinessProbe:
             tcpSocket:
-              port: 50054
+              port: 50056
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             tcpSocket:
-              port: 50054
+              port: 50056
             initialDelaySeconds: 15
             periodSeconds: 20
           volumeMounts:
@@ -74,5 +80,5 @@ spec:
     app: message-service
   ports:
     - protocol: TCP
-      port: 50054
-      targetPort: 50054
+      port: 50056
+      targetPort: 50056

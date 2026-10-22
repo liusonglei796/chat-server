@@ -44,11 +44,10 @@ func NewRegister(endpointsList []string, info ServerInfo, ttl int64) (*Register,
 	}
 
 	reg := &Register{
-		cli:         cli,
-		manager:     em,
-		info:        info,
-		endpointKey: fmt.Sprintf("%s/%s", info.Name, info.Addr),
-		closeCh:     make(chan struct{}),
+		cli:     cli,
+		manager: em,
+		info:    info,
+		closeCh: make(chan struct{}),
 	}
 
 	if err := reg.register(ttl); err != nil {
@@ -68,6 +67,19 @@ func (r *Register) register(ttl int64) error {
 		return err
 	}
 	r.leaseID = leaseResp.ID
+
+	// 【P0 修复】注册键必须带实例唯一性。
+	//
+	// 旧实现用的是 "<name>/<addr>"，同一个服务的所有副本共用同一个键。
+	// 在 k8s 滚动更新时，新 Pod 先启动（maxSurge）旧 Pod 后退出，
+	// 旧 Pod 退出时 Stop() 会 DeleteEndpoint 删掉 "<name>/<addr>"，
+	// 正好把新 Pod 刚注册的同一个键删掉 —— 且新 Pod 不会重新注册。
+	// 结果是该服务的 gRPC 服务发现永久失效，调用方报
+	// "no children to pick from"，接口表现为「服务繁忙」。
+	//
+	// 这里用租约 ID（每个实例唯一）作为键的后缀，
+	// 保证一个实例的下线清理不会误删其它实例的注册。
+	r.endpointKey = fmt.Sprintf("%s/%s/%x", r.info.Name, r.info.Addr, r.leaseID)
 
 	keepAliveCh, err := r.cli.KeepAlive(context.Background(), r.leaseID)
 	if err != nil {

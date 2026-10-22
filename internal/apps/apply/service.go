@@ -25,7 +25,6 @@ import (
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/apply/apply_status"
 	"kama_chat_server/pkg/enum/apply/apply_type"
-	"kama_chat_server/pkg/enum/friendship/friendship_status"
 	"kama_chat_server/pkg/enum/group/add_mode"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
@@ -98,10 +97,35 @@ func (u *ApplyService) ApplyFriend(ctx context.Context, userId string, req apply
 			return struct{}{}, errorx.New(errorx.CodeInvalidParam, "该用户已被禁用")
 		}
 
-		// 3. 检查是否已经是好友
+		// 3. 检查是否已经是好友或处于黑名单
+		//
+		// 【P0 修复】CheckFriendshipStatus 返回的是「对外契约」状态码：
+		//   0=非好友 1=正常好友 2=已拉黑对方 3=被对方拉黑 4=被对方单向删除
+		// 而 friendship_status 是「数据库行状态」枚举：
+		//   0=NORMAL 1=BE_BLACK 2=BLACK
+		// 两套编码的 0 含义完全相反。旧代码写的是
+		//   if statusVal == friendship_status.NORMAL
+		// 等价于「statusVal == 0」，即把「非好友」判成「你们已经是好友」，
+		// 导致任何一对新用户的好友申请都被直接拒绝。
 		statusVal, err := grpc_client.CheckFriendshipStatus(execCtx, userId, req.FriendId)
-		if err == nil && statusVal == friendship_status.NORMAL {
-			return struct{}{}, errorx.New(errorx.CodeInvalidParam, "你们已经是好友")
+		if err == nil {
+			if statusVal == 1 { // 1=正常好友
+				return struct{}{}, errorx.New(errorx.CodeInvalidParam, "你们已经是好友")
+			}
+			if statusVal == 3 { // 3=被对方拉黑
+				return struct{}{}, errorx.New(errorx.CodeForbidden, "对方已将你拉黑，无法发送申请")
+			}
+		}
+
+		// 微信同款“静默免验证加回”：检查目标方 (req.FriendId) 是否仍保留着我 (userId)
+		reverseStatus, err := grpc_client.CheckFriendshipStatus(execCtx, req.FriendId, userId)
+		if err == nil && reverseStatus == 4 {
+			// reverseStatus == 4 表示对方通讯录中仍完好保留着我，但我此前单向删除了对方
+			// 此时直接静默建立单向好友关系，无需走审批流，对方零感知
+			if estErr := grpc_client.EstablishFriendship(execCtx, userId, req.FriendId); estErr != nil {
+				return struct{}{}, estErr
+			}
+			return struct{}{}, nil
 		}
 
 		// 4. 查询之前的申请记录
@@ -566,14 +590,6 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 	if alreadyAgreed {
 		return nil
 	}
-
-	// Step 1.5: 异步清除双方联系列表缓存
-	// 来源: userId 与 applicantId
-	// 用于: 确保双方后续拉取最新好友关系
-	u.cache.SubmitTask(func() {
-		_ = u.cache.DeleteByPattern(context.Background(), constants.CacheKeyFriendRelUser+userId+"*")
-		_ = u.cache.DeleteByPattern(context.Background(), constants.CacheKeyFriendRelUser+applicantId+"*")
-	})
 
 	return nil
 }

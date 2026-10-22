@@ -12,6 +12,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"kama_chat_server/internal/common/config"
+	"kama_chat_server/internal/common/infrastructure/metrics"
 )
 
 // 主题常量：全项目 Kafka 主题的唯一出处
@@ -70,6 +71,7 @@ func (c *Consumer) ReadRecord(ctx context.Context) (*kgo.Record, error) {
 			return nil, kgo.ErrClientClosed
 		}
 		if errs := fetches.Errors(); len(errs) > 0 {
+			metrics.KafkaConsumeErrors.Inc()
 			return nil, errs[0].Err
 		}
 		c.iter = fetches.RecordIter()
@@ -150,7 +152,7 @@ func Publish(ctx context.Context, cl *kgo.Client, key []byte, payload []byte, he
 		Value:   payload,
 		Headers: headers,
 	}
-	return cl.ProduceSync(ctx, record).FirstErr()
+	return produce(ctx, cl, record)
 }
 
 // PublishToTopic 发送一条消息到显式指定的主题
@@ -161,5 +163,16 @@ func PublishToTopic(ctx context.Context, cl *kgo.Client, topic string, key []byt
 		Value:   payload,
 		Headers: headers,
 	}
-	return cl.ProduceSync(ctx, record).FirstErr()
+	return produce(ctx, cl, record)
+}
+
+// produce 统一的同步投递出口，负责上报发布耗时与失败计数
+func produce(ctx context.Context, cl *kgo.Client, record *kgo.Record) error {
+	start := time.Now()
+	err := cl.ProduceSync(ctx, record).FirstErr()
+	metrics.PublishDuration.Observe(time.Since(start).Seconds())
+	if err != nil {
+		metrics.KafkaProduceErrors.Inc()
+	}
+	return err
 }

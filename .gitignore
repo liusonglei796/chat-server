@@ -49,3 +49,6 @@ your log path/
 /test_exhaustive_apis.py
 /.tmp/
 /tools/bin/
+
+# 本地 k3s 混沌验证环境的构建产物（scripts/k3s/build-images.ps1 生成）
+/build/

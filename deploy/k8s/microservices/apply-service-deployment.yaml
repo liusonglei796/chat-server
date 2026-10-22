@@ -1,41 +1,46 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: auth-service
+  name: apply-service
   namespace: chat-system
   labels:
-    app: auth-service
+    app: apply-service
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: auth-service
+      app: apply-service
   template:
     metadata:
       labels:
-        app: auth-service
+        app: apply-service
     spec:
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                    - key: app
-                      operator: In
-                      values:
-                        - auth-service
-                topologyKey: "kubernetes.io/hostname"
       containers:
-        - name: auth-service
-          image: myregistry.com/auth-service:latest
-          imagePullPolicy: Always
+        - name: apply-service
+          image: kama-chat/apply-service:latest
+          imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 50052
+            - containerPort: 50053
           env:
             - name: ETCD_ENDPOINTS
               value: "etcd:2379"
+            # 拆库：apply_service 只访问 chat_apply
+            - name: DB_NAME
+              value: "chat_apply"
+            - name: MYSQL_USER
+              value: "svc_apply"
+            - name: MYSQL_PASSWORD
+              value: "svc_apply_pwd"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: REDIS_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: JWT_SECRET
           resources:
             requests:
               cpu: "100m"
@@ -45,12 +50,12 @@ spec:
               memory: "512Mi"
           readinessProbe:
             tcpSocket:
-              port: 50052
+              port: 50053
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             tcpSocket:
-              port: 50052
+              port: 50053
             initialDelaySeconds: 15
             periodSeconds: 20
           volumeMounts:
@@ -67,12 +72,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: auth-service
+  name: apply-service
   namespace: chat-system
 spec:
   selector:
-    app: auth-service
+    app: apply-service
   ports:
     - protocol: TCP
-      port: 50052
-      targetPort: 50052
+      port: 50053
+      targetPort: 50053

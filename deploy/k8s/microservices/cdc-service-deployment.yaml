@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cdc-service
+  namespace: chat-system
+  labels:
+    app: cdc-service
+spec:
+  # 【注意】只能 1 副本：cmd/cdc_service/main.go 把 ServerID 硬编码为 1001，
+  # 多副本会以相同 server-id 订阅同一份 binlog 流，导致位点互相覆盖。
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cdc-service
+  template:
+    metadata:
+      labels:
+        app: cdc-service
+    spec:
+      containers:
+        - name: cdc-service
+          image: kama-chat/cdc-service:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            # CDC 直连 MySQL，绝不走 toxiproxy：
+            # 它的 binlog 位点保存在 Redis 的 cdc:outbox:gtid，
+            # 若把它也放进故障域，位点推进会随注入的故障一起中断。
+            - name: MYSQL_HOST
+              value: "mysql"
+            - name: MYSQL_PORT
+              value: "3306"
+            - name: MYSQL_USER
+              value: "svc_cdc"
+            - name: MYSQL_PASSWORD
+              value: "svc_cdc_pwd"
+            - name: KAFKA_HOST_PORT
+              value: "kafka:9092"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: REDIS_PASSWORD
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/configs/config.toml
+              subPath: config.toml
+
+      volumes:
+        - name: config-volume
+          configMap:
+            name: chat-config

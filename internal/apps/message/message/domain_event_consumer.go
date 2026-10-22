@@ -8,7 +8,9 @@ import (
 	"go.uber.org/zap"
 
 	kafkainfra "kama_chat_server/internal/common/infrastructure/kafka"
+	"kama_chat_server/internal/common/infrastructure/metrics"
 	"kama_chat_server/internal/common/infrastructure/outbox"
+	otelx "kama_chat_server/pkg/otel"
 )
 
 // DomainEventConsumer 消费 domain_events topic，处理跨服务会话变更
@@ -45,7 +47,12 @@ func (c *DomainEventConsumer) Start() {
 				continue
 			}
 			eventType := outbox.ExtractEventType(msg.Headers)
-			if err := c.handler.Handle(context.Background(), eventType, msg.Value); err != nil {
+			// 从消息头还原上游 trace context，并以 producer span 的子 span 承载本次处理
+			handleCtx, span := otelx.StartKafkaConsumerSpan(context.Background(), msg.Headers, "kafka consume "+eventType)
+			err = c.handler.Handle(handleCtx, eventType, msg.Value)
+			otelx.EndSpan(span, err)
+			if err != nil {
+				metrics.KafkaConsumeErrors.Inc()
 				zap.L().Error("handle domain event error", zap.String("type", eventType), zap.Error(err))
 				continue // 下游处理失败，不提交位点，等待重试
 			}

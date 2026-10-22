@@ -3,8 +3,6 @@
 package model
 
 import (
-	"database/sql"
-
 	"gorm.io/gorm"
 )
 
@@ -65,15 +63,6 @@ type Message struct {
 	// FileSize 文件大小
 	// 字符串格式，如 "1.5MB"
 	FileSize string `gorm:"column:file_size;type:char(20);comment:文件大小"`
-
-	// Status 消息状态
-	// 0=未发送, 1=已发送
-	// 参见 pkg/enum/message/message_status/message_status.go
-	Status int8 `gorm:"column:status;not null;comment:状态，0.未发送，1.已发送"`
-
-	// SendAt 实际发送时间
-	// 可能与 CreatedAt 不同（如离线消息）
-	SendAt sql.NullTime `gorm:"column:send_at;comment:发送时间"`
 
 	// AVdata 音视频通话信令数据
 	// JSON 格式，包含 WebRTC 信令信息

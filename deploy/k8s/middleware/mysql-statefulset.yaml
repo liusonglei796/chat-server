@@ -25,17 +25,46 @@ spec:
                 secretKeyRef:
                   name: chat-secrets
                   key: MYSQL_PASSWORD
+            # 保留旧的单库 chat，供 tests/toxiproxy 等进程内回归测试使用
             - name: MYSQL_DATABASE
               value: "chat"
-          command: ["mysqld"]
+          # 【关键】不要写 command: [...]
+          # k8s 的 command: 会覆盖镜像的 ENTRYPOINT（mysql:8.0 的 ENTRYPOINT 是
+          # docker-entrypoint.sh），一旦被覆盖：
+          #   1) 不会执行 --initialize-insecure，mysqld 直接对着空 datadir 启动，
+          #      报 "Failed to find valid data directory" 并进入 CrashLoop；
+          #   2) /docker-entrypoint-initdb.d/ 下的初始化脚本根本不会跑，
+          #      拆分库与 svc_cdc 账号都不会被创建。
+          # docker-compose 里用 command: 是覆盖 CMD（保留 ENTRYPOINT），所以那边正常。
+          # 这里只用 args:，让 entrypoint 保留并把参数透传给它。
           args:
             - "--default-authentication-plugin=mysql_native_password"
+            # ---- binlog / GTID：CDC（go-mysql canal）的前置条件 ----
+            # 1) log_bin + ROW 格式：outbox 行的变更必须以 ROW 形式进入 binlog，
+            #    CDC 的表过滤正则 ^chat_.*\.outbox$ 依赖此配置。
+            # 2) gtid_mode=ON + enforce_gtid_consistency=ON：CDC 的 syncer.go 只调用
+            #    canal.StartFromGTID，GTID 关闭时启动会直接失败（退化成空 Position）。
+            # 3) server-id=1 必须与 CDC 使用的 1001 区分开。
+            - "--server-id=1"
+            - "--log-bin=mysql-bin"
+            - "--binlog-format=ROW"
+            - "--binlog-row-image=FULL"
+            - "--gtid-mode=ON"
+            - "--enforce-gtid-consistency=ON"
             - "--slow_query_log=ON"
             - "--long_query_time=1"
             - "--slow_query_log_file=/var/lib/mysql/slow-query.log"
           volumeMounts:
             - name: mysql-data
               mountPath: /var/lib/mysql
+            # 首次启动时自动建库建账号
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: initdb
+          configMap:
+            name: mysql-initdb
   volumeClaimTemplates:
     - metadata:
         name: mysql-data

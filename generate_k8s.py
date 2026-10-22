@@ -44,10 +44,6 @@ data:
 
     [kafkaConfig]
     hostPort = "kafka.default.svc.cluster.local:9092"
-    loginTopic = "login"
-    chatTopic = "chat_message"
-    logoutTopic = "logout"
-    partition = 0
     timeout = 1
 
     [staticSrcConfig]

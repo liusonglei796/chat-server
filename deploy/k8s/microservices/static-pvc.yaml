@@ -5,7 +5,9 @@ metadata:
   namespace: chat-system
 spec:
   accessModes:
-    - ReadWriteMany
+    # 【修复】原来是 ReadWriteMany，但 local-path 存储类只支持 ReadWriteOnce，
+    # PVC 会一直停在 Pending，导致挂载它的 chat-server Pod 永远 Pending。
+    - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi

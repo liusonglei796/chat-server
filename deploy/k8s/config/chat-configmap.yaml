@@ -9,12 +9,19 @@ data:
     appName = "chat-server"
     host = "0.0.0.0"
     port = 8000
+    # 网关内部 gRPC 服务端口（下行推送入口）
+    grpcPort = 8001
+    # 【关键】网关向 Redis 注册的自身 gRPC 地址。
+    # message_service 读取 Redis 的 user:gateway:<userId> 后按此地址回推消息，
+    # 若填 127.0.0.1 则推送方（message_service 的 Pod）会连到自己 Pod 的回环地址而失败。
+    grpcAddr = "chat-server:8001"
 
     [mysqlConfig]
     host = "mysql"
     port = 3306
     user = "root"
     password = "${MYSQL_PASSWORD}"
+    # 默认库名，各微服务通过 DB_NAME 环境变量覆盖为 chat_user/chat_apply/...
     databaseName = "chat"
 
     [redisConfig]
@@ -28,10 +35,6 @@ data:
 
     [kafkaConfig]
     hostPort = "kafka:9092"
-    loginTopic = "login"
-    chatTopic = "chat_message"
-    logoutTopic = "logout"
-    partition = 0
     timeout = 1
 
     [staticSrcConfig]
@@ -47,6 +50,7 @@ data:
     machineId = 1
 
     [otelConfig]
+    # 本地 k3s 无 otel-collector，关闭采集
     endpoint = "otel-collector.default.svc.cluster.local:4317"
     serviceName = "chat-server"
     enabled = false

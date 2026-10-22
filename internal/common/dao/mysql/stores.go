@@ -19,6 +19,7 @@ import (
 	"kama_chat_server/internal/common/domain/store"
 	"kama_chat_server/internal/common/infrastructure/snowflake"
 	"kama_chat_server/internal/common/model"
+	otelx "kama_chat_server/pkg/otel"
 )
 
 // Stores 聚合所有 Store 实例
@@ -80,12 +81,17 @@ func (r *Stores) OutboxStore() store.OutboxStore { return r.Outbox }
 // RecordEvent 在事务内写一条领域事件到 outbox 表
 // aggregateId: 业务聚合根ID（如 userId 或 groupId），用于 Kafka 分区键哈希保序
 // 事件类型与载荷由调用方给出，UUID/时间戳在此统一构造
+// 同时捕获当前 trace context 落库：CDC 投递 Kafka 时注入消息头，
+// 消费侧即可把 span 挂回原始业务请求的 trace，实现跨 MQ 的端到端链路追踪
 func (r *Stores) RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
+	traceParent, traceState := otelx.CaptureTraceContext(ctx)
 	o := model.Outbox{
 		Uuid:        fmt.Sprintf("O%s", snowflake.GenerateIDString()),
 		AggregateId: aggregateId,
 		EventType:   eventType,
 		Payload:     string(payload),
+		TraceParent: traceParent,
+		TraceState:  traceState,
 		CreatedAt:   time.Now(),
 	}
 	return r.Outbox.Create(ctx, &o)

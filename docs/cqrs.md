@@ -34,8 +34,8 @@ CQRS 的核心思想一句话：**读和写是两套不同的模型，不该共�
 例如 message 服务要判断"发消息的人是否被禁用 / 是不是好友 / 是不是群成员"，只能调 gRPC：
 
 ```go
-// internal/apps/message/message/kafka_processor.go
-senderStatus, err := grpc_client.GetUserStatus(ctx, sendId)         // → user 服务
+// internal/apps/message/message/service.go  SendMessage 中
+senderStatus, err := grpc_client.GetUserStatus(ctx, sendId)              // → user 服务
 fsStatus, err := grpc_client.CheckFriendshipStatus(ctx, sendId, receiveId) // → friendship 服务
 isMember, err := grpc_client.CheckGroupMember(ctx, receiveId, sendId)      // → group 服务
 ```
@@ -69,7 +69,7 @@ message 服务收到后更新本地 session 表——这个过程叫**投影（P
 
 ```
                      ┌─────────────┐
-  群改名（group服务）→ │ outbox 表    │ ──轮询──> Kafka domain_events
+  群改名（group服务）→ │ outbox 表    │ ──binlog──> CDC (Canal) ──> Kafka domain_events
                      └─────────────┘                 │
                                                       ▼
                                           message 服务事件消费者
@@ -88,10 +88,6 @@ func (h *SessionEventHandler) Handle(ctx context.Context, eventType string, payl
 	switch eventType {
 	case event.EventGroupCreated:   // 建群 → 创建群会话
 		return h.createGroupSession(ctx, e.GroupId, e.OwnerId, e.GroupName, e.GroupAvatar)
-	case event.EventGroupUpdated:   // 群改名/换头像 → 更新本地冗余字段
-		return h.sessionStore.UpdateByReceiveId(ctx, e.GroupId, updates)
-	case event.EventUserUpdated:    // 用户改昵称/头像 → 更新本地冗余字段
-		return h.sessionStore.UpdateByReceiveId(ctx, e.UserId, updates)
 	case event.EventFriendBlacked:  // 拉黑 → 软删双方私聊会话
 		return h.softDeleteFriendSessions(ctx, e.UserId, e.FriendId)
 	}
@@ -103,7 +99,7 @@ func (h *SessionEventHandler) Handle(ctx context.Context, eventType string, payl
 
 ## 4. 为什么一个服务要消费多种事件
 
-读模型的本质是"多个写模型的投影"——message 服务的 session 表同时投影了 group 的群信息、user 的用户信息、
+读模型的本质是"多个写模型的投影"——message 服务的 session 表同时投影了 group 的群信息、
 friendship 的好友关系。所以**一个服务的读模型往往需要多个事件流**：
 
 | 事件 | 来源服务 | message 服务的投影动作 |
@@ -111,42 +107,81 @@ friendship 的好友关系。所以**一个服务的读模型往往需要多个�
 | `group_created` | group | 创建群会话 |
 | `group_joined` | group | 创建群会话 |
 | `group_dismissed` | group | 软删群会话 |
-| `group_updated` | group | 更新冗余的群名/头像 |
-| `user_updated` | user | 更新冗余的昵称/头像 |
+| `group_member_removed` | group | 软删被移出成员的群会话 |
+| `group_member_left` | group | 软删退群成员的群会话 |
 | `friend_blacked` | friendship | 软删双方私聊会话 |
+| `friend_deleted` | friendship | 软删操作人单侧私聊会话 |
 
 这就是为什么事件消息上必须带 `event_type`：**同一 topic 里混着多种事件结构，消费者必须靠类型
 选对反序列化目标**。这也是"一个服务只对应一种事件"直觉的错误之处——**读模型的投影源是多样的**。
 
+> 注：session 表早期冗余存了群名/群头像/昵称，因此还需要 `group_updated` / `user_updated`
+> 事件来同步这些字段。冗余字段移除后，这两个事件已不再有生产者，相应的事件常量与消费分支
+> 也一并删除了（见 `internal/common/dto/event/domain_event.go`）。
+
 ---
 
-## 5. 事件的可靠性：outbox 模式
+## 5. 事件的可靠性：outbox + CDC
 
-投影依赖事件，事件不能丢。本项目用 **outbox 模式**保证"本地事务 + 事件发布"的原子性：
+投影依赖事件，事件不能丢。本项目用 **outbox 模式**保证"本地事务 + 事件发布"的原子性，
+发布环节由 **Canal CDC** 驱动（而不是轮询）：
 
 ```
-业务事务（本地库）              异步发布
-┌──────────────────────┐    ┌──────────────────────┐
-│ 1. 改群名             │    │ 轮询 outbox 表         │
-│ 2. 插入 outbox 记录   │ ──> │ 发到 Kafka domain_events│
-│   （同一事务，同生共死）│    │ 成功 → 标记已发布       │
-└──────────────────────┘    └──────────────────────┘
+业务事务（本地库）                    异步发布（CDC 服务）
+┌──────────────────────┐    ┌──────────────────────────────────┐
+│ 1. 改群名             │    │ 订阅 outbox 表的 INSERT binlog    │
+│ 2. 插入 outbox 记录   │ ──> │ 逐行投递到 Kafka domain_events   │
+│   （同一事务，同生共死）│    │ GTID 位点持久化在 Redis           │
+└──────────────────────┘    └──────────────────────────────────┘
 ```
 
 - 事件先写**本地** outbox 表（和业务数据同一事务），不直接发 Kafka。
-- 后台 `outbox.Publisher` 轮询待发布记录，发到 Kafka，成功后标记。
-- 发布失败则重试计数 +1，下次轮询再发——**不丢事件**。
+- **CDC 服务**（`cmd/cdc_service`）用 `go-mysql/canal` 订阅 `^chat_.*\.outbox$` 的 binlog，
+  捕获到 INSERT 就直接投递到 Kafka（`internal/common/infrastructure/outbox/cdc/handler.go`）。
+- **Kafka Key 用 `aggregate_id`**（业务聚合根 ID，如 groupId / userId），保证同一实体的事件
+  严格落在同一分区按序消费；没有 `aggregate_id` 时降级用 `uuid`。
+- 消息头带 `event_type`（消费者据此分发）和 `event_id`。
+- **消费位点用 GTID 持久化在 Redis**：位点推进时保存，CDC 重启后从上次位置续传，不丢不重。
+- **投递失败直接返回错误**，binlog 位点不推进 → 下次重放，**不丢事件**。
+
+outbox 表本身很轻量——因为发布状态由 binlog 位点隐式表达，不需要 `status` / `published` /
+`attempt` 这些轮询式发布器才需要的列：
 
 ```go
-// internal/common/infrastructure/outbox/publisher.go
-for _, e := range events {
-	if err := p.publishFn(ctx, e.EventType, e.Uuid, []byte(e.Payload)); err != nil {
-		_ = p.outboxStore.IncrementRetry(ctx, e.Uuid) // 失败：重试计数 +1
-		continue
-	}
-	published = append(published, e.Uuid)             // 成功：待标记
+// internal/common/model/outbox.go
+type Outbox struct {
+	Uuid        string    `gorm:"column:uuid;primaryKey;type:char(20)"`
+	AggregateId string    `gorm:"column:aggregate_id;type:varchar(64);index"`
+	EventType   string    `gorm:"column:event_type;type:varchar(50);index"`
+	Payload     string    `gorm:"column:payload;type:text"`
+	TraceParent string    `gorm:"column:trace_parent;type:varchar(64)"`
+	TraceState  string    `gorm:"column:trace_state;type:varchar(255)"`
+	CreatedAt   time.Time `gorm:"column:created_at"`
 }
 ```
+
+### 5.1 跨 MQ 的链路追踪
+
+因为事件是"先落库、后异步投递"，原始请求的 trace context 必须**跟着事件一起落库**，
+才能在消费侧接回同一条 trace。做法是：
+
+1. 写事件时（`Stores.RecordEvent`）把当前 ctx 的 W3C trace context 存进 `trace_parent` / `trace_state` 两列；
+2. CDC 投递时用这两列还原父上下文，创建 producer span 并把 traceparent 注入 Kafka 消息头；
+3. 消费者从消息头提取 trace context，创建 consumer span（producer span 的子 span）。
+
+这样一次「同意加群」的完整链路会呈现为：
+`HTTP 请求 → apply 服务事务 → CDC producer span → Kafka → group/message 消费 span`，
+在 Tempo 里是一条连续的 trace。
+
+### 5.2 可观测性
+
+Kafka 相关的 Prometheus 指标（`internal/common/infrastructure/metrics/metrics.go`）：
+
+| 指标 | 含义 | 埋点位置 |
+|---|---|---|
+| `kama_chat_kafka_produce_errors_total` | 生产者写入失败数 | `kafka.Publish` / `PublishToTopic` |
+| `kama_chat_kafka_consume_errors_total` | 消费失败数（读取失败 + 处理失败） | `kafka.Consumer.ReadRecord` + 各消费者 |
+| `kama_chat_message_publish_duration_seconds` | Kafka 发布延迟（P50/P95/P99） | `kafka.Publish` / `PublishToTopic` |
 
 ---
 
@@ -159,11 +194,11 @@ for _, e := range events {
 2. apply 服务同意申请：
    ├─ 本地事务：更新申请状态 + 写 outbox（event: group_apply_passed）
    └─ 提交事务（事件已安全落库）
-3. outbox.Publisher 轮询到记录，发到 Kafka domain_events
+3. CDC 服务捕获 outbox 的 INSERT binlog，发到 Kafka domain_events
 4. group 服务消费者收到 group_apply_passed：
    ├─ 本地事务：插入群成员 + 递增成员数
    └─ 再写 outbox（event: group_joined）
-5. outbox.Publisher 再次发布 group_joined
+5. CDC 服务再次捕获并发布 group_joined
 6. message 服务消费者收到 group_joined：
    └─ 投影：为新人创建群会话（读模型更新）
 ```
@@ -193,8 +228,14 @@ gRPC 现查的代价：每次会话列表渲染要并发调 group/user 服务、
 
 ### Q4: 事件重复了怎么办？
 
-Kafka 至少一次投递 + 投影消费可能重放。本项目投影动作（建会话/更新冗余字段/软删）都是
-**幂等**的：会话已存在则跳过、更新同值无副作用、软删不存在则忽略。
+Kafka 至少一次投递 + 投影消费可能重放。本项目投影动作（建会话/软删）都是
+**幂等**的：会话已存在则跳过、重复插入群成员走 `IsDuplicateKey` 判定后跳过、软删不存在则忽略。
+
+### Q5: 事件是怎么从业务库进到 Kafka 的？为什么不直接发？
+
+直接发会有"业务成功但事件丢了"或"事件发出但业务回滚了"的经典双写问题。
+本项目走 outbox：事件和业务数据在同一本地事务落库，再由 CDC 从 binlog 读出来投递。
+这样业务成功 ⟺ 事件一定最终发出；投递失败时 binlog 位点不推进，事件会被重放。
 
 ---
 
@@ -204,10 +245,16 @@ Kafka 至少一次投递 + 投影消费可能重放。本项目投影动作（�
 |---|---|
 | `internal/apps/message/message/session_event_handler.go` | 读模型投影器：事件 → session 表操作 |
 | `internal/apps/{group,friendship,message}/domain_event_consumer.go` | 各服务领域事件消费者 |
-| `internal/common/infrastructure/outbox/publisher.go` | outbox 轮询发布器 |
-| `internal/common/infrastructure/kafka/kafka.go` | Kafka 统一封装（主题/生产/消费/Publish） |
+| `internal/common/infrastructure/outbox/cdc/handler.go` | CDC 处理器：outbox binlog → Kafka 投递 |
+| `internal/common/infrastructure/outbox/cdc/syncer.go` | Canal 同步器（binlog 订阅 + GTID 续传） |
+| `internal/common/infrastructure/outbox/cdc/position_store.go` | GTID 位点持久化（Redis） |
+| `internal/common/infrastructure/outbox/publisher.go` | 事件类型 header 的读写（`event_type`） |
+| `internal/common/infrastructure/kafka/kafka.go` | Kafka 统一封装（主题/生产/消费/Publish/指标埋点） |
 | `internal/common/dto/event/domain_event.go` | 领域事件 DTO 与类型常量 |
-| `internal/common/model/session.go` | 读模型表（含冗余的 receive_name/avatar） |
+| `internal/common/model/outbox.go` | outbox 表模型（含 trace context 列） |
+| `internal/common/model/session.go` | 读模型表 |
+| `pkg/otel/kafka_propagation.go` | Kafka 消息头的 trace context 注入/提取 |
+| `cmd/cdc_service/main.go` | CDC 服务入口（唯一的 Kafka 生产者） |
 
 ---
 

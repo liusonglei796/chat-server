@@ -23,8 +23,6 @@ const (
 	CacheKeySessionOpen = "session:open:" // 单个会话缓存（OpenSession）
 	CacheKeySessionSeq  = "session:seq:"  // 会话内单调递增 SeqID 发号器 (INCR)
 
-	// 好友关系（Redis Set）
-	CacheKeyFriendRelUser = "friend_relation:user:" // 用户好友关系集合
 
 	// 网关路由相关
 	CacheKeyUserGateway = "user:gateway:" // 用户所在网关实例地址 (Value: gateway_grpc_addr)

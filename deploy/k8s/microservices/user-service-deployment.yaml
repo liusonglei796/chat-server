@@ -6,7 +6,7 @@ metadata:
   labels:
     app: user-service
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: user-service
@@ -15,27 +15,32 @@ spec:
       labels:
         app: user-service
     spec:
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                    - key: app
-                      operator: In
-                      values:
-                        - user-service
-                topologyKey: "kubernetes.io/hostname"
       containers:
         - name: user-service
-          image: myregistry.com/user-service:latest
-          imagePullPolicy: Always
+          image: kama-chat/user-service:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 50051
           env:
             - name: ETCD_ENDPOINTS
               value: "etcd:2379"
+            # 拆库：user_service 只访问 chat_user
+            - name: DB_NAME
+              value: "chat_user"
+            - name: MYSQL_USER
+              value: "svc_user"
+            - name: MYSQL_PASSWORD
+              value: "svc_user_pwd"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: REDIS_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: JWT_SECRET
           resources:
             requests:
               cpu: "100m"

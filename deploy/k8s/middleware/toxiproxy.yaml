@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toxiproxy
+  namespace: chat-system
+  labels:
+    app: toxiproxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: toxiproxy
+  template:
+    metadata:
+      labels:
+        app: toxiproxy
+    spec:
+      containers:
+      - name: toxiproxy
+        image: ghcr.io/shopify/toxiproxy:2.11.0
+        args: ["-host=0.0.0.0"]
+        ports:
+        - name: api
+          containerPort: 8474
+        - name: mysql-proxy
+          containerPort: 33066
+        - name: redis-proxy
+          containerPort: 63855
+        # gRPC 跳代理：friendship_service 把自己的地址注册到 etcd 时写死的是
+        # "friendship-service:50054"，所以只能劫持同名 Service 的 selector 来插桩，
+        # 无需改动任何 Go 代码。
+        - name: grpc-proxy
+          containerPort: 50054
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "64Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: toxiproxy
+  namespace: chat-system
+spec:
+  type: ClusterIP
+  selector:
+    app: toxiproxy
+  ports:
+  - name: api
+    port: 8474
+    targetPort: 8474
+  - name: mysql-proxy
+    port: 33066
+    targetPort: 33066
+  - name: redis-proxy
+    port: 63855
+    targetPort: 63855
+  - name: grpc-proxy
+    port: 50054
+    targetPort: 50054
+---
+# 初始化代理路由的 Job（幂等，可重复执行）。
+# Toxiproxy 的 proxy 是运行时通过 REST API 创建的，manifest 里没有也正常。
+# 部署顺序要求：本 Job 完成后才能有业务流量（friendship_service 会连 toxiproxy:33066）。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: toxiproxy-init
+  namespace: chat-system
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          # 用 alpine（已在本地镜像库里）而不是 curlimages/curl：
+          # 本机网络对 docker.io 的 DNS 会被劫持，多一个镜像就多一次拉取失败风险。
+          # busybox wget 不支持自定义 method，这里用 Toxiproxy 的
+          # 「POST /proxies/{name} 更新已存在代理」语义实现幂等重建。
+          image: alpine:3.18
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              API=http://toxiproxy:8474
+              echo "==> 等待 toxiproxy API 就绪"
+              until wget -q -O- "$API/version" >/dev/null 2>&1; do sleep 1; done
+
+              # 显式 DELETE（busybox wget 不支持自定义 method，用裸 HTTP）
+              del() {
+                printf 'DELETE /proxies/%s HTTP/1.1\r\nHost: toxiproxy\r\nContent-Length: 0\r\nConnection: close\r\n\r\n' "$1" \
+                  | nc toxiproxy 8474 >/dev/null 2>&1 || true
+                sleep 1
+              }
+
+              mk() {
+                BODY="{\"name\":\"$1\",\"listen\":\"$2\",\"upstream\":\"$3\",\"enabled\":true}"
+                # 必须「先删后建」，不能用 Toxiproxy 的 update 语义
+                # （POST /proxies/{name}）：update 会先 terminate 代理再重新 bind，
+                # 旧 socket 尚未释放时重新 bind 会失败，
+                # 代理就再也起不来了 —— 表现为 friendship_service 启动即
+                # FATAL: dial tcp <toxiproxy>:33066: connect: connection refused。
+                del "$1"
+                wget -q -O /dev/null --header='Content-Type: application/json' \
+                  --post-data="$BODY" "$API/proxies" || {
+                    echo "创建代理 $1 失败"; exit 1; }
+                echo "proxy $1: listen=$2 -> upstream=$3"
+              }
+
+              # MySQL：friendship_service 通过 MYSQL_HOST/MYSQL_PORT 环境变量指向这里
+              mk mysql_proxy     0.0.0.0:33066  mysql:3306
+              # Redis：同上，REDIS_HOST/REDIS_PORT
+              mk redis_proxy     0.0.0.0:63855  redis:6379
+              # gRPC：劫持 friendship-service Service 后，所有 gRPC 客户端经此转发
+              mk friendship_grpc 0.0.0.0:50054  friendship-service-real:50054
+
+              echo "==> 校验代理端口真的在监听（不能只看 enabled 标志）"
+              for p in 33066 63855 50054; do
+                nc -z -w 3 toxiproxy $p || { echo "代理端口 $p 未监听"; exit 1; }
+                echo "    toxiproxy:$p 可连接"
+              done
+
+              echo "==> 当前代理列表"
+              wget -q -O- "$API/proxies"
+              echo
+              echo "TOXIPROXY_INIT_OK"

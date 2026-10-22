@@ -29,7 +29,6 @@ import (
 	"kama_chat_server/internal/common/infrastructure/snowflake"
 	"kama_chat_server/internal/common/model"
 	"kama_chat_server/pkg/constants"
-	"kama_chat_server/pkg/enum/message/message_status"
 	msgtype "kama_chat_server/pkg/enum/message/message_type"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
@@ -701,8 +700,17 @@ func (m *MessageService) checkSendPermission(ctx context.Context, sendId, receiv
 
 	if receiveId[0] == 'U' {
 		fsStatus, err := grpc_client.CheckFriendshipStatus(ctx, sendId, receiveId)
-		if err == nil && fsStatus != 1 {
-			return errorx.New(errorx.CodeForbidden, "你们还不是好友，无法发送消息")
+		if err == nil {
+			switch fsStatus {
+			case 1, 2:
+				// 1=正常好友; 2=我拉黑了对方(微信同款特权放行)
+			case 3:
+				return errorx.New(errorx.CodeForbidden, "消息已发出，但被对方拒收了")
+			case 4:
+				return errorx.New(errorx.CodeForbidden, "开启了朋友验证，你还不是他（她）朋友")
+			default:
+				return errorx.New(errorx.CodeForbidden, "你们不是好友，请先添加好友")
+			}
 		}
 	} else if receiveId[0] == 'G' {
 		isMember, err := grpc_client.CheckGroupMember(ctx, receiveId, sendId)
@@ -731,7 +739,6 @@ func (m *MessageService) buildMessageFromRequest(req messagereq.ChatMessageReque
 		FileSize:    req.FileSize,
 		FileType:    req.FileType,
 		FileName:    req.FileName,
-		Status:      message_status.Unsent,
 		AVdata:      req.AVdata,
 	}
 }

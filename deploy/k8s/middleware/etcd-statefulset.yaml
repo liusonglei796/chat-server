@@ -16,18 +16,34 @@ spec:
     spec:
       containers:
         - name: etcd
-          image: bitnami/etcd:3.5
+          image: quay.io/coreos/etcd:v3.5.17
           ports:
             - containerPort: 2379
             - containerPort: 2380
           env:
-            - name: ALLOW_NONE_AUTHENTICATION
-              value: "yes"
-            - name: ETCD_ADVERTISE_CLIENT_URLS
+            - name: ETCD_NAME
+              value: "etcd"
+            - name: ETCD_DATA_DIR
+              value: "/etcd-data"
+            - name: ETCD_LISTEN_CLIENT_URLS
               value: "http://0.0.0.0:2379"
+            # 【修复】旧 manifest 广播 http://0.0.0.0:2379，
+            # 客户端若跟随广播地址会连到自己 Pod 的回环地址。改为广播服务名。
+            - name: ETCD_ADVERTISE_CLIENT_URLS
+              value: "http://etcd:2379"
+            - name: ETCD_LISTEN_PEER_URLS
+              value: "http://0.0.0.0:2380"
+            - name: ETCD_INITIAL_ADVERTISE_PEER_URLS
+              value: "http://etcd:2380"
+            - name: ETCD_INITIAL_CLUSTER
+              value: "etcd=http://etcd:2380"
+            - name: ETCD_INITIAL_CLUSTER_STATE
+              value: "new"
+            - name: ETCD_INITIAL_CLUSTER_TOKEN
+              value: "kama-chat-etcd"
           volumeMounts:
             - name: etcd-data
-              mountPath: /bitnami/etcd/data
+              mountPath: "/etcd-data"
   volumeClaimTemplates:
     - metadata:
         name: etcd-data

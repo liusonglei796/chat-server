@@ -21,6 +21,7 @@ import (
 	mysqlimpl "kama_chat_server/internal/common/dao/mysql"
 	myredis "kama_chat_server/internal/common/dao/redis"
 	"kama_chat_server/internal/common/domain/store"
+	"kama_chat_server/internal/common/grpc_client"
 	"kama_chat_server/internal/common/infrastructure/logger"
 	"kama_chat_server/pkg/discovery"
 	otelinit "kama_chat_server/pkg/otel"
@@ -61,6 +62,17 @@ func main() {
 	// 用于: Step 3.1 领域层申请状态缓存
 	cacheService := myredis.Init()
 	var cachePort store.AsyncCacheService = cacheService
+
+	// Step 2.3: 初始化内部微服务 gRPC 客户端
+	// 来源: etcd 注册中心地址
+	// 用于: 申请流程的跨服务查询（用户状态、好友关系、群成员信息等）
+	//
+	// 【P0 修复】此前本文件完全没有调用 grpc_client.Init，
+	// 导致 grpc_client.UserClient 等包级客户端变量始终为 nil，
+	// ApplyFriend 第一步 grpc_client.UserClient.GetUserStatus 直接空指针 panic，
+	// 表现为「好友申请接口 100% 返回 1005 服务繁忙」。
+	// 与 friendship_service/group_service/message_service 的初始化方式保持一致。
+	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
 
 	// Step 3.1: 初始化申请业务领域服务与处理器
 	// 来源: Step 2.1 数据存储与 Step 2.2 缓存接口

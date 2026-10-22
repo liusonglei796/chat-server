@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy
+  namespace: chat-system
+  labels:
+    app: envoy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: envoy
+  template:
+    metadata:
+      labels:
+        app: envoy
+    spec:
+      containers:
+        - name: envoy
+          image: envoyproxy/envoy:v1.30.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9080
+            - containerPort: 9901
+          env:
+            # Envoy 侧无需认证，身份靠下游处理；见报告中的越权结论。
+            - name: GATEWAY_GRPC_ADDR
+              value: "chat-server:8001"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            # envoy-config 由部署脚本从 configs/envoy.yaml + configs/proto.pb 生成，
+            # 保证与 docker-compose 共享同一份配置，避免两份真相。
+            - name: envoy-config
+              mountPath: /etc/envoy/envoy.yaml
+              subPath: envoy.yaml
+            - name: envoy-config
+              mountPath: /etc/envoy/proto.pb
+              subPath: proto.pb
+      volumes:
+        - name: envoy-config
+          configMap:
+            name: envoy-config
+            defaultMode: 420
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy
+  namespace: chat-system
+spec:
+  selector:
+    app: envoy
+  ports:
+    - name: http
+      port: 9080
+      targetPort: 9080
+    - name: admin
+      port: 9901
+      targetPort: 9901

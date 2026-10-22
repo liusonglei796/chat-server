@@ -43,10 +43,10 @@ const (
 //
 // 字段说明：internal/service/chat/ws_gateway.go
 //   - Message: 序列化后的 JSON 响应体（即前端最终收到的完整 JSON）
-//   - Uuid:    消息 ID，Write goroutine 推送成功后据此更新 MySQL 消息状态为"已发送"
+//   - Uuid:    消息 ID，消息唯一标识
 type MessageBack struct {
 	Message []byte // 序列化后的 JSON 响应体（GetMessageListRespond / AVMessageRespond）
-	Uuid    string // 消息唯一标识，用于推送成功后更新 message.status = Sent
+	Uuid    string // 消息唯一标识，消息唯一标识
 }
 
 // UserConn 一个在线用户的 WebSocket 连接（1 个在线用户 = 1 个 UserConn 实例）

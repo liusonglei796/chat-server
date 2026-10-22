@@ -6,7 +6,7 @@ metadata:
   labels:
     app: chat-server
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: chat-server
@@ -15,27 +15,38 @@ spec:
       labels:
         app: chat-server
     spec:
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                    - key: app
-                      operator: In
-                      values:
-                        - chat-server
-                topologyKey: "kubernetes.io/hostname"
       containers:
         - name: chat-server
-          image: myregistry.com/chat-server:latest
-          imagePullPolicy: Always
+          image: kama-chat/chat-server:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
+            - containerPort: 8001
           env:
             - name: ETCD_ENDPOINTS
               value: "etcd:2379"
+            # 【关键】网关把该地址注册到 Redis 的 user:gateway:<userId>，
+            # message_service 依此回推下行消息。若为 127.0.0.1，
+            # message_service 会连到自己 Pod 的回环地址，推送静默失败。
+            - name: GATEWAY_GRPC_ADDR
+              value: "chat-server:8001"
+            - name: GATEWAY_GRPC_PORT
+              value: "8001"
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: MYSQL_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: REDIS_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: JWT_SECRET
           resources:
             requests:
               cpu: "100m"
@@ -79,5 +90,10 @@ spec:
     app: chat-server
   ports:
     - protocol: TCP
+      name: http-ws
       port: 8000
       targetPort: 8000
+    - protocol: TCP
+      name: grpc
+      port: 8001
+      targetPort: 8001

@@ -1,0 +1,55 @@
+# 好友拉黑接口的黑盒 e2e 验证（在集群内运行，in-cluster DNS 直达各服务）
+#
+# 用法：
+#   kubectl -n chat-system delete job e2e --ignore-not-found
+#   kubectl -n chat-system apply -f deploy/k8s/tests/e2e-job.yaml
+#   kubectl -n chat-system logs -f job/e2e
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: e2e
+  namespace: chat-system
+  labels:
+    app: e2e
+spec:
+  # 不重试：场景本身包含预期失败的用例，重跑没有意义
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: e2e
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: e2e
+          image: kama-chat/e2e:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: E2E_ENVOY_URL
+              value: "http://envoy:9080"
+            - name: E2E_GATEWAY_URL
+              value: "http://chat-server:8000"
+            - name: E2E_TOXIPROXY_API
+              value: "http://toxiproxy:8474"
+            # 观测用直连（刻意绕过 toxiproxy，避免观测手段干扰被测系统）
+            - name: E2E_MYSQL_HOST
+              value: "mysql"
+            - name: E2E_MYSQL_PORT
+              value: "3306"
+            - name: E2E_MYSQL_USER
+              value: "root"
+            - name: E2E_MYSQL_PASSWORD
+              value: "root123456"
+            - name: E2E_KAFKA_BROKERS
+              value: "kafka:9092"
+            - name: E2E_REDIS_HOST
+              value: "redis"
+            - name: E2E_REDIS_PORT
+              value: "6379"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"

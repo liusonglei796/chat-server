@@ -29,10 +29,6 @@ logPath = "your log path"
 
 [kafkaConfig]
 hostPort = "127.0.0.1:9095"
-loginTopic = "login"
-chatTopic = "chat_message"
-logoutTopic = "logout"
-partition = 0
 timeout = 1
 
 [staticSrcConfig]

@@ -23,10 +23,6 @@ logPath = "your log path"
 
 [kafkaConfig]
 hostPort = "kafka:9092" # "kafka:9092,kafka:9093,kafka:9094" 多个kafka服务器
-loginTopic = "login"
-chatTopic = "chat_message"
-logoutTopic = "logout"
-partition = 0 # kafka partition
 timeout = 1 # 单位秒
 
 [staticSrcConfig]
