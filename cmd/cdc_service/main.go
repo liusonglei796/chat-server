@@ -12,11 +12,11 @@ import (
 
 	"go.uber.org/zap"
 
-	"kama_chat_server/internal/common/config"
-	myredis "kama_chat_server/internal/common/dao/redis"
-	"kama_chat_server/internal/common/infrastructure/kafka"
-	"kama_chat_server/internal/common/infrastructure/logger"
-	"kama_chat_server/internal/common/infrastructure/outbox/cdc"
+	"kama_chat_server/internal/cdc"
+	"kama_chat_server/internal/infra/config"
+	"kama_chat_server/internal/infra/kafka"
+	"kama_chat_server/internal/infra/logger"
+	"kama_chat_server/internal/infra/redis"
 	otelinit "kama_chat_server/pkg/otel"
 )
 
@@ -40,7 +40,7 @@ func main() {
 	}
 
 	// Redis GTID 位点存储
-	rdb := myredis.NewClient()
+	rdb := redis.NewClient()
 	gtidStore := cdc.NewRedisGTIDStore(rdb)
 
 	// Kafka 发布者
