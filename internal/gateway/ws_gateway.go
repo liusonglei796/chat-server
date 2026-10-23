@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 
@@ -165,11 +164,11 @@ func (c *UserConn) Write() {
 	}
 }
 
-// NewClientInit 当接受到前端有登录消息时调用
-func NewClientInit(c *gin.Context, clientId string, hub *ConnHub) {
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+// NewClientInit 当接收到前端建立长连接请求时调用
+func NewClientInit(w http.ResponseWriter, r *http.Request, clientId string, hub *ConnHub) {
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		zap.L().Error("service error", zap.Error(err))
+		zap.L().Error("websocket upgrade error", zap.Error(err))
 		return
 	}
 	client := &UserConn{
@@ -185,7 +184,7 @@ func NewClientInit(c *gin.Context, clientId string, hub *ConnHub) {
 
 	go client.Read()
 	go client.Write()
-	zap.L().Info("ws连接成功")
+	zap.L().Info("ws连接成功", zap.String("userId", clientId))
 }
 
 // ClientLogout 当接受到前端有登出消息时调用

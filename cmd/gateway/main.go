@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -57,13 +58,7 @@ func main() {
 	jwt.Init(conf.JWTConfig.Secret, conf.JWTConfig.AccessTokenExpiry, conf.JWTConfig.RefreshTokenExpiry)
 	zap.L().Info("JWT 初始化成功")
 
-	// 5. 初始化 Validator 国际化
-	if err := gateway.InitTrans("zh"); err != nil {
-		zap.L().Fatal("validator 初始化失败", zap.Error(err))
-	}
-	zap.L().Info("Validator 国际化初始化成功")
-
-	// 6. 解析网关 gRPC 监听与注册地址
+	// 5. 解析网关 gRPC 监听与注册地址
 	grpcPort := conf.MainConfig.GrpcPort
 	if grpcPort == 0 {
 		grpcPort = 8001
@@ -76,19 +71,11 @@ func main() {
 	chatServer := gateway.NewChatServer(cacheService, grpcAddr)
 	zap.L().Info("ChatServer 初始化成功", zap.String("grpcAddr", grpcAddr))
 
-	// 7. 初始化 gRPC Client
+	// 6. 初始化 gRPC Client (用于 WebSocket 上行发消息时转发至后端微服务)
 	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
 	zap.L().Info("gRPC 客户端初始化成功")
 
-	// 8. 初始化 Handler 层 (依赖注入，包含 ChatServer 的 ConnHub)
-	handlers := gateway.NewHandlers(chatServer.GetHub())
-	zap.L().Info("Handler 层初始化成功")
-
-	// 9. 初始化 HTTPS 服务器
-	engine := gateway.InitHTTPServer(handlers, cacheService)
-	zap.L().Info("HTTPS 服务器初始化成功")
-
-	// 10. 启动网关内部 gRPC 服务（供后端微服务直推下行消息）
+	// 7. 启动网关内部 gRPC 服务（供后端微服务直推下行消息）
 	grpcLis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", grpcPort))
 	if err != nil {
 		zap.L().Fatal("failed to listen on gateway grpc port", zap.Error(err))
@@ -109,33 +96,37 @@ func main() {
 		}
 	}()
 
-	// 11. 启动服务
-	host := conf.MainConfig.Host
-	port := conf.MainConfig.Port
-
-	// 启动聊天服务器
+	// 8. 启动长连接 Hub 广播与分发监听
 	go chatServer.Run()
 
+	// 9. 启动专职 WebSocket 原生 HTTP 监听服务
+	httpAddr := fmt.Sprintf("%s:%d", conf.MainConfig.Host, conf.MainConfig.Port)
+	wsServer := gateway.NewWsServer(httpAddr, chatServer.GetHub())
+
 	go func() {
-		if err := engine.Run(fmt.Sprintf("%s:%d", host, port)); err != nil {
-			zap.L().Fatal("server running fault")
-			return
+		if err := wsServer.Start(); err != nil && err != http.ErrServerClosed {
+			zap.L().Fatal("ws server running failed", zap.Error(err))
 		}
 	}()
 
-	// 设置信号监听
+	// 10. 监听优雅退出信号
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
-	// 等待信号
 	<-quit
 
-	zap.L().Info("关闭服务器...")
+	zap.L().Info("正在优雅关闭连接中枢服务器...")
 
-	// 优雅停机网关 gRPC 服务
+	// 优雅停机 HTTP WebSocket 监听服务 (5秒超时)
+	httpShutdownCtx, httpCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer httpCancel()
+	if err := wsServer.Shutdown(httpShutdownCtx); err != nil {
+		zap.L().Error("ws server shutdown error", zap.Error(err))
+	}
+
+	// 优雅停机内部 gRPC 服务
 	gatewayGrpcServer.GracefulStop()
 
-	// 关闭聊天服务器
+	// 关闭聊天长连接池
 	chatServer.Shutdown()
 
 	// 关闭 Redis 异步任务池，等待已提交任务完成
@@ -143,7 +134,7 @@ func main() {
 		rc.Release()
 	}
 
-	// 关闭 OpenTelemetry TracerProvider，确保未导出的 span 被刷新
+	// 关闭 OpenTelemetry TracerProvider
 	if otelShutdown != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -152,5 +143,5 @@ func main() {
 		}
 	}
 
-	zap.L().Info("服务器已关闭")
+	zap.L().Info("连接中枢服务器已安全关闭")
 }
