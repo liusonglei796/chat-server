@@ -181,7 +181,7 @@ func (g *GroupService) CheckGroupAddMode(ctx context.Context, groupId string) (i
 				AddMode:   group.AddMode,
 				Status:    group.Status,
 				Avatar:    group.Avatar,
-				IsDeleted: group.DeletedAt.Valid,
+				IsDeleted: group.Status == group_status.DISMISS,
 				Version:   group.Version,
 			}, nil
 		},
@@ -394,7 +394,7 @@ func (g *GroupService) GetGroupDetail(ctx context.Context, userId, groupId strin
 				OwnerId:   grp.OwnerId,
 				AddMode:   grp.AddMode,
 				Status:    grp.Status,
-				IsDeleted: grp.DeletedAt.Valid,
+				IsDeleted: grp.Status == group_status.DISMISS,
 				Version:   grp.Version,
 			}, nil
 		},

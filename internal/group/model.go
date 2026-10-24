@@ -3,14 +3,15 @@ package group
 import (
 	"database/sql"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 // GroupInfo 群组信息模型
 // 对应数据库 group_info 表
+// 显式声明主键与时间戳，严禁使用 gorm.Model（消除隐式软删除与全局 WHERE deleted_at IS NULL 注入）
 type GroupInfo struct {
-	gorm.Model
+	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// Uuid 群组唯一标识
 	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);not null;comment:群组唯一id"`

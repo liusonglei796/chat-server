@@ -139,7 +139,7 @@ func (r *storeImpl) FindAllPaged(ctx context.Context, page, pageSize int, keywor
 		pageSize = 20
 	}
 
-	query := database.GetDB(ctx, r.db).Model(&UserInfo{}).Unscoped()
+	query := database.GetDB(ctx, r.db).Model(&UserInfo{})
 	if keyword != "" {
 		query = query.Where("nickname LIKE ? OR telephone LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
 	}

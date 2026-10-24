@@ -2,6 +2,7 @@ package user
 
 import (
 	"database/sql"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -9,8 +10,11 @@ import (
 
 // UserInfo 用户信息模型
 // 对应数据库 user_info 表
+// 显式声明主键与时间戳，严禁使用 gorm.Model（消除隐式软删除与全局 WHERE deleted_at IS NULL 注入）
 type UserInfo struct {
-	gorm.Model
+	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// Uuid 用户唯一标识
 	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);comment:用户唯一id"`

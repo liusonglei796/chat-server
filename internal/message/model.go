@@ -3,14 +3,15 @@ package message
 import (
 	"database/sql"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 // Message 消息模型
 // 对应数据库 message 表
+// 显式声明主键与时间戳，严禁使用 gorm.Model（消除隐式软删除与全局 WHERE deleted_at IS NULL 注入）
 type Message struct {
-	gorm.Model
+	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// Uuid 消息唯一标识 (M + SnowflakeID)
 	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);not null;index:idx_session_uuid,priority:2;index:idx_receive_uuid,priority:2;comment:消息雪花ID"`

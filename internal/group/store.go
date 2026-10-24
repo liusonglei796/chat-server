@@ -95,11 +95,11 @@ func (r *groupStoreImpl) GetGroupList(ctx context.Context, page, pageSize int) (
 
 	offset := (page - 1) * pageSize
 
-	if err := database.GetDB(ctx, r.db).Unscoped().Model(&GroupInfo{}).Count(&total).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Model(&GroupInfo{}).Count(&total).Error; err != nil {
 		return nil, 0, dberr.WrapDBError(err, "查询群组总数")
 	}
 
-	if err := database.GetDB(ctx, r.db).Unscoped().Model(&GroupInfo{}).Offset(offset).Limit(pageSize).Find(&groups).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Model(&GroupInfo{}).Offset(offset).Limit(pageSize).Find(&groups).Error; err != nil {
 		return nil, 0, dberr.WrapDBError(err, "分页查询群组")
 	}
 
@@ -186,7 +186,7 @@ func (r *groupStoreImpl) SoftDeleteByUuids(ctx context.Context, uuids []string) 
 	if len(uuids) == 0 {
 		return nil
 	}
-	if err := database.GetDB(ctx, r.db).Unscoped().Where("uuid IN ?", uuids).Delete(&GroupInfo{}).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("uuid IN ?", uuids).Delete(&GroupInfo{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除群组")
 	}
 	return nil
@@ -196,9 +196,8 @@ func (r *groupStoreImpl) DismissGroupWithCAS(ctx context.Context, uuid, ownerId 
 	result := database.GetDB(ctx, r.db).Model(&GroupInfo{}).
 		Where("uuid = ? AND owner_id = ? AND status = ?", uuid, ownerId, group_status.NORMAL).
 		Updates(map[string]interface{}{
-			"status":     group_status.DISMISS,
-			"deleted_at": gorm.Expr("NOW()"),
-			"version":    gorm.Expr("version + 1"),
+			"status":  group_status.DISMISS,
+			"version": gorm.Expr("version + 1"),
 		})
 	if result.Error != nil {
 		return false, dberr.WrapDBErrorf(result.Error, "CAS解散群组 uuid=%s owner_id=%s", uuid, ownerId)
