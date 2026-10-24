@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/outbox"
 	"kama_chat_server/pkg/idempotent"
 )
@@ -41,15 +42,10 @@ func NewApplyService(db *gorm.DB, store Store, cacheService cacheinfra.AsyncCach
 	}
 }
 
-// execTx 简明事务辅助函数：如果有 db 则走 GORM 事务，无 db（单测）则直接在当前 store 上执行
-func (u *ApplyService) execTx(ctx context.Context, fn func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error) error {
+// recordEvent 统一记录 outbox 事件（与事务在同一连接/事务上下文中）
+func (u *ApplyService) recordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
 	if u.db == nil {
-		return fn(u.store, func(string, string, []byte) error { return nil })
+		return nil
 	}
-	return u.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		txStore := NewStore(tx)
-		return fn(txStore, func(aggregateId, eventType string, payload []byte) error {
-			return outbox.RecordEvent(ctx, tx, aggregateId, eventType, payload)
-		})
-	})
+	return outbox.RecordEvent(ctx, database.GetDB(ctx, u.db), aggregateId, eventType, payload)
 }

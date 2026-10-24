@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
 	"kama_chat_server/pkg/errorx"
@@ -30,8 +31,8 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 		return nil
 	}
 
-	err = s.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
-		if err := txStore.SoftDelete(ctx, userId, friendId); err != nil {
+	err = database.ExecTx(ctx, s.db, func(txCtx context.Context) error {
+		if err := s.store.SoftDelete(txCtx, userId, friendId); err != nil {
 			zap.L().Error("Delete friendship error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -40,7 +41,7 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 			UserId:   userId,
 			FriendId: friendId,
 		})
-		return recordEvent(userId, event.EventFriendDeleted, payload)
+		return s.recordEvent(txCtx, userId, event.EventFriendDeleted, payload)
 	})
 
 	if err != nil {
@@ -57,8 +58,8 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 		return errorx.New(errorx.CodeInvalidParam, "不能拉黑自己")
 	}
 
-	err := s.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
-		myFs, err := txStore.FindByUserIdAndFriendId(ctx, userId, friendId)
+	err := database.ExecTx(ctx, s.db, func(txCtx context.Context) error {
+		myFs, err := s.store.FindByUserIdAndFriendId(txCtx, userId, friendId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return errorx.New(errorx.CodeForbidden, "你们还不是好友，无法拉黑")
@@ -75,7 +76,7 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			return errorx.New(errorx.CodeInvalidParam, "当前状态不允许拉黑")
 		}
 
-		theirFs, err := txStore.FindByUserIdAndFriendId(ctx, friendId, userId)
+		theirFs, err := s.store.FindByUserIdAndFriendId(txCtx, friendId, userId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return errorx.New(errorx.CodeNotFound, "对方好友关系不存在")
@@ -107,13 +108,13 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			}
 		}
 
-		ok1, err := txStore.UpdateStatusWithExpected(ctx, firstUser, secondUser, firstExpected, firstTarget, firstVersion)
+		ok1, err := s.store.UpdateStatusWithExpected(txCtx, firstUser, secondUser, firstExpected, firstTarget, firstVersion)
 		if err != nil {
 			zap.L().Error("UpdateStatusWithExpected to first error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		if !ok1 {
-			cur, queryErr := txStore.FindByUserIdAndFriendId(ctx, userId, friendId)
+			cur, queryErr := s.store.FindByUserIdAndFriendId(txCtx, userId, friendId)
 			if queryErr != nil || cur == nil {
 				return errorx.New(errorx.CodeNotFound, "好友关系不存在")
 			}
@@ -126,7 +127,7 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			return errorx.New(errorx.CodeInvalidParam, "当前状态不允许拉黑或已被处理")
 		}
 
-		ok2, err := txStore.UpdateStatusWithExpected(ctx, secondUser, firstUser, secondExpected, secondTarget, secondVersion)
+		ok2, err := s.store.UpdateStatusWithExpected(txCtx, secondUser, firstUser, secondExpected, secondTarget, secondVersion)
 		if err != nil {
 			zap.L().Error("UpdateStatusWithExpected to second error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -139,7 +140,7 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			UserId:   userId,
 			FriendId: friendId,
 		})
-		return recordEvent(userId, event.EventFriendBlacked, payload)
+		return s.recordEvent(txCtx, userId, event.EventFriendBlacked, payload)
 	})
 
 	if err != nil {
@@ -159,8 +160,8 @@ func (s *FriendshipService) UnblackFriend(ctx context.Context, userId string, fr
 		return errorx.New(errorx.CodeInvalidParam, "参数错误")
 	}
 
-	err := s.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
-		myFs, err := txStore.FindByUserIdAndFriendId(ctx, userId, friendId)
+	err := database.ExecTx(ctx, s.db, func(txCtx context.Context) error {
+		myFs, err := s.store.FindByUserIdAndFriendId(txCtx, userId, friendId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return errorx.New(errorx.CodeNotFound, "好友关系不存在")
@@ -177,7 +178,7 @@ func (s *FriendshipService) UnblackFriend(ctx context.Context, userId string, fr
 			return errorx.New(errorx.CodeInvalidParam, "未拉黑该好友，无需解除拉黑")
 		}
 
-		theirFs, err := txStore.FindByUserIdAndFriendId(ctx, friendId, userId)
+		theirFs, err := s.store.FindByUserIdAndFriendId(txCtx, friendId, userId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return errorx.New(errorx.CodeNotFound, "对方好友关系不存在")
@@ -209,13 +210,13 @@ func (s *FriendshipService) UnblackFriend(ctx context.Context, userId string, fr
 			}
 		}
 
-		ok1, err := txStore.UpdateStatusWithExpected(ctx, firstUser, secondUser, firstExpected, firstTarget, firstVersion)
+		ok1, err := s.store.UpdateStatusWithExpected(txCtx, firstUser, secondUser, firstExpected, firstTarget, firstVersion)
 		if err != nil {
 			zap.L().Error("UpdateStatusWithExpected first error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		if !ok1 {
-			cur, queryErr := txStore.FindByUserIdAndFriendId(ctx, userId, friendId)
+			cur, queryErr := s.store.FindByUserIdAndFriendId(txCtx, userId, friendId)
 			if queryErr != nil || cur == nil {
 				return errorx.New(errorx.CodeNotFound, "好友关系不存在")
 			}
@@ -225,7 +226,7 @@ func (s *FriendshipService) UnblackFriend(ctx context.Context, userId string, fr
 			return errorx.New(errorx.CodeInvalidParam, "好友关系状态已变更，无需重复操作")
 		}
 
-		ok2, err := txStore.UpdateStatusWithExpected(ctx, secondUser, firstUser, secondExpected, secondTarget, secondVersion)
+		ok2, err := s.store.UpdateStatusWithExpected(txCtx, secondUser, firstUser, secondExpected, secondTarget, secondVersion)
 		if err != nil {
 			zap.L().Error("UpdateStatusWithExpected second error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -281,14 +282,14 @@ func (s *FriendshipService) EstablishFriendship(ctx context.Context, userId, fri
 		return errorx.New(errorx.CodeInvalidParam, "参数错误")
 	}
 
-	err := s.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+	err := database.ExecTx(ctx, s.db, func(txCtx context.Context) error {
 		newFriendship := Friendship{
 			UserId:   userId,
 			FriendId: friendId,
 			Status:   friendship_status.NORMAL,
 			Version:  1,
 		}
-		if err := txStore.CreateFriendship(ctx, &newFriendship); err != nil {
+		if err := s.store.CreateFriendship(txCtx, &newFriendship); err != nil {
 			if !dberr.IsDuplicateKey(err) {
 				return err
 			}
@@ -300,7 +301,7 @@ func (s *FriendshipService) EstablishFriendship(ctx context.Context, userId, fri
 			Status:   friendship_status.NORMAL,
 			Version:  1,
 		}
-		if err := txStore.CreateFriendship(ctx, &anotherFriendship); err != nil {
+		if err := s.store.CreateFriendship(txCtx, &anotherFriendship); err != nil {
 			if !dberr.IsDuplicateKey(err) {
 				return err
 			}

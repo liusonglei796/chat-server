@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
 	"kama_chat_server/internal/infra/grpc_client"
 	kafkainfra "kama_chat_server/internal/infra/kafka"
@@ -98,23 +99,14 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 		return err
 	}
 
-	execTx := func(fn func(txStore Store) error) error {
-		if c.db == nil {
-			return fn(c.store)
-		}
-		return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			return fn(NewStore(tx))
-		})
-	}
-
-	err := execTx(func(txStore Store) error {
+	err := database.ExecTx(ctx, c.db, func(txCtx context.Context) error {
 		newFriendship := Friendship{
 			UserId:   e.UserId,
 			FriendId: e.FriendId,
 			Status:   friendship_status.NORMAL,
 			Version:  1,
 		}
-		if err := txStore.CreateFriendship(ctx, &newFriendship); err != nil {
+		if err := c.store.CreateFriendship(txCtx, &newFriendship); err != nil {
 			if dberr.IsDuplicateKey(err) {
 				return nil
 			}
@@ -127,7 +119,7 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 			Status:   friendship_status.NORMAL,
 			Version:  1,
 		}
-		if err := txStore.CreateFriendship(ctx, &anotherFriendship); err != nil {
+		if err := c.store.CreateFriendship(txCtx, &anotherFriendship); err != nil {
 			if dberr.IsDuplicateKey(err) {
 				return nil
 			}

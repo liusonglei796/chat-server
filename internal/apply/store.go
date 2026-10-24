@@ -5,6 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
 	"kama_chat_server/pkg/enum/apply/apply_status"
 )
@@ -32,7 +33,7 @@ func NewStore(db *gorm.DB) Store {
 
 func (r *storeImpl) FindByApplicantIdAndTargetId(ctx context.Context, applicantId, targetId string) (*Apply, error) {
 	var a Apply
-	if err := r.db.WithContext(ctx).Where("applicant_id = ? AND target_id = ?", applicantId, targetId).First(&a).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("applicant_id = ? AND target_id = ?", applicantId, targetId).First(&a).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "查询申请 applicant_id=%s target_id=%s", applicantId, targetId)
 	}
 	return &a, nil
@@ -49,7 +50,7 @@ func (r *storeImpl) FindByTargetIdPendingPaged(ctx context.Context, targetId str
 		pageSize = 20
 	}
 
-	query := r.db.WithContext(ctx).Model(&Apply{}).Where("target_id = ? AND status = ?", targetId, apply_status.PENDING)
+	query := database.GetDB(ctx, r.db).Model(&Apply{}).Where("target_id = ? AND status = ?", targetId, apply_status.PENDING)
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, dberr.WrapDBErrorf(err, "统计待处理申请数量 target_id=%s", targetId)
 	}
@@ -62,21 +63,21 @@ func (r *storeImpl) FindByTargetIdPendingPaged(ctx context.Context, targetId str
 }
 
 func (r *storeImpl) CreateApply(ctx context.Context, apply *Apply) error {
-	if err := r.db.WithContext(ctx).Create(apply).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Create(apply).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "创建申请 applicant_id=%s target_id=%s", apply.ApplicantId, apply.TargetId)
 	}
 	return nil
 }
 
 func (r *storeImpl) Update(ctx context.Context, apply *Apply) error {
-	if err := r.db.WithContext(ctx).Save(apply).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Save(apply).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "更新申请 uuid=%s", apply.Uuid)
 	}
 	return nil
 }
 
 func (r *storeImpl) UpdateWithVersion(ctx context.Context, apply *Apply, expectedVersion int32) (bool, error) {
-	res := r.db.WithContext(ctx).Model(&Apply{}).
+	res := database.GetDB(ctx, r.db).Model(&Apply{}).
 		Where("id = ? AND version = ?", apply.ID, expectedVersion).
 		Updates(map[string]interface{}{
 			"uuid":          apply.Uuid,
@@ -92,7 +93,7 @@ func (r *storeImpl) UpdateWithVersion(ctx context.Context, apply *Apply, expecte
 }
 
 func (r *storeImpl) UpdateStatusIfPending(ctx context.Context, uuid string, toStatus int8, expectedVersion int32) (bool, error) {
-	res := r.db.WithContext(ctx).Model(&Apply{}).
+	res := database.GetDB(ctx, r.db).Model(&Apply{}).
 		Where("uuid = ? AND status = ? AND version = ?", uuid, apply_status.PENDING, expectedVersion).
 		Updates(map[string]interface{}{
 			"status":  toStatus,
@@ -105,7 +106,7 @@ func (r *storeImpl) UpdateStatusIfPending(ctx context.Context, uuid string, toSt
 }
 
 func (r *storeImpl) SoftDelete(ctx context.Context, applicantId, targetId string) error {
-	if err := r.db.WithContext(ctx).Where("applicant_id = ? AND target_id = ?", applicantId, targetId).Delete(&Apply{}).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("applicant_id = ? AND target_id = ?", applicantId, targetId).Delete(&Apply{}).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "软删除申请 applicant_id=%s target_id=%s", applicantId, targetId)
 	}
 	return nil
@@ -115,7 +116,7 @@ func (r *storeImpl) SoftDeleteByUsers(ctx context.Context, userUuids []string) e
 	if len(userUuids) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Where("applicant_id IN ? OR target_id IN ?", userUuids, userUuids).Delete(&Apply{}).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("applicant_id IN ? OR target_id IN ?", userUuids, userUuids).Delete(&Apply{}).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "批量软删除申请 user_count=%d", len(userUuids))
 	}
 	return nil

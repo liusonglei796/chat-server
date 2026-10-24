@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/outbox"
 	"kama_chat_server/pkg/idempotent"
 )
@@ -50,26 +51,14 @@ func NewGroupService(
 	}
 }
 
-// execTx 简明事务辅助函数：如果有 db 则走 GORM 事务，无 db（单测）则直接在当前 store 上执行
-func (g *GroupService) execTx(ctx context.Context, fn func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error) error {
-	if g.db == nil {
-		record := func(aggregateId, eventType string, payload []byte) error {
-			if g.eventRecord != nil {
-				return g.eventRecord(ctx, nil, aggregateId, eventType, payload)
-			}
-			return nil
-		}
-		return fn(g.groupStore, g.memberStore, record)
+// recordEvent 记录领域事件，支持单测 hook 拦截
+func (g *GroupService) recordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
+	if g.eventRecord != nil {
+		return g.eventRecord(ctx, database.GetDB(ctx, g.db), aggregateId, eventType, payload)
 	}
-	return g.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		txGroup := NewGroupStore(tx)
-		txMember := NewGroupMemberStore(tx)
-		record := func(aggregateId, eventType string, payload []byte) error {
-			if g.eventRecord != nil {
-				return g.eventRecord(ctx, tx, aggregateId, eventType, payload)
-			}
-			return outbox.RecordEvent(ctx, tx, aggregateId, eventType, payload)
-		}
-		return fn(txGroup, txMember, record)
-	})
+	db := database.GetDB(ctx, g.db)
+	if db == nil {
+		return nil
+	}
+	return outbox.RecordEvent(ctx, db, aggregateId, eventType, payload)
 }

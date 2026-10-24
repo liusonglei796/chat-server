@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	userpb "kama_chat_server/api/gen/user"
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
 	"kama_chat_server/internal/infra/grpc_client"
 	"kama_chat_server/internal/infra/snowflake"
@@ -242,14 +243,14 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 	}
 
 	var alreadyAgreed bool
-	err = u.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
-		ok, err := txStore.UpdateStatusIfPending(ctx, apply.Uuid, apply_status.AGREE, apply.Version)
+	err = database.ExecTx(ctx, u.db, func(txCtx context.Context) error {
+		ok, err := u.store.UpdateStatusIfPending(txCtx, apply.Uuid, apply_status.AGREE, apply.Version)
 		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		if !ok {
-			cur, queryErr := txStore.FindByApplicantIdAndTargetId(ctx, applicantId, userId)
+			cur, queryErr := u.store.FindByApplicantIdAndTargetId(txCtx, applicantId, userId)
 			if queryErr != nil || cur == nil {
 				return errorx.New(errorx.CodeNotFound, "申请记录不存在")
 			}
@@ -273,7 +274,7 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 			UserId:   userId,
 			FriendId: applicantId,
 		})
-		return recordEvent(userId, event.EventFriendApplyPassed, payload)
+		return u.recordEvent(txCtx, userId, event.EventFriendApplyPassed, payload)
 	})
 
 	if err != nil {

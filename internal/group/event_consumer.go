@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
 	kafkainfra "kama_chat_server/internal/infra/kafka"
 	"kama_chat_server/internal/infra/metrics"
@@ -107,46 +108,23 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 		return err
 	}
 
-	execTx := func(fn func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error) error {
-		if c.db == nil {
-			record := func(aggregateId, eventType string, payload []byte) error {
-				if c.eventRecord != nil {
-					return c.eventRecord(ctx, nil, aggregateId, eventType, payload)
-				}
-				return nil
-			}
-			return fn(c.groupStore, c.memberStore, record)
-		}
-		return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			txGroup := NewGroupStore(tx)
-			txMember := NewGroupMemberStore(tx)
-			record := func(aggregateId, eventType string, payload []byte) error {
-				if c.eventRecord != nil {
-					return c.eventRecord(ctx, tx, aggregateId, eventType, payload)
-				}
-				return outbox.RecordEvent(ctx, tx, aggregateId, eventType, payload)
-			}
-			return fn(txGroup, txMember, record)
-		})
-	}
-
-	err := execTx(func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+	err := database.ExecTx(ctx, c.db, func(txCtx context.Context) error {
 		newMember := GroupMember{
 			GroupUuid: e.GroupId,
 			UserUuid:  e.UserId,
 			Role:      1,
 		}
-		if err := txMember.CreateGroupMember(ctx, &newMember); err != nil {
+		if err := c.memberStore.CreateGroupMember(txCtx, &newMember); err != nil {
 			if dberr.IsDuplicateKey(err) {
 				return nil
 			}
 			return err
 		}
-		if err := txGroup.IncrementMemberCount(ctx, e.GroupId); err != nil {
+		if err := c.groupStore.IncrementMemberCount(txCtx, e.GroupId); err != nil {
 			return err
 		}
 
-		grp, err := txGroup.FindByUuid(ctx, e.GroupId)
+		grp, err := c.groupStore.FindByUuid(txCtx, e.GroupId)
 		if err != nil {
 			return err
 		}
@@ -157,7 +135,14 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 			GroupName:   grp.Name,
 			GroupAvatar: grp.Avatar,
 		})
-		return recordEvent(e.GroupId, event.EventGroupJoined, joinedPayload)
+		if c.eventRecord != nil {
+			return c.eventRecord(txCtx, database.GetDB(txCtx, c.db), e.GroupId, event.EventGroupJoined, joinedPayload)
+		}
+		db := database.GetDB(txCtx, c.db)
+		if db == nil {
+			return nil
+		}
+		return outbox.RecordEvent(txCtx, db, e.GroupId, event.EventGroupJoined, joinedPayload)
 	})
 	if err != nil {
 		if dberr.IsDuplicateKey(err) {

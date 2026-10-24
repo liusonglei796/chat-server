@@ -5,6 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
 )
 
@@ -34,7 +35,7 @@ func NewStore(db *gorm.DB) Store {
 
 func (r *storeImpl) FindByUuid(ctx context.Context, uuid string) (*UserInfo, error) {
 	var user UserInfo
-	if err := r.db.WithContext(ctx).First(&user, "uuid = ?", uuid).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).First(&user, "uuid = ?", uuid).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "查询用户 uuid=%s", uuid)
 	}
 	return &user, nil
@@ -42,7 +43,7 @@ func (r *storeImpl) FindByUuid(ctx context.Context, uuid string) (*UserInfo, err
 
 func (r *storeImpl) FindByTelephone(ctx context.Context, telephone string) (*UserInfo, error) {
 	var user UserInfo
-	if err := r.db.WithContext(ctx).First(&user, "telephone = ?", telephone).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).First(&user, "telephone = ?", telephone).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "查询用户 telephone=%s", telephone)
 	}
 	return &user, nil
@@ -50,7 +51,7 @@ func (r *storeImpl) FindByTelephone(ctx context.Context, telephone string) (*Use
 
 func (r *storeImpl) FindByNickname(ctx context.Context, nickname string) (*UserInfo, error) {
 	var user UserInfo
-	if err := r.db.WithContext(ctx).First(&user, "nickname = ?", nickname).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).First(&user, "nickname = ?", nickname).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "查询用户 nickname=%s", nickname)
 	}
 	return &user, nil
@@ -58,21 +59,21 @@ func (r *storeImpl) FindByNickname(ctx context.Context, nickname string) (*UserI
 
 func (r *storeImpl) FindByUuids(ctx context.Context, uuids []string) ([]UserInfo, error) {
 	var users []UserInfo
-	if err := r.db.WithContext(ctx).Where("uuid IN ?", uuids).Find(&users).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("uuid IN ?", uuids).Find(&users).Error; err != nil {
 		return nil, dberr.WrapDBError(err, "批量查询用户")
 	}
 	return users, nil
 }
 
 func (r *storeImpl) CreateUser(ctx context.Context, user *UserInfo) error {
-	if err := r.db.WithContext(ctx).Create(user).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Create(user).Error; err != nil {
 		return dberr.WrapDBError(err, "创建用户")
 	}
 	return nil
 }
 
 func (r *storeImpl) UpdateUserInfo(ctx context.Context, user *UserInfo) error {
-	if err := r.db.WithContext(ctx).Save(user).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Save(user).Error; err != nil {
 		return dberr.WrapDBError(err, "更新用户信息")
 	}
 	return nil
@@ -88,7 +89,7 @@ func (r *storeImpl) UpdateUserInfoWithVersion(ctx context.Context, user *UserInf
 		"gender":    user.Gender,
 		"version":   gorm.Expr("version + 1"),
 	}
-	result := r.db.WithContext(ctx).Model(&UserInfo{}).
+	result := database.GetDB(ctx, r.db).Model(&UserInfo{}).
 		Where("uuid = ? AND version = ?", user.Uuid, expectedVersion).
 		Updates(updates)
 	if result.Error != nil {
@@ -101,7 +102,7 @@ func (r *storeImpl) UpdateUserStatusByUuids(ctx context.Context, uuids []string,
 	if len(uuids) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Model(&UserInfo{}).Where("uuid IN ?", uuids).Update("status", status).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Model(&UserInfo{}).Where("uuid IN ?", uuids).Update("status", status).Error; err != nil {
 		return dberr.WrapDBError(err, "批量更新用户状态")
 	}
 	return nil
@@ -111,7 +112,7 @@ func (r *storeImpl) UpdateUserIsAdminByUuids(ctx context.Context, uuids []string
 	if len(uuids) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Model(&UserInfo{}).Where("uuid IN ?", uuids).Update("is_admin", isAdmin).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Model(&UserInfo{}).Where("uuid IN ?", uuids).Update("is_admin", isAdmin).Error; err != nil {
 		return dberr.WrapDBError(err, "批量更新用户管理员状态")
 	}
 	return nil
@@ -121,7 +122,7 @@ func (r *storeImpl) SoftDeleteUserByUuids(ctx context.Context, uuids []string) e
 	if len(uuids) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Where("uuid IN ?", uuids).Delete(&UserInfo{}).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("uuid IN ?", uuids).Delete(&UserInfo{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除用户")
 	}
 	return nil
@@ -138,7 +139,7 @@ func (r *storeImpl) FindAllPaged(ctx context.Context, page, pageSize int, keywor
 		pageSize = 20
 	}
 
-	query := r.db.WithContext(ctx).Model(&UserInfo{}).Unscoped()
+	query := database.GetDB(ctx, r.db).Model(&UserInfo{}).Unscoped()
 	if keyword != "" {
 		query = query.Where("nickname LIKE ? OR telephone LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
 	}

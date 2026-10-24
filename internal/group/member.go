@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	userpb "kama_chat_server/api/gen/user"
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/grpc_client"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
@@ -29,15 +30,15 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 		return errorx.New(errorx.CodeInvalidParam, "群主不能退群，请先转让群主或解散群聊")
 	}
 
-	err = g.execTx(ctx, func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
-		ok, err := txMember.DeleteMemberIfNotOwner(ctx, groupId, userId)
+	err = database.ExecTx(ctx, g.db, func(txCtx context.Context) error {
+		ok, err := g.memberStore.DeleteMemberIfNotOwner(txCtx, groupId, userId)
 		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		if ok {
-			if err := txGroup.DecrementMemberCountBy(ctx, groupId, 1); err != nil {
+			if err := g.groupStore.DecrementMemberCountBy(txCtx, groupId, 1); err != nil {
 				zap.L().Error("service error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
@@ -46,7 +47,7 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 				GroupId: groupId,
 				UserId:  userId,
 			})
-			return recordEvent(groupId, event.EventGroupMemberLeft, payload)
+			return g.recordEvent(txCtx, groupId, event.EventGroupMemberLeft, payload)
 		}
 		return nil
 	})
@@ -165,15 +166,15 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 		}
 	}
 
-	err = g.execTx(ctx, func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
-		deletedCount, err := txMember.DeleteByUserUuids(ctx, req.GroupId, req.UuidList)
+	err = database.ExecTx(ctx, g.db, func(txCtx context.Context) error {
+		deletedCount, err := g.memberStore.DeleteByUserUuids(txCtx, req.GroupId, req.UuidList)
 		if err != nil {
 			zap.L().Error("Delete group members error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		if deletedCount > 0 {
-			if err := txGroup.DecrementMemberCountBy(ctx, req.GroupId, int(deletedCount)); err != nil {
+			if err := g.groupStore.DecrementMemberCountBy(txCtx, req.GroupId, int(deletedCount)); err != nil {
 				zap.L().Error("Decrement member count error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
@@ -183,7 +184,7 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 				OperatorId:  operatorId,
 				MemberUuids: req.UuidList,
 			})
-			return recordEvent(req.GroupId, event.EventGroupMemberRemoved, payload)
+			return g.recordEvent(txCtx, req.GroupId, event.EventGroupMemberRemoved, payload)
 		}
 		return nil
 	})
@@ -307,17 +308,17 @@ func (g *GroupService) ListGroupMemberIds(ctx context.Context, groupId string) (
 
 // AddGroupMember 跨服务向群组中添加成员（由 apply 审批通过后直调）
 func (g *GroupService) AddGroupMember(ctx context.Context, groupId, userId string, role int8) error {
-	err := g.execTx(ctx, func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+	err := database.ExecTx(ctx, g.db, func(txCtx context.Context) error {
 		newMember := GroupMember{
 			GroupUuid: groupId,
 			UserUuid:  userId,
 			Role:      role,
 		}
-		if err := txMember.CreateGroupMember(ctx, &newMember); err != nil {
+		if err := g.memberStore.CreateGroupMember(txCtx, &newMember); err != nil {
 			zap.L().Error("CreateGroupMember error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
-		if err := txGroup.IncrementMemberCount(ctx, groupId); err != nil {
+		if err := g.groupStore.IncrementMemberCount(txCtx, groupId); err != nil {
 			zap.L().Error("IncrementMemberCount error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}

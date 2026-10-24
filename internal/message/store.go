@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
 	"kama_chat_server/pkg/errorx"
 )
@@ -70,13 +71,13 @@ func (r *messageStoreImpl) FindByUserIdsPaged(ctx context.Context, userOneId, us
 
 	condition := "(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)"
 
-	if err := r.db.WithContext(ctx).Model(&Message{}).Where(condition,
+	if err := database.GetDB(ctx, r.db).Model(&Message{}).Where(condition,
 		userOneId, userTwoId, userTwoId, userOneId).Count(&total).Error; err != nil {
 		return nil, 0, dberr.WrapDBErrorf(err, "统计私聊消息数量 user1=%s user2=%s", userOneId, userTwoId)
 	}
 
 	offset := (page - 1) * pageSize
-	if err := r.db.WithContext(ctx).Where(condition,
+	if err := database.GetDB(ctx, r.db).Where(condition,
 		userOneId, userTwoId, userTwoId, userOneId).
 		Order("created_at DESC").
 		Offset(offset).
@@ -98,12 +99,12 @@ func (r *messageStoreImpl) FindByGroupIdPaged(ctx context.Context, receiveId str
 		pageSize = 20
 	}
 
-	if err := r.db.WithContext(ctx).Model(&Message{}).Where("receive_id = ?", receiveId).Count(&total).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Model(&Message{}).Where("receive_id = ?", receiveId).Count(&total).Error; err != nil {
 		return nil, 0, dberr.WrapDBErrorf(err, "统计群消息数量 receive_id=%s", receiveId)
 	}
 
 	offset := (page - 1) * pageSize
-	if err := r.db.WithContext(ctx).Where("receive_id = ?", receiveId).
+	if err := database.GetDB(ctx, r.db).Where("receive_id = ?", receiveId).
 		Order("created_at DESC").
 		Offset(offset).
 		Limit(pageSize).
@@ -114,7 +115,7 @@ func (r *messageStoreImpl) FindByGroupIdPaged(ctx context.Context, receiveId str
 }
 
 func (r *messageStoreImpl) Create(ctx context.Context, message *Message) error {
-	if err := r.db.WithContext(ctx).Clauses(
+	if err := database.GetDB(ctx, r.db).Clauses(
 		clause.OnConflict{
 			Columns:   []clause.Column{{Name: "client_msg_id"}},
 			DoNothing: true,
@@ -127,7 +128,7 @@ func (r *messageStoreImpl) Create(ctx context.Context, message *Message) error {
 
 func (r *messageStoreImpl) FindByUuid(ctx context.Context, uuid string) (*Message, error) {
 	var msg Message
-	if err := r.db.WithContext(ctx).Where("uuid = ?", uuid).First(&msg).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("uuid = ?", uuid).First(&msg).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, errorx.New(errorx.CodeNotFound, "消息不存在")
 		}
@@ -137,7 +138,7 @@ func (r *messageStoreImpl) FindByUuid(ctx context.Context, uuid string) (*Messag
 }
 
 func (r *messageStoreImpl) UpdateContent(ctx context.Context, uuid, content string, msgType int8) (bool, error) {
-	result := r.db.WithContext(ctx).Model(&Message{}).
+	result := database.GetDB(ctx, r.db).Model(&Message{}).
 		Where("uuid = ? AND type != ?", uuid, msgType).
 		Updates(map[string]interface{}{
 			"content": content,
@@ -182,7 +183,7 @@ func (r *messageStoreImpl) FindByUserIdsCursor(ctx context.Context, userOneId, u
 	}
 
 	condition := "(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)"
-	query := r.db.WithContext(ctx).Where(condition, userOneId, userTwoId, userTwoId, userOneId)
+	query := database.GetDB(ctx, r.db).Where(condition, userOneId, userTwoId, userTwoId, userOneId)
 	query = applyMessageCursor(query, cursor)
 
 	if err := query.Limit(pageSize + 1).Find(&messages).Error; err != nil {
@@ -213,7 +214,7 @@ func (r *messageStoreImpl) FindByGroupIdCursor(ctx context.Context, receiveId, c
 		pageSize = 20
 	}
 
-	query := r.db.WithContext(ctx).Where("receive_id = ?", receiveId)
+	query := database.GetDB(ctx, r.db).Where("receive_id = ?", receiveId)
 	query = applyMessageCursor(query, cursor)
 
 	if err := query.Limit(pageSize + 1).Find(&messages).Error; err != nil {
@@ -244,7 +245,7 @@ func (r *messageStoreImpl) FindBySessionIdCursor(ctx context.Context, sessionId,
 		pageSize = 20
 	}
 
-	query := r.db.WithContext(ctx).Where("session_id = ?", sessionId)
+	query := database.GetDB(ctx, r.db).Where("session_id = ?", sessionId)
 	query = applyMessageCursor(query, cursor)
 
 	if err := query.Limit(pageSize + 1).Find(&messages).Error; err != nil {
@@ -273,7 +274,7 @@ func (r *messageStoreImpl) FindBySessionIdSync(ctx context.Context, sessionId st
 		limit = 50
 	}
 	var messages []Message
-	if err := r.db.WithContext(ctx).
+	if err := database.GetDB(ctx, r.db).
 		Where("session_id = ? AND seq_id > ?", sessionId, afterSeq).
 		Order("seq_id ASC").
 		Limit(limit).
@@ -285,7 +286,7 @@ func (r *messageStoreImpl) FindBySessionIdSync(ctx context.Context, sessionId st
 
 func (r *messageStoreImpl) GetMaxSeqBySessionId(ctx context.Context, sessionId string) (int64, error) {
 	var maxSeq int64
-	if err := r.db.WithContext(ctx).Model(&Message{}).
+	if err := database.GetDB(ctx, r.db).Model(&Message{}).
 		Where("session_id = ?", sessionId).
 		Select("COALESCE(MAX(seq_id), 0)").
 		Scan(&maxSeq).Error; err != nil {
@@ -307,7 +308,7 @@ func NewSessionStore(db *gorm.DB) SessionStore {
 
 func (r *sessionStoreImpl) FindByUuid(ctx context.Context, uuid string) (*Session, error) {
 	var session Session
-	if err := r.db.WithContext(ctx).Where("uuid = ?", uuid).First(&session).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("uuid = ?", uuid).First(&session).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "查询会话 uuid=%s", uuid)
 	}
 	return &session, nil
@@ -315,7 +316,7 @@ func (r *sessionStoreImpl) FindByUuid(ctx context.Context, uuid string) (*Sessio
 
 func (r *sessionStoreImpl) FindBySendIdAndReceiveId(ctx context.Context, sendId, receiveId string) (*Session, error) {
 	var session Session
-	if err := r.db.WithContext(ctx).Where("send_id = ? AND receive_id = ?", sendId, receiveId).First(&session).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("send_id = ? AND receive_id = ?", sendId, receiveId).First(&session).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "查询会话 send_id=%s receive_id=%s", sendId, receiveId)
 	}
 	return &session, nil
@@ -323,7 +324,7 @@ func (r *sessionStoreImpl) FindBySendIdAndReceiveId(ctx context.Context, sendId,
 
 func (r *sessionStoreImpl) FindBySendIdAndReceiveIdUnscoped(ctx context.Context, sendId, receiveId string) (*Session, error) {
 	var session Session
-	if err := r.db.WithContext(ctx).Unscoped().Where("send_id = ? AND receive_id = ?", sendId, receiveId).First(&session).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Unscoped().Where("send_id = ? AND receive_id = ?", sendId, receiveId).First(&session).Error; err != nil {
 		return nil, dberr.WrapDBErrorf(err, "查询会话(含软删除) send_id=%s receive_id=%s", sendId, receiveId)
 	}
 	return &session, nil
@@ -333,14 +334,14 @@ func (r *sessionStoreImpl) FindBySendIdAndTypePaged(ctx context.Context, sendId 
 	var sessions []Session
 	var total int64
 
-	condition := r.db.WithContext(ctx).Model(&Session{}).Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%")
+	condition := database.GetDB(ctx, r.db).Model(&Session{}).Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%")
 
 	if err := condition.Count(&total).Error; err != nil {
 		return nil, 0, dberr.WrapDBErrorf(err, "统计会话数量 send_id=%s type=%s", sendId, receiveIdPrefix)
 	}
 
 	offset := (page - 1) * pageSize
-	if err := r.db.WithContext(ctx).Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%").
+	if err := database.GetDB(ctx, r.db).Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%").
 		Order("is_pinned DESC, last_message_at DESC").
 		Offset(offset).
 		Limit(pageSize).
@@ -394,7 +395,7 @@ func (r *sessionStoreImpl) FindBySendIdAndTypeCursor(ctx context.Context, sendId
 		pageSize = 20
 	}
 
-	query := r.db.WithContext(ctx).Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%")
+	query := database.GetDB(ctx, r.db).Where("send_id = ? AND receive_id LIKE ?", sendId, receiveIdPrefix+"%")
 
 	if cursor != "" {
 		isPinned, ts, ok := parseSessionCursor(cursor)
@@ -438,12 +439,12 @@ func (r *sessionStoreImpl) FindBySendIdAndTypeCursor(ctx context.Context, sendId
 }
 
 func (r *sessionStoreImpl) CreateSession(ctx context.Context, session *Session) error {
-	if err := r.db.WithContext(ctx).Create(session).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Create(session).Error; err != nil {
 		if dberr.IsDuplicateKey(err) {
 			var existing Session
-			if queryErr := r.db.WithContext(ctx).Unscoped().Where("send_id = ? AND receive_id = ?", session.SendId, session.ReceiveId).First(&existing).Error; queryErr == nil {
+			if queryErr := database.GetDB(ctx, r.db).Unscoped().Where("send_id = ? AND receive_id = ?", session.SendId, session.ReceiveId).First(&existing).Error; queryErr == nil {
 				if existing.DeletedAt.Valid {
-					_ = r.db.WithContext(ctx).Unscoped().Model(&existing).Update("deleted_at", nil)
+					_ = database.GetDB(ctx, r.db).Unscoped().Model(&existing).Update("deleted_at", nil)
 					session.Uuid = existing.Uuid
 				}
 			}
@@ -457,7 +458,7 @@ func (r *sessionStoreImpl) SoftDeleteByUuids(ctx context.Context, uuids []string
 	if len(uuids) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Unscoped().Where("uuid IN ?", uuids).Delete(&Session{}).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Unscoped().Where("uuid IN ?", uuids).Delete(&Session{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除会话")
 	}
 	return nil
@@ -467,14 +468,14 @@ func (r *sessionStoreImpl) SoftDeleteByUsers(ctx context.Context, userUuids []st
 	if len(userUuids) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Unscoped().Where("send_id IN ? OR receive_id IN ?", userUuids, userUuids).Delete(&Session{}).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Unscoped().Where("send_id IN ? OR receive_id IN ?", userUuids, userUuids).Delete(&Session{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除会话")
 	}
 	return nil
 }
 
 func (r *sessionStoreImpl) UpdateByReceiveId(ctx context.Context, receiveId string, updates map[string]interface{}) error {
-	if err := r.db.WithContext(ctx).Model(&Session{}).Where("receive_id = ?", receiveId).Updates(updates).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Model(&Session{}).Where("receive_id = ?", receiveId).Updates(updates).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "批量更新会话 receive_id=%s", receiveId)
 	}
 	return nil
@@ -490,7 +491,7 @@ func (r *sessionStoreImpl) UpdateLastMessage(ctx context.Context, sendId, receiv
 		updates["last_seq_id"] = seqId
 	}
 
-	query := r.db.WithContext(ctx).Model(&Session{}).Where("send_id = ? AND receive_id = ?", sendId, receiveId)
+	query := database.GetDB(ctx, r.db).Model(&Session{}).Where("send_id = ? AND receive_id = ?", sendId, receiveId)
 	if seqId > 0 {
 		query = query.Where("(last_seq_id = 0 OR last_seq_id <= ?)", seqId)
 	} else {
@@ -504,7 +505,7 @@ func (r *sessionStoreImpl) UpdateLastMessage(ctx context.Context, sendId, receiv
 }
 
 func (r *sessionStoreImpl) UpdatePinStatus(ctx context.Context, uuid string, isPinned bool) error {
-	if err := r.db.WithContext(ctx).Model(&Session{}).
+	if err := database.GetDB(ctx, r.db).Model(&Session{}).
 		Where("uuid = ? AND is_pinned != ?", uuid, isPinned).
 		Update("is_pinned", isPinned).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "更新会话置顶状态 uuid=%s", uuid)

@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	userpb "kama_chat_server/api/gen/user"
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
 	"kama_chat_server/internal/infra/grpc_client"
 	"kama_chat_server/internal/infra/snowflake"
@@ -54,15 +55,15 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 
 				if int8(groupRsp.AddMode) == add_mode.DIRECT {
 					apply.Status = apply_status.AGREE
-					err = u.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
-						if err := txStore.CreateApply(execCtx, apply); err != nil {
+					err = database.ExecTx(execCtx, u.db, func(txCtx context.Context) error {
+						if err := u.store.CreateApply(txCtx, apply); err != nil {
 							return err
 						}
 						payload, _ := json.Marshal(event.GroupApplyPassedEvent{
 							GroupId: req.GroupId,
 							UserId:  userId,
 						})
-						return recordEvent(req.GroupId, event.EventGroupApplyPassed, payload)
+						return u.recordEvent(txCtx, req.GroupId, event.EventGroupApplyPassed, payload)
 					})
 					if err != nil {
 						zap.L().Error("Direct join group error", zap.Error(err))
@@ -105,15 +106,15 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 			apply.Message = req.Message
 			apply.Version += 1
 
-			err = u.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
-				if err := txStore.Update(execCtx, apply); err != nil {
+			err = database.ExecTx(execCtx, u.db, func(txCtx context.Context) error {
+				if err := u.store.Update(txCtx, apply); err != nil {
 					return err
 				}
 				payload, _ := json.Marshal(event.GroupApplyPassedEvent{
 					GroupId: req.GroupId,
 					UserId:  userId,
 				})
-				return recordEvent(req.GroupId, event.EventGroupApplyPassed, payload)
+				return u.recordEvent(txCtx, req.GroupId, event.EventGroupApplyPassed, payload)
 			})
 			if err != nil {
 				zap.L().Error("Direct join group error", zap.Error(err))
@@ -263,14 +264,14 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 	}
 
 	var alreadyAgreed bool
-	err = u.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
-		ok, err := txStore.UpdateStatusIfPending(ctx, apply.Uuid, apply_status.AGREE, apply.Version)
+	err = database.ExecTx(ctx, u.db, func(txCtx context.Context) error {
+		ok, err := u.store.UpdateStatusIfPending(txCtx, apply.Uuid, apply_status.AGREE, apply.Version)
 		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		if !ok {
-			cur, queryErr := txStore.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
+			cur, queryErr := u.store.FindByApplicantIdAndTargetId(txCtx, applicantId, groupId)
 			if queryErr != nil || cur == nil {
 				return errorx.New(errorx.CodeNotFound, "申请记录不存在")
 			}
@@ -294,7 +295,7 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 			GroupId: groupId,
 			UserId:  applicantId,
 		})
-		return recordEvent(groupId, event.EventGroupApplyPassed, payload)
+		return u.recordEvent(txCtx, groupId, event.EventGroupApplyPassed, payload)
 	})
 
 	if err != nil {

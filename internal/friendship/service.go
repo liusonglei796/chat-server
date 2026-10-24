@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/outbox"
 )
 
@@ -30,25 +31,14 @@ func NewFriendshipService(db *gorm.DB, store Store, cacheService ...cacheinfra.A
 	}
 }
 
-// execTx 简明事务辅助函数：如果有 db 则走 GORM 事务，无 db（单测）则直接在当前 store 上执行
-func (s *FriendshipService) execTx(ctx context.Context, fn func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error) error {
-	if s.db == nil {
-		record := func(aggregateId, eventType string, payload []byte) error {
-			if s.eventRecord != nil {
-				return s.eventRecord(ctx, nil, aggregateId, eventType, payload)
-			}
-			return nil
-		}
-		return fn(s.store, record)
+// recordEvent 统一记录 outbox 事件（与事务在同一连接/事务上下文中）
+func (s *FriendshipService) recordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
+	db := database.GetDB(ctx, s.db)
+	if s.eventRecord != nil {
+		return s.eventRecord(ctx, db, aggregateId, eventType, payload)
 	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		txStore := NewStore(tx)
-		record := func(aggregateId, eventType string, payload []byte) error {
-			if s.eventRecord != nil {
-				return s.eventRecord(ctx, tx, aggregateId, eventType, payload)
-			}
-			return outbox.RecordEvent(ctx, tx, aggregateId, eventType, payload)
-		}
-		return fn(txStore, record)
-	})
+	if db == nil {
+		return nil
+	}
+	return outbox.RecordEvent(ctx, db, aggregateId, eventType, payload)
 }

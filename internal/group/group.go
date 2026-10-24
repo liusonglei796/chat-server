@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
+	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
 	"kama_chat_server/internal/infra/snowflake"
 	"kama_chat_server/pkg/constants"
@@ -32,13 +33,13 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 			Status:    group_status.NORMAL,
 		}
 
-		err := g.execTx(ctx, func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
-			existing, err := txGroup.FindByOwnerIdAndName(c, ownerId, newGroup.Name)
+		err := database.ExecTx(c, g.db, func(txCtx context.Context) error {
+			existing, err := g.groupStore.FindByOwnerIdAndName(txCtx, ownerId, newGroup.Name)
 			if err == nil && existing != nil {
 				return errorx.New(errorx.CodeInvalidParam, "您已拥有同名的正常群聊，请勿重复创建")
 			}
 
-			if err := txGroup.CreateGroup(c, &newGroup); err != nil {
+			if err := g.groupStore.CreateGroup(txCtx, &newGroup); err != nil {
 				if dberr.IsDuplicateKey(err) {
 					return errorx.New(errorx.CodeInvalidParam, "您已拥有同名的正常群聊，请勿重复创建")
 				}
@@ -51,7 +52,7 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 				UserUuid:  ownerId,
 				Role:      3,
 			}
-			if err := txMember.CreateGroupMember(c, &member); err != nil {
+			if err := g.memberStore.CreateGroupMember(txCtx, &member); err != nil {
 				zap.L().Error("service error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
@@ -62,7 +63,7 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 				GroupName:   newGroup.Name,
 				GroupAvatar: newGroup.Avatar,
 			})
-			return recordEvent(newGroup.Uuid, event.EventGroupCreated, payload)
+			return g.recordEvent(txCtx, newGroup.Uuid, event.EventGroupCreated, payload)
 		})
 
 		if err != nil {
@@ -221,8 +222,8 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 		return nil
 	}
 
-	err = g.execTx(ctx, func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
-		ok, err := txGroup.DismissGroupWithCAS(ctx, groupId, operatorId)
+	err = database.ExecTx(ctx, g.db, func(txCtx context.Context) error {
+		ok, err := g.groupStore.DismissGroupWithCAS(txCtx, groupId, operatorId)
 		if err != nil {
 			zap.L().Error("Dismiss group with CAS error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -231,7 +232,7 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 			return nil
 		}
 
-		if err := txMember.DeleteByGroupUuid(ctx, groupId); err != nil {
+		if err := g.memberStore.DeleteByGroupUuid(txCtx, groupId); err != nil {
 			zap.L().Error("Delete members error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -239,7 +240,7 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 		payload, _ := json.Marshal(event.GroupDismissedEvent{
 			GroupId: groupId,
 		})
-		return recordEvent(groupId, event.EventGroupDismissed, payload)
+		return g.recordEvent(txCtx, groupId, event.EventGroupDismissed, payload)
 	})
 
 	if err != nil {
@@ -299,9 +300,7 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 		return nil
 	}
 
-	if err := g.execTx(ctx, func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
-		return txGroup.UpdateWithVersion(ctx, req.Uuid, *req.Version, updates)
-	}); err != nil {
+	if err := g.groupStore.UpdateWithVersion(ctx, req.Uuid, *req.Version, updates); err != nil {
 		if errorx.IsCode(err, errorx.CodeConflict) {
 			currentGroup, queryErr := g.groupStore.FindByUuid(ctx, req.Uuid)
 			if queryErr == nil && currentGroup != nil {
