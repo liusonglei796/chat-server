@@ -41,7 +41,7 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 			UserId:   userId,
 			FriendId: friendId,
 		})
-		return s.recordEvent(txCtx, userId, event.EventFriendDeleted, payload)
+		return s.recordOutboxEvent(txCtx, userId, event.EventFriendDeleted, payload)
 	})
 
 	if err != nil {
@@ -140,7 +140,7 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			UserId:   userId,
 			FriendId: friendId,
 		})
-		return s.recordEvent(txCtx, userId, event.EventFriendBlacked, payload)
+		return s.recordOutboxEvent(txCtx, userId, event.EventFriendBlacked, payload)
 	})
 
 	if err != nil {

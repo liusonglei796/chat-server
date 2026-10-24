@@ -142,7 +142,7 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 		if db == nil {
 			return nil
 		}
-		return outbox.RecordEvent(txCtx, db, e.GroupId, event.EventGroupJoined, joinedPayload)
+		return outbox.RecordOutboxEvent(txCtx, db, e.GroupId, event.EventGroupJoined, joinedPayload)
 	})
 	if err != nil {
 		if dberr.IsDuplicateKey(err) {

@@ -42,10 +42,10 @@ func NewApplyService(db *gorm.DB, store Store, cacheService cacheinfra.AsyncCach
 	}
 }
 
-// recordEvent 统一记录 outbox 事件（与事务在同一连接/事务上下文中）
-func (u *ApplyService) recordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
+// recordOutboxEvent 统一记录本地 outbox 待发事件（与事务在同一连接/事务上下文中）
+func (u *ApplyService) recordOutboxEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
 	if u.db == nil {
 		return nil
 	}
-	return outbox.RecordEvent(ctx, database.GetDB(ctx, u.db), aggregateId, eventType, payload)
+	return outbox.RecordOutboxEvent(ctx, database.GetDB(ctx, u.db), aggregateId, eventType, payload)
 }

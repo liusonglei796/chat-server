@@ -63,7 +63,7 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 							GroupId: req.GroupId,
 							UserId:  userId,
 						})
-						return u.recordEvent(txCtx, req.GroupId, event.EventGroupApplyPassed, payload)
+						return u.recordOutboxEvent(txCtx, req.GroupId, event.EventGroupApplyPassed, payload)
 					})
 					if err != nil {
 						zap.L().Error("Direct join group error", zap.Error(err))
@@ -114,7 +114,7 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 					GroupId: req.GroupId,
 					UserId:  userId,
 				})
-				return u.recordEvent(txCtx, req.GroupId, event.EventGroupApplyPassed, payload)
+				return u.recordOutboxEvent(txCtx, req.GroupId, event.EventGroupApplyPassed, payload)
 			})
 			if err != nil {
 				zap.L().Error("Direct join group error", zap.Error(err))
@@ -295,7 +295,7 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 			GroupId: groupId,
 			UserId:  applicantId,
 		})
-		return u.recordEvent(txCtx, groupId, event.EventGroupApplyPassed, payload)
+		return u.recordOutboxEvent(txCtx, groupId, event.EventGroupApplyPassed, payload)
 	})
 
 	if err != nil {

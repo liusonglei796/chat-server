@@ -51,8 +51,8 @@ func NewGroupService(
 	}
 }
 
-// recordEvent 记录领域事件，支持单测 hook 拦截
-func (g *GroupService) recordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
+// recordOutboxEvent 记录领域事件至本地 Outbox 发件箱表，支持单测 hook 拦截
+func (g *GroupService) recordOutboxEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
 	if g.eventRecord != nil {
 		return g.eventRecord(ctx, database.GetDB(ctx, g.db), aggregateId, eventType, payload)
 	}
@@ -60,5 +60,5 @@ func (g *GroupService) recordEvent(ctx context.Context, aggregateId, eventType s
 	if db == nil {
 		return nil
 	}
-	return outbox.RecordEvent(ctx, db, aggregateId, eventType, payload)
+	return outbox.RecordOutboxEvent(ctx, db, aggregateId, eventType, payload)
 }

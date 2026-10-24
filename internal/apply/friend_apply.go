@@ -274,7 +274,7 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 			UserId:   userId,
 			FriendId: applicantId,
 		})
-		return u.recordEvent(txCtx, userId, event.EventFriendApplyPassed, payload)
+		return u.recordOutboxEvent(txCtx, userId, event.EventFriendApplyPassed, payload)
 	})
 
 	if err != nil {

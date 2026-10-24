@@ -63,7 +63,7 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 				GroupName:   newGroup.Name,
 				GroupAvatar: newGroup.Avatar,
 			})
-			return g.recordEvent(txCtx, newGroup.Uuid, event.EventGroupCreated, payload)
+			return g.recordOutboxEvent(txCtx, newGroup.Uuid, event.EventGroupCreated, payload)
 		})
 
 		if err != nil {
@@ -240,7 +240,7 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 		payload, _ := json.Marshal(event.GroupDismissedEvent{
 			GroupId: groupId,
 		})
-		return g.recordEvent(txCtx, groupId, event.EventGroupDismissed, payload)
+		return g.recordOutboxEvent(txCtx, groupId, event.EventGroupDismissed, payload)
 	})
 
 	if err != nil {

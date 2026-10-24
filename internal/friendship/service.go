@@ -31,8 +31,8 @@ func NewFriendshipService(db *gorm.DB, store Store, cacheService ...cacheinfra.A
 	}
 }
 
-// recordEvent 统一记录 outbox 事件（与事务在同一连接/事务上下文中）
-func (s *FriendshipService) recordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
+// recordOutboxEvent 统一记录本地 outbox 待发事件（与事务在同一连接/事务上下文中）
+func (s *FriendshipService) recordOutboxEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
 	db := database.GetDB(ctx, s.db)
 	if s.eventRecord != nil {
 		return s.eventRecord(ctx, db, aggregateId, eventType, payload)
@@ -40,5 +40,5 @@ func (s *FriendshipService) recordEvent(ctx context.Context, aggregateId, eventT
 	if db == nil {
 		return nil
 	}
-	return outbox.RecordEvent(ctx, db, aggregateId, eventType, payload)
+	return outbox.RecordOutboxEvent(ctx, db, aggregateId, eventType, payload)
 }

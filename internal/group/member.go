@@ -47,7 +47,7 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 				GroupId: groupId,
 				UserId:  userId,
 			})
-			return g.recordEvent(txCtx, groupId, event.EventGroupMemberLeft, payload)
+			return g.recordOutboxEvent(txCtx, groupId, event.EventGroupMemberLeft, payload)
 		}
 		return nil
 	})
@@ -184,7 +184,7 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 				OperatorId:  operatorId,
 				MemberUuids: req.UuidList,
 			})
-			return g.recordEvent(txCtx, req.GroupId, event.EventGroupMemberRemoved, payload)
+			return g.recordOutboxEvent(txCtx, req.GroupId, event.EventGroupMemberRemoved, payload)
 		}
 		return nil
 	})
