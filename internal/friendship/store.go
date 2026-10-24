@@ -119,7 +119,7 @@ func (r *storeImpl) UpdateStatusWithExpected(ctx context.Context, userId, friend
 
 // SoftDelete 删除单向好友关系（物理删除 userId -> friendId 单向记录，释放唯一索引槽位，允许重新加回）
 func (r *storeImpl) SoftDelete(ctx context.Context, userId, friendId string) error {
-	if err := database.GetDB(ctx, r.db).Unscoped().Where(
+	if err := database.GetDB(ctx, r.db).Where(
 		"user_id = ? AND friend_id = ?",
 		userId, friendId,
 	).Delete(&Friendship{}).Error; err != nil {
@@ -133,7 +133,7 @@ func (r *storeImpl) SoftDeleteByUsers(ctx context.Context, userUuids []string) e
 	if len(userUuids) == 0 {
 		return nil
 	}
-	if err := database.GetDB(ctx, r.db).Unscoped().Where("user_id IN ? OR friend_id IN ?", userUuids, userUuids).Delete(&Friendship{}).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("user_id IN ? OR friend_id IN ?", userUuids, userUuids).Delete(&Friendship{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除好友关系")
 	}
 	return nil

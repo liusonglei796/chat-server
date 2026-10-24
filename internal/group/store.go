@@ -252,7 +252,7 @@ func (r *groupMemberStoreImpl) FindMembersWithUserInfoPaged(ctx context.Context,
 	}
 
 	if err := database.GetDB(ctx, r.db).Table("group_member").
-		Where("group_uuid = ? AND deleted_at IS NULL", groupUuid).
+		Where("group_uuid = ?", groupUuid).
 		Count(&total).Error; err != nil {
 		return nil, 0, dberr.WrapDBErrorf(err, "统计群成员数量 group_uuid=%s", groupUuid)
 	}
@@ -261,7 +261,7 @@ func (r *groupMemberStoreImpl) FindMembersWithUserInfoPaged(ctx context.Context,
 	if err := database.GetDB(ctx, r.db).Table("group_member").
 		Select("user_info.uuid as user_id, user_info.nickname, user_info.avatar").
 		Joins("LEFT JOIN user_info ON group_member.user_uuid = user_info.uuid").
-		Where("group_member.group_uuid = ? AND group_member.deleted_at IS NULL", groupUuid).
+		Where("group_member.group_uuid = ?", groupUuid).
 		Offset(offset).
 		Limit(pageSize).
 		Scan(&members).Error; err != nil {
@@ -286,7 +286,7 @@ func (r *groupMemberStoreImpl) CreateGroupMember(ctx context.Context, member *Gr
 }
 
 func (r *groupMemberStoreImpl) DeleteByGroupUuid(ctx context.Context, groupUuid string) error {
-	if err := database.GetDB(ctx, r.db).Unscoped().Where("group_uuid = ?", groupUuid).Delete(&GroupMember{}).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("group_uuid = ?", groupUuid).Delete(&GroupMember{}).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "删除群所有成员 group_uuid=%s", groupUuid)
 	}
 	return nil
@@ -296,7 +296,7 @@ func (r *groupMemberStoreImpl) DeleteByUserUuids(ctx context.Context, groupUuid 
 	if len(userUuids) == 0 {
 		return 0, nil
 	}
-	res := database.GetDB(ctx, r.db).Unscoped().Where("group_uuid = ? AND user_uuid IN ?", groupUuid, userUuids).Delete(&GroupMember{})
+	res := database.GetDB(ctx, r.db).Where("group_uuid = ? AND user_uuid IN ?", groupUuid, userUuids).Delete(&GroupMember{})
 	if err := res.Error; err != nil {
 		return 0, dberr.WrapDBErrorf(err, "批量删除群成员 group_uuid=%s", groupUuid)
 	}
@@ -307,7 +307,7 @@ func (r *groupMemberStoreImpl) DeleteByGroupUuids(ctx context.Context, groupUuid
 	if len(groupUuids) == 0 {
 		return nil
 	}
-	if err := database.GetDB(ctx, r.db).Unscoped().Where("group_uuid IN ?", groupUuids).Delete(&GroupMember{}).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("group_uuid IN ?", groupUuids).Delete(&GroupMember{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除群所有成员")
 	}
 	return nil

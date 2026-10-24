@@ -2,6 +2,7 @@ package group
 
 import (
 	"database/sql"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -46,8 +47,11 @@ func (GroupInfo) TableName() string {
 
 // GroupMember 群成员关联模型
 // 对应数据库 group_member 表
+// 刻意不包含 DeletedAt（禁用软删除）：成员退群/踢出直接物理删除释放唯一键 idx_group_user，历史变动审计由领域事件流承载
 type GroupMember struct {
-	gorm.Model
+	ID        uint         `gorm:"primaryKey;autoIncrement" json:"id"`
+	CreatedAt time.Time    `gorm:"column:created_at;not null" json:"created_at"`
+	UpdatedAt time.Time    `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// GroupUuid 群组 UUID
 	GroupUuid string `gorm:"type:char(20);index;not null;uniqueIndex:idx_group_user;comment:群组ID"`

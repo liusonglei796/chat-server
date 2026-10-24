@@ -324,8 +324,8 @@ func (r *sessionStoreImpl) FindBySendIdAndReceiveId(ctx context.Context, sendId,
 
 func (r *sessionStoreImpl) FindBySendIdAndReceiveIdUnscoped(ctx context.Context, sendId, receiveId string) (*Session, error) {
 	var session Session
-	if err := database.GetDB(ctx, r.db).Unscoped().Where("send_id = ? AND receive_id = ?", sendId, receiveId).First(&session).Error; err != nil {
-		return nil, dberr.WrapDBErrorf(err, "查询会话(含软删除) send_id=%s receive_id=%s", sendId, receiveId)
+	if err := database.GetDB(ctx, r.db).Where("send_id = ? AND receive_id = ?", sendId, receiveId).First(&session).Error; err != nil {
+		return nil, dberr.WrapDBErrorf(err, "查询会话 send_id=%s receive_id=%s", sendId, receiveId)
 	}
 	return &session, nil
 }
@@ -442,11 +442,9 @@ func (r *sessionStoreImpl) CreateSession(ctx context.Context, session *Session) 
 	if err := database.GetDB(ctx, r.db).Create(session).Error; err != nil {
 		if dberr.IsDuplicateKey(err) {
 			var existing Session
-			if queryErr := database.GetDB(ctx, r.db).Unscoped().Where("send_id = ? AND receive_id = ?", session.SendId, session.ReceiveId).First(&existing).Error; queryErr == nil {
-				if existing.DeletedAt.Valid {
-					_ = database.GetDB(ctx, r.db).Unscoped().Model(&existing).Update("deleted_at", nil)
-					session.Uuid = existing.Uuid
-				}
+			if queryErr := database.GetDB(ctx, r.db).Where("send_id = ? AND receive_id = ?", session.SendId, session.ReceiveId).First(&existing).Error; queryErr == nil {
+				session.Uuid = existing.Uuid
+				return nil
 			}
 		}
 		return dberr.WrapDBError(err, "创建会话")
@@ -458,7 +456,7 @@ func (r *sessionStoreImpl) SoftDeleteByUuids(ctx context.Context, uuids []string
 	if len(uuids) == 0 {
 		return nil
 	}
-	if err := database.GetDB(ctx, r.db).Unscoped().Where("uuid IN ?", uuids).Delete(&Session{}).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("uuid IN ?", uuids).Delete(&Session{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除会话")
 	}
 	return nil
@@ -468,7 +466,7 @@ func (r *sessionStoreImpl) SoftDeleteByUsers(ctx context.Context, userUuids []st
 	if len(userUuids) == 0 {
 		return nil
 	}
-	if err := database.GetDB(ctx, r.db).Unscoped().Where("send_id IN ? OR receive_id IN ?", userUuids, userUuids).Delete(&Session{}).Error; err != nil {
+	if err := database.GetDB(ctx, r.db).Where("send_id IN ? OR receive_id IN ?", userUuids, userUuids).Delete(&Session{}).Error; err != nil {
 		return dberr.WrapDBError(err, "批量删除会话")
 	}
 	return nil

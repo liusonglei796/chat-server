@@ -1,15 +1,18 @@
 package friendship
 
 import (
-	"gorm.io/gorm"
+	"time"
 )
 
 // Friendship 好友关系模型
 // 对应数据库 user_friendship 表
 // 仅存储用户之间的好友关系（群组关系由 GroupMember 表管理）
 // user_friendship 是已建立的好友关系表；apply 是申请阶段的记录表（好友/入群申请）。
+// 刻意不包含 DeletedAt（禁用软删除）：好友关系属于瞬态映射槽位，解除好友直接物理删除释放唯一键 idx_user_friend
 type Friendship struct {
-	gorm.Model // 内嵌 GORM 模型，包含 ID、CreatedAt、UpdatedAt、DeletedAt
+	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// UserId 用户 UUID
 	// 表示这条记录属于哪个用户

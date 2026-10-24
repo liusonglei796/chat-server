@@ -2,6 +2,7 @@ package message
 
 import (
 	"database/sql"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -58,8 +59,11 @@ func (Message) TableName() string {
 
 // Session 会话模型
 // 对应数据库 session 表
+// 刻意不包含 DeletedAt（禁用软删除）：会话纯属客户端窗口展现状态，关闭/删除直接物理删除释放唯一键 idx_send_receive
 type Session struct {
-	gorm.Model
+	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// Uuid 会话唯一标识
 	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);comment:会话uuid"`
