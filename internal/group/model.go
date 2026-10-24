@@ -13,7 +13,6 @@ type GroupInfo struct {
 	Uuid string `gorm:"column:uuid;primaryKey;type:char(20);not null;comment:群组唯一id" json:"uuid"`
 
 	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
-	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// Name 群组名称
 	Name string `gorm:"column:name;uniqueIndex:idx_owner_name;type:varchar(20);not null;comment:群名称"`
@@ -54,9 +53,6 @@ type GroupMember struct {
 
 	// UserUuid 用户 UUID - 联合主键
 	UserUuid string `gorm:"column:user_uuid;type:char(20);primaryKey;not null;comment:用户ID" json:"user_uuid"`
-
-	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
-	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// Role 成员角色 (1=普通成员, 2=管理员, 3=群主)
 	Role int8 `gorm:"default:1;comment:1普通成员 2管理员 3群主"`

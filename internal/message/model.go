@@ -13,7 +13,6 @@ type Message struct {
 	Uuid string `gorm:"column:uuid;primaryKey;type:char(20);not null;index:idx_session_uuid,priority:2;index:idx_receive_uuid,priority:2;comment:消息雪花ID" json:"uuid"`
 
 	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
-	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// ClientMsgId 客户端生成的消息唯一标识（幂等去重）
 	ClientMsgId string `gorm:"column:client_msg_id;uniqueIndex;type:varchar(64);default:null;comment:客户端消息唯一标识"`
@@ -65,7 +64,6 @@ type Session struct {
 	Uuid string `gorm:"column:uuid;primaryKey;type:char(20);not null;comment:会话uuid" json:"uuid"`
 
 	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
-	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// SendId 创建会话的用户 UUID
 	SendId string `gorm:"column:send_id;index;type:char(20);not null;uniqueIndex:idx_send_receive;comment:创建会话人id"`

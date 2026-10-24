@@ -1,9 +1,5 @@
 package friendship
 
-import (
-	"time"
-)
-
 // Friendship 好友关系模型
 // 对应数据库 user_friendship 表
 // 仅存储用户之间的好友关系（群组关系由 GroupMember 表管理）
@@ -15,9 +11,6 @@ type Friendship struct {
 
 	// FriendId 好友用户 UUID - 联合主键
 	FriendId string `gorm:"column:friend_id;primaryKey;type:char(20);not null;comment:好友ID" json:"friend_id"`
-
-	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
-	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// Status 好友状态
 	// 0=正常：正常好友关系
