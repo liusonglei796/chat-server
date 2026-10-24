@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,16 +10,10 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
 
-	gatewaypb "kama_chat_server/api/gen/gateway"
-	"kama_chat_server/internal/gateway"
 	"kama_chat_server/internal/infra/config"
-	"kama_chat_server/internal/infra/grpc_client"
 	"kama_chat_server/internal/infra/jwt"
 	"kama_chat_server/internal/infra/logger"
-	"kama_chat_server/internal/infra/redis"
-	"kama_chat_server/pkg/interceptor"
 	otelinit "kama_chat_server/pkg/otel"
 )
 
@@ -33,83 +25,50 @@ func main() {
 	if err := logger.Init(&conf.LogConfig, "dev"); err != nil {
 		log.Fatalf("init logger failed: %v", err)
 	}
-	zap.L().Info("日志初始化成功")
 
-	// 2.5. 初始化 OpenTelemetry（如果启用）
+	// 3. 初始化 OpenTelemetry（如果启用）
 	var otelShutdown func(context.Context) error
-	otelCfg := conf.OtelConfig
-	if otelCfg.Enabled {
+	if conf.OtelConfig.Enabled {
 		var err error
-		otelShutdown, err = otelinit.InitTracer(context.Background(), otelCfg.Endpoint, otelCfg.ServiceName)
+		otelShutdown, err = otelinit.InitTracer(context.Background(), conf.OtelConfig.Endpoint, conf.OtelConfig.ServiceName)
 		if err != nil {
 			zap.L().Fatal("OpenTelemetry 初始化失败", zap.Error(err))
 		}
 		zap.L().Info("OpenTelemetry 初始化成功",
-			zap.String("endpoint", otelCfg.Endpoint),
-			zap.String("serviceName", otelCfg.ServiceName),
+			zap.String("endpoint", conf.OtelConfig.Endpoint),
+			zap.String("serviceName", conf.OtelConfig.ServiceName),
 		)
 	}
 
-	// 3. 初始化 Redis 缓存
-	cacheService := redis.Init()
-	zap.L().Info("Redis 初始化成功")
-
 	// 4. 初始化 JWT
 	jwt.Init(conf.JWTConfig.Secret, conf.JWTConfig.AccessTokenExpiry, conf.JWTConfig.RefreshTokenExpiry)
-	zap.L().Info("JWT 初始化成功")
 
-	// 5. 解析网关 gRPC 监听与注册地址
-	grpcPort := conf.MainConfig.GrpcPort
-	if grpcPort == 0 {
-		grpcPort = 8001
-	}
-	grpcAddr := conf.MainConfig.GrpcAddr
-	if grpcAddr == "" {
-		grpcAddr = fmt.Sprintf("127.0.0.1:%d", grpcPort)
-	}
-
-	chatServer := gateway.NewChatServer(cacheService, grpcAddr)
-	zap.L().Info("ChatServer 初始化成功", zap.String("grpcAddr", grpcAddr))
-
-	// 6. 初始化 gRPC Client (用于 WebSocket 上行发消息时转发至后端微服务)
-	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
-	zap.L().Info("gRPC 客户端初始化成功")
-
-	// 7. 启动网关内部 gRPC 服务（供后端微服务直推下行消息）
-	grpcLis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", grpcPort))
+	// 5. 使用 Google Wire 编织并装配 GatewayApp
+	app, cleanup, err := wireApp(conf)
 	if err != nil {
-		zap.L().Fatal("failed to listen on gateway grpc port", zap.Error(err))
+		zap.L().Fatal("wire app failed", zap.Error(err))
 	}
-	gatewayGrpcServer := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(
-			interceptor.ServerAuthInterceptor(),
-			otelinit.ServerTraceInterceptor(),
-		),
-	)
-	gatewayServerImpl := gateway.NewGatewayGrpcServer(chatServer.GetHub())
-	gatewaypb.RegisterGatewayServiceServer(gatewayGrpcServer, gatewayServerImpl)
+	defer cleanup()
 
+	// 6. 启动内部 gRPC 服务（供微服务直推下行消息）
 	go func() {
-		zap.L().Info("Gateway gRPC Server started", zap.Int("port", grpcPort), zap.String("regAddr", grpcAddr))
-		if err := gatewayGrpcServer.Serve(grpcLis); err != nil {
+		zap.L().Info("Gateway gRPC Server started", zap.Int("port", app.GrpcWrap.Port), zap.String("regAddr", app.GrpcWrap.Addr))
+		if err := app.GrpcWrap.Server.Serve(app.GrpcWrap.Listener); err != nil {
 			zap.L().Fatal("gateway grpc serve error", zap.Error(err))
 		}
 	}()
 
-	// 8. 启动长连接 Hub 广播与分发监听
-	go chatServer.Run()
+	// 7. 启动长连接 Hub 广播与分发监听
+	go app.ChatServer.Run()
 
-	// 9. 启动专职 WebSocket 原生 HTTP 监听服务
-	httpAddr := fmt.Sprintf("%s:%d", conf.MainConfig.Host, conf.MainConfig.Port)
-	wsServer := gateway.NewWsServer(httpAddr, chatServer.GetHub())
-
+	// 8. 启动专职 WebSocket 原生 HTTP 监听服务
 	go func() {
-		if err := wsServer.Start(); err != nil && err != http.ErrServerClosed {
+		if err := app.WsServer.Start(); err != nil && err != http.ErrServerClosed {
 			zap.L().Fatal("ws server running failed", zap.Error(err))
 		}
 	}()
 
-	// 10. 监听优雅退出信号
+	// 9. 监听优雅退出信号
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -119,20 +78,12 @@ func main() {
 	// 优雅停机 HTTP WebSocket 监听服务 (5秒超时)
 	httpShutdownCtx, httpCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer httpCancel()
-	if err := wsServer.Shutdown(httpShutdownCtx); err != nil {
+	if err := app.WsServer.Shutdown(httpShutdownCtx); err != nil {
 		zap.L().Error("ws server shutdown error", zap.Error(err))
 	}
 
-	// 优雅停机内部 gRPC 服务
-	gatewayGrpcServer.GracefulStop()
-
 	// 关闭聊天长连接池
-	chatServer.Shutdown()
-
-	// 关闭 Redis 异步任务池，等待已提交任务完成
-	if rc, ok := cacheService.(*redis.RedisCache); ok {
-		rc.Release()
-	}
+	app.ChatServer.Shutdown()
 
 	// 关闭 OpenTelemetry TracerProvider
 	if otelShutdown != nil {
