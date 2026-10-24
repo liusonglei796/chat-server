@@ -9,12 +9,11 @@ import (
 // 对应数据库 group_info 表
 // 显式声明主键与时间戳，严禁使用 gorm.Model（消除隐式软删除与全局 WHERE deleted_at IS NULL 注入）
 type GroupInfo struct {
-	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	// Uuid 群组唯一标识 - 主键
+	Uuid string `gorm:"column:uuid;primaryKey;type:char(20);not null;comment:群组唯一id" json:"uuid"`
+
 	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
 	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
-
-	// Uuid 群组唯一标识
-	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);not null;comment:群组唯一id"`
 
 	// Name 群组名称
 	Name string `gorm:"column:name;uniqueIndex:idx_owner_name;type:varchar(20);not null;comment:群名称"`
@@ -50,15 +49,14 @@ func (GroupInfo) TableName() string {
 // 对应数据库 group_member 表
 // 刻意不包含 DeletedAt（禁用软删除）：成员退群/踢出直接物理删除释放唯一键 idx_group_user，历史变动审计由领域事件流承载
 type GroupMember struct {
-	ID        uint         `gorm:"primaryKey;autoIncrement" json:"id"`
-	CreatedAt time.Time    `gorm:"column:created_at;not null" json:"created_at"`
-	UpdatedAt time.Time    `gorm:"column:updated_at;not null" json:"updated_at"`
+	// GroupUuid 群组 UUID - 联合主键
+	GroupUuid string `gorm:"column:group_uuid;type:char(20);primaryKey;not null;comment:群组ID" json:"group_uuid"`
 
-	// GroupUuid 群组 UUID
-	GroupUuid string `gorm:"type:char(20);index;not null;uniqueIndex:idx_group_user;comment:群组ID"`
+	// UserUuid 用户 UUID - 联合主键
+	UserUuid string `gorm:"column:user_uuid;type:char(20);primaryKey;not null;comment:用户ID" json:"user_uuid"`
 
-	// UserUuid 用户 UUID
-	UserUuid string `gorm:"type:char(20);index;not null;uniqueIndex:idx_group_user;comment:用户ID"`
+	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// Role 成员角色 (1=普通成员, 2=管理员, 3=群主)
 	Role int8 `gorm:"default:1;comment:1普通成员 2管理员 3群主"`

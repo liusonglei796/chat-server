@@ -78,7 +78,7 @@ func (r *storeImpl) Update(ctx context.Context, apply *Apply) error {
 
 func (r *storeImpl) UpdateWithVersion(ctx context.Context, apply *Apply, expectedVersion int32) (bool, error) {
 	res := database.GetDB(ctx, r.db).Model(&Apply{}).
-		Where("id = ? AND version = ?", apply.ID, expectedVersion).
+		Where("uuid = ? AND version = ?", apply.Uuid, expectedVersion).
 		Updates(map[string]interface{}{
 			"uuid":          apply.Uuid,
 			"last_apply_at": apply.LastApplyAt,
@@ -87,7 +87,7 @@ func (r *storeImpl) UpdateWithVersion(ctx context.Context, apply *Apply, expecte
 			"version":       expectedVersion + 1,
 		})
 	if res.Error != nil {
-		return false, dberr.WrapDBErrorf(res.Error, "CAS 更新申请记录 id=%d", apply.ID)
+		return false, dberr.WrapDBErrorf(res.Error, "CAS 更新申请记录 uuid=%s", apply.Uuid)
 	}
 	return res.RowsAffected > 0, nil
 }

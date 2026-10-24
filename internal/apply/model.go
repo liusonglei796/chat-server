@@ -9,12 +9,11 @@ import (
 // 对应数据库 contact_apply 表，存储好友申请和入群申请
 // 刻意不包含 DeletedAt（禁用软删除）：申请记录本身通过 status 状态机维护完整生命周期，避免软删除干扰唯一键 idx_applicant_target_type
 type Apply struct {
-	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	CreatedAt   time.Time `gorm:"column:created_at;not null" json:"created_at"`
-	UpdatedAt   time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
+	// Uuid 申请记录唯一标识 (A + 13位时间戳随机字符串) - 主键
+	Uuid string `gorm:"column:uuid;primaryKey;type:char(20);not null;comment:申请id" json:"uuid"`
 
-	// Uuid 申请记录唯一标识 (A + 13位时间戳随机字符串)
-	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);comment:申请id"`
+	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 
 	// ApplicantId 申请人 UUID
 	ApplicantId string `gorm:"column:applicant_id;index;uniqueIndex:idx_applicant_target_type;type:char(20);not null;comment:申请人ID"`

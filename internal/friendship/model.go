@@ -10,16 +10,14 @@ import (
 // user_friendship 是已建立的好友关系表；apply 是申请阶段的记录表（好友/入群申请）。
 // 刻意不包含 DeletedAt（禁用软删除）：好友关系属于瞬态映射槽位，解除好友直接物理删除释放唯一键 idx_user_friend
 type Friendship struct {
-	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	// UserId 用户 UUID - 联合主键
+	UserId string `gorm:"column:user_id;primaryKey;type:char(20);not null;comment:用户唯一id" json:"user_id"`
+
+	// FriendId 好友用户 UUID - 联合主键
+	FriendId string `gorm:"column:friend_id;primaryKey;type:char(20);not null;comment:好友ID" json:"friend_id"`
+
 	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
 	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
-
-	// UserId 用户 UUID
-	// 表示这条记录属于哪个用户
-	UserId string `gorm:"column:user_id;index;type:char(20);not null;uniqueIndex:idx_user_friend;comment:用户唯一id"`
-
-	// FriendId 好友用户 UUID
-	FriendId string `gorm:"column:friend_id;index;type:char(20);not null;uniqueIndex:idx_user_friend;comment:好友ID"`
 
 	// Status 好友状态
 	// 0=正常：正常好友关系

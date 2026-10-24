@@ -9,12 +9,11 @@ import (
 // 对应数据库 message 表
 // 显式声明主键与时间戳，严禁使用 gorm.Model（消除隐式软删除与全局 WHERE deleted_at IS NULL 注入）
 type Message struct {
-	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	// Uuid 消息唯一标识 (M + SnowflakeID) - 主键
+	Uuid string `gorm:"column:uuid;primaryKey;type:char(20);not null;index:idx_session_uuid,priority:2;index:idx_receive_uuid,priority:2;comment:消息雪花ID" json:"uuid"`
+
 	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
 	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
-
-	// Uuid 消息唯一标识 (M + SnowflakeID)
-	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);not null;index:idx_session_uuid,priority:2;index:idx_receive_uuid,priority:2;comment:消息雪花ID"`
 
 	// ClientMsgId 客户端生成的消息唯一标识（幂等去重）
 	ClientMsgId string `gorm:"column:client_msg_id;uniqueIndex;type:varchar(64);default:null;comment:客户端消息唯一标识"`
@@ -62,12 +61,11 @@ func (Message) TableName() string {
 // 对应数据库 session 表
 // 刻意不包含 DeletedAt（禁用软删除）：会话纯属客户端窗口展现状态，关闭/删除直接物理删除释放唯一键 idx_send_receive
 type Session struct {
-	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	// Uuid 会话唯一标识 - 主键
+	Uuid string `gorm:"column:uuid;primaryKey;type:char(20);not null;comment:会话uuid" json:"uuid"`
+
 	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
 	UpdatedAt time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
-
-	// Uuid 会话唯一标识
-	Uuid string `gorm:"column:uuid;uniqueIndex;type:char(20);comment:会话uuid"`
 
 	// SendId 创建会话的用户 UUID
 	SendId string `gorm:"column:send_id;index;type:char(20);not null;uniqueIndex:idx_send_receive;comment:创建会话人id"`
