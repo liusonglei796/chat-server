@@ -18,7 +18,7 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 		return errorx.New(errorx.CodeInvalidParam, "不能删除自己")
 	}
 
-	fs, err := s.uow.FriendshipStore().FindByUserIdAndFriendId(ctx, userId, friendId)
+	fs, err := s.store.FindByUserIdAndFriendId(ctx, userId, friendId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return nil
@@ -30,8 +30,8 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 		return nil
 	}
 
-	err = WithTx(s.uow, func(tx UoW) error {
-		if err := tx.FriendshipStore().SoftDelete(ctx, userId, friendId); err != nil {
+	err = s.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+		if err := txStore.SoftDelete(ctx, userId, friendId); err != nil {
 			zap.L().Error("Delete friendship error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
@@ -40,7 +40,7 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 			UserId:   userId,
 			FriendId: friendId,
 		})
-		return tx.RecordEvent(ctx, userId, event.EventFriendDeleted, payload)
+		return recordEvent(userId, event.EventFriendDeleted, payload)
 	})
 
 	if err != nil {
@@ -57,8 +57,8 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 		return errorx.New(errorx.CodeInvalidParam, "不能拉黑自己")
 	}
 
-	err := WithTx(s.uow, func(tx UoW) error {
-		myFs, err := tx.FriendshipStore().FindByUserIdAndFriendId(ctx, userId, friendId)
+	err := s.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+		myFs, err := txStore.FindByUserIdAndFriendId(ctx, userId, friendId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return errorx.New(errorx.CodeForbidden, "你们还不是好友，无法拉黑")
@@ -75,7 +75,7 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			return errorx.New(errorx.CodeInvalidParam, "当前状态不允许拉黑")
 		}
 
-		theirFs, err := tx.FriendshipStore().FindByUserIdAndFriendId(ctx, friendId, userId)
+		theirFs, err := txStore.FindByUserIdAndFriendId(ctx, friendId, userId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return errorx.New(errorx.CodeNotFound, "对方好友关系不存在")
@@ -107,13 +107,13 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			}
 		}
 
-		ok1, err := tx.FriendshipStore().UpdateStatusWithExpected(ctx, firstUser, secondUser, firstExpected, firstTarget, firstVersion)
+		ok1, err := txStore.UpdateStatusWithExpected(ctx, firstUser, secondUser, firstExpected, firstTarget, firstVersion)
 		if err != nil {
 			zap.L().Error("UpdateStatusWithExpected to first error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		if !ok1 {
-			cur, queryErr := tx.FriendshipStore().FindByUserIdAndFriendId(ctx, userId, friendId)
+			cur, queryErr := txStore.FindByUserIdAndFriendId(ctx, userId, friendId)
 			if queryErr != nil || cur == nil {
 				return errorx.New(errorx.CodeNotFound, "好友关系不存在")
 			}
@@ -126,7 +126,7 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			return errorx.New(errorx.CodeInvalidParam, "当前状态不允许拉黑或已被处理")
 		}
 
-		ok2, err := tx.FriendshipStore().UpdateStatusWithExpected(ctx, secondUser, firstUser, secondExpected, secondTarget, secondVersion)
+		ok2, err := txStore.UpdateStatusWithExpected(ctx, secondUser, firstUser, secondExpected, secondTarget, secondVersion)
 		if err != nil {
 			zap.L().Error("UpdateStatusWithExpected to second error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -139,7 +139,7 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			UserId:   userId,
 			FriendId: friendId,
 		})
-		return tx.RecordEvent(ctx, userId, event.EventFriendBlacked, payload)
+		return recordEvent(userId, event.EventFriendBlacked, payload)
 	})
 
 	if err != nil {
@@ -159,8 +159,8 @@ func (s *FriendshipService) UnblackFriend(ctx context.Context, userId string, fr
 		return errorx.New(errorx.CodeInvalidParam, "参数错误")
 	}
 
-	err := WithTx(s.uow, func(tx UoW) error {
-		myFs, err := tx.FriendshipStore().FindByUserIdAndFriendId(ctx, userId, friendId)
+	err := s.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+		myFs, err := txStore.FindByUserIdAndFriendId(ctx, userId, friendId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return errorx.New(errorx.CodeNotFound, "好友关系不存在")
@@ -177,7 +177,7 @@ func (s *FriendshipService) UnblackFriend(ctx context.Context, userId string, fr
 			return errorx.New(errorx.CodeInvalidParam, "未拉黑该好友，无需解除拉黑")
 		}
 
-		theirFs, err := tx.FriendshipStore().FindByUserIdAndFriendId(ctx, friendId, userId)
+		theirFs, err := txStore.FindByUserIdAndFriendId(ctx, friendId, userId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return errorx.New(errorx.CodeNotFound, "对方好友关系不存在")
@@ -209,13 +209,13 @@ func (s *FriendshipService) UnblackFriend(ctx context.Context, userId string, fr
 			}
 		}
 
-		ok1, err := tx.FriendshipStore().UpdateStatusWithExpected(ctx, firstUser, secondUser, firstExpected, firstTarget, firstVersion)
+		ok1, err := txStore.UpdateStatusWithExpected(ctx, firstUser, secondUser, firstExpected, firstTarget, firstVersion)
 		if err != nil {
 			zap.L().Error("UpdateStatusWithExpected first error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		if !ok1 {
-			cur, queryErr := tx.FriendshipStore().FindByUserIdAndFriendId(ctx, userId, friendId)
+			cur, queryErr := txStore.FindByUserIdAndFriendId(ctx, userId, friendId)
 			if queryErr != nil || cur == nil {
 				return errorx.New(errorx.CodeNotFound, "好友关系不存在")
 			}
@@ -225,7 +225,7 @@ func (s *FriendshipService) UnblackFriend(ctx context.Context, userId string, fr
 			return errorx.New(errorx.CodeInvalidParam, "好友关系状态已变更，无需重复操作")
 		}
 
-		ok2, err := tx.FriendshipStore().UpdateStatusWithExpected(ctx, secondUser, firstUser, secondExpected, secondTarget, secondVersion)
+		ok2, err := txStore.UpdateStatusWithExpected(ctx, secondUser, firstUser, secondExpected, secondTarget, secondVersion)
 		if err != nil {
 			zap.L().Error("UpdateStatusWithExpected second error", zap.Error(err))
 			return errorx.ErrServerBusy
@@ -254,7 +254,7 @@ func (s *FriendshipService) UpdateRemark(ctx context.Context, userId, friendId, 
 		return errorx.New(errorx.CodeInvalidParam, "不能给自己设置备注")
 	}
 
-	isFriend, err := s.uow.FriendshipStore().IsFriend(ctx, userId, friendId)
+	isFriend, err := s.store.IsFriend(ctx, userId, friendId)
 	if err != nil {
 		zap.L().Error("Check friend relationship error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -263,7 +263,7 @@ func (s *FriendshipService) UpdateRemark(ctx context.Context, userId, friendId, 
 		return errorx.New(errorx.CodeForbidden, "你们还不是好友")
 	}
 
-	if err := s.uow.FriendshipStore().UpdateRemark(ctx, userId, friendId, remark); err != nil {
+	if err := s.store.UpdateRemark(ctx, userId, friendId, remark); err != nil {
 		zap.L().Error("Update remark error",
 			zap.String("user_id", userId),
 			zap.String("friend_id", friendId),
@@ -281,14 +281,14 @@ func (s *FriendshipService) EstablishFriendship(ctx context.Context, userId, fri
 		return errorx.New(errorx.CodeInvalidParam, "参数错误")
 	}
 
-	err := WithTx(s.uow, func(tx UoW) error {
+	err := s.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
 		newFriendship := Friendship{
 			UserId:   userId,
 			FriendId: friendId,
 			Status:   friendship_status.NORMAL,
 			Version:  1,
 		}
-		if err := tx.FriendshipStore().CreateFriendship(ctx, &newFriendship); err != nil {
+		if err := txStore.CreateFriendship(ctx, &newFriendship); err != nil {
 			if !dberr.IsDuplicateKey(err) {
 				return err
 			}
@@ -300,7 +300,7 @@ func (s *FriendshipService) EstablishFriendship(ctx context.Context, userId, fri
 			Status:   friendship_status.NORMAL,
 			Version:  1,
 		}
-		if err := tx.FriendshipStore().CreateFriendship(ctx, &anotherFriendship); err != nil {
+		if err := txStore.CreateFriendship(ctx, &anotherFriendship); err != nil {
 			if !dberr.IsDuplicateKey(err) {
 				return err
 			}

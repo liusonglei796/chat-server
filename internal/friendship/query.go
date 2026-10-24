@@ -23,7 +23,7 @@ func (s *FriendshipService) GetFriendList(ctx context.Context, userId string, pa
 		pageSize = 20
 	}
 
-	friendships, total, err := s.uow.FriendshipStore().FindFriendsByUserId(ctx, userId, page, pageSize)
+	friendships, total, err := s.store.FindFriendsByUserId(ctx, userId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find friendship list error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -67,7 +67,7 @@ func (s *FriendshipService) GetFriendInfo(ctx context.Context, userId, friendId 
 		return FriendInfo{}, errorx.New(errorx.CodeInvalidParam, "好友ID不能为空")
 	}
 
-	isFriend, err := s.uow.FriendshipStore().IsFriend(ctx, userId, friendId)
+	isFriend, err := s.store.IsFriend(ctx, userId, friendId)
 	if err != nil {
 		zap.L().Error("Check friend relationship error", zap.Error(err))
 		return FriendInfo{}, errorx.ErrServerBusy
@@ -98,7 +98,7 @@ func (s *FriendshipService) GetFriendInfo(ctx context.Context, userId, friendId 
 	}
 
 	var remark string
-	fs, err := s.uow.FriendshipStore().FindByUserIdAndFriendId(ctx, userId, friendId)
+	fs, err := s.store.FindByUserIdAndFriendId(ctx, userId, friendId)
 	if err == nil {
 		remark = fs.Remark
 	}
@@ -117,7 +117,7 @@ func (s *FriendshipService) GetFriendInfo(ctx context.Context, userId, friendId 
 // GetFriendshipStatus 返回好友关系状态（微信同款对外契约，基于发送方与接收方双向判决）
 // 0=非好友(发送方未添加/已删对方) 1=正常好友 2=已拉黑对方(享有单向发信特权) 3=被对方拉黑(拒收) 4=被对方单向删除(朋友验证)
 func (s *FriendshipService) GetFriendshipStatus(ctx context.Context, userId, friendId string) (int8, error) {
-	senderFs, err := s.uow.FriendshipStore().FindByUserIdAndFriendId(ctx, userId, friendId)
+	senderFs, err := s.store.FindByUserIdAndFriendId(ctx, userId, friendId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return 0, nil
@@ -126,7 +126,7 @@ func (s *FriendshipService) GetFriendshipStatus(ctx context.Context, userId, fri
 		return 0, errorx.ErrServerBusy
 	}
 
-	recipientFs, err := s.uow.FriendshipStore().FindByUserIdAndFriendId(ctx, friendId, userId)
+	recipientFs, err := s.store.FindByUserIdAndFriendId(ctx, friendId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return 4, nil

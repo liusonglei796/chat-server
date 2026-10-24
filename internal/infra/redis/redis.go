@@ -207,8 +207,3 @@ func (r *RedisCache) SubmitTask(action func()) {
 func (r *RedisCache) Release() {
 	r.pool.Release()
 }
-
-// WrapRedisError 包装 Redis 错误
-func WrapRedisError(err error, format string, args ...any) error {
-	return ops.WrapRedisError(err, format, args...)
-}

@@ -223,24 +223,6 @@ func (e *testEnv) toxiRequest(t *testing.T, method, path string, body any) *http
 	return resp
 }
 
-// toxiCreateProxy 创建（或重建）一条代理路由
-func (e *testEnv) toxiCreateProxy(t *testing.T, name, listen, upstream string) {
-	t.Helper()
-	// 先删后建，保证幂等
-	if resp := e.toxiRequest(t, http.MethodDelete, "/proxies/"+name, nil); resp != nil {
-		resp.Body.Close()
-	}
-	resp := e.toxiRequest(t, http.MethodPost, "/proxies", map[string]any{
-		"name": name, "listen": listen, "upstream": upstream, "enabled": true,
-	})
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		t.Fatalf("创建代理 %s 失败 (code=%d): %s", name, resp.StatusCode, string(b))
-	}
-	t.Logf("[Toxiproxy] 代理就绪 %s: %s -> %s", name, listen, upstream)
-}
-
 // toxiAddToxic 注入故障
 func (e *testEnv) toxiAddToxic(t *testing.T, proxy, name, typ, stream string, attrs map[string]any) {
 	t.Helper()
@@ -512,14 +494,6 @@ func (c *wsClient) waitMessage(t *testing.T, timeout time.Duration, pred func([]
 		time.Sleep(200 * time.Millisecond)
 	}
 	return nil, false
-}
-
-func (c *wsClient) snapshot() [][]byte {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	out := make([][]byte, len(c.msgs))
-	copy(out, c.msgs)
-	return out
 }
 
 // ---------------------------------------------------------------------------

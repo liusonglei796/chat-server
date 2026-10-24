@@ -7,7 +7,6 @@ import (
 	"kama_chat_server/internal/infra/config"
 	"kama_chat_server/pkg/errorx"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -39,7 +38,7 @@ func Init(logCfg *config.LogConfig, mode string) error {
 		}
 
 		var core zapcore.Core
-		if mode == "dev" || mode == gin.DebugMode {
+		if mode == "dev" || mode == "debug" {
 			// 开发模式：同时输出到控制台和文件
 			consoleEncoder := getConsoleEncoderForTerminal()
 			core = newDualCore(jsonEncoder, consoleEncoder, writeSyncer, level)

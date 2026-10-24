@@ -13,7 +13,7 @@ import (
 // ProviderSet 集中导出 apply 领域内所有服务的依赖提供者
 var ProviderSet = wire.NewSet(
 	ProvideDB,
-	NewUoW,
+	NewStore,
 	ProvideApplyService,
 	NewGrpcServer,
 )
@@ -31,6 +31,6 @@ func ProvideDB(conf *config.Config) (*gorm.DB, error) {
 }
 
 // ProvideApplyService 适配 Wire 依赖注入
-func ProvideApplyService(uow UoW, cacheService cacheinfra.AsyncCacheService) *ApplyService {
-	return NewApplyService(uow, cacheService)
+func ProvideApplyService(db *gorm.DB, store Store, cacheService cacheinfra.AsyncCacheService) *ApplyService {
+	return NewApplyService(db, store, cacheService)
 }

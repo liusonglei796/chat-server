@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"gorm.io/gorm"
+
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/event"
@@ -52,28 +54,13 @@ type mockOutboxStore struct {
 	events []string
 }
 
-type mockFriendshipUOW struct {
-	store  *mockFriendshipStore
-	outbox *mockOutboxStore
-}
-
-func (u *mockFriendshipUOW) FriendshipStore() Store {
-	return u.store
-}
-
-func (u *mockFriendshipUOW) RecordEvent(_ context.Context, _ string, eventType string, _ []byte) error {
-	u.outbox.events = append(u.outbox.events, eventType)
-	return nil
-}
-
-func (u *mockFriendshipUOW) WithTx(fn func(tx any) error) error {
-	return fn(u)
-}
-
-type mockCacheService struct{}
-
-func (c *mockCacheService) SubmitTask(fn func()) {
-	fn()
+func newTestFriendshipService(store Store, outbox *mockOutboxStore) *FriendshipService {
+	svc := NewFriendshipService(nil, store)
+	svc.eventRecord = func(_ context.Context, _ *gorm.DB, _, eventType string, _ []byte) error {
+		outbox.events = append(outbox.events, eventType)
+		return nil
+	}
+	return svc
 }
 
 func TestFriendshipService_BlackFriend_CAS_PreventsDuplicateEvents(t *testing.T) {
@@ -83,8 +70,7 @@ func TestFriendshipService_BlackFriend_CAS_PreventsDuplicateEvents(t *testing.T)
 	fsStore.relations["U1002:U1001"] = &Friendship{UserId: "U1002", FriendId: "U1001", Status: friendship_status.NORMAL, Version: 1}
 
 	outbox := &mockOutboxStore{}
-	uow := &mockFriendshipUOW{store: fsStore, outbox: outbox}
-	svc := NewFriendshipService(uow)
+	svc := newTestFriendshipService(fsStore, outbox)
 
 	err1 := svc.BlackFriend(ctx, "U1001", "U1002")
 	if err1 != nil {
@@ -124,8 +110,7 @@ func TestFriendshipService_UnblackFriend_CAS(t *testing.T) {
 	fsStore.relations["U1002:U1001"] = &Friendship{UserId: "U1002", FriendId: "U1001", Status: friendship_status.BE_BLACK, Version: 2}
 
 	outbox := &mockOutboxStore{}
-	uow := &mockFriendshipUOW{store: fsStore, outbox: outbox}
-	svc := NewFriendshipService(uow)
+	svc := newTestFriendshipService(fsStore, outbox)
 
 	err1 := svc.UnblackFriend(ctx, "U1001", "U1002")
 	if err1 != nil {
@@ -158,8 +143,7 @@ func TestFriendshipService_DeleteFriend_Unilateral(t *testing.T) {
 	fsStore.relations["U1002:U1001"] = &Friendship{UserId: "U1002", FriendId: "U1001", Status: friendship_status.NORMAL, Version: 1}
 
 	outbox := &mockOutboxStore{}
-	uow := &mockFriendshipUOW{store: fsStore, outbox: outbox}
-	svc := NewFriendshipService(uow)
+	svc := newTestFriendshipService(fsStore, outbox)
 
 	err := svc.DeleteFriend(ctx, "U1001", "U1002")
 	if err != nil {
@@ -194,8 +178,7 @@ func TestFriendshipService_ABA_Defense(t *testing.T) {
 	fsStore.relations["U1002:U1001"] = &Friendship{UserId: "U1002", FriendId: "U1001", Status: friendship_status.NORMAL, Version: 1}
 
 	outbox := &mockOutboxStore{}
-	uow := &mockFriendshipUOW{store: fsStore, outbox: outbox}
-	svc := NewFriendshipService(uow)
+	svc := newTestFriendshipService(fsStore, outbox)
 
 	errBlack := svc.BlackFriend(ctx, "U1001", "U1002", 1)
 	if errBlack != nil {

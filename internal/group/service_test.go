@@ -68,6 +68,25 @@ func (f *fakeGroupStore) UpdateWithVersion(_ context.Context, uuid string, expec
 	return nil
 }
 
+func (f *fakeGroupStore) DismissGroupWithCAS(_ context.Context, uuid, ownerId string) (bool, error) {
+	current, ok := f.groups[uuid]
+	if !ok || current.OwnerId != ownerId || current.Status != 0 {
+		return false, nil
+	}
+	current.Status = 1
+	current.Version++
+	return true, nil
+}
+
+func (f *fakeGroupStore) IncrementMemberCountWithLimit(_ context.Context, uuid string, maxLimit int) (bool, error) {
+	current, ok := f.groups[uuid]
+	if !ok || current.MemberCnt >= maxLimit {
+		return false, nil
+	}
+	current.MemberCnt++
+	return true, nil
+}
+
 type fakeGroupMemberStore struct {
 	GroupMemberStore
 	members map[string]*GroupMember
@@ -99,26 +118,17 @@ func (f *fakeGroupMemberStore) CreateGroupMember(_ context.Context, member *Grou
 	return nil
 }
 
-type fakeGroupUOW struct {
-	groupStore       *fakeGroupStore
-	groupMemberStore *fakeGroupMemberStore
+func (f *fakeGroupMemberStore) DeleteMemberIfNotOwner(_ context.Context, groupUuid, userUuid string) (bool, error) {
+	key := groupUuid + ":" + userUuid
+	m, ok := f.members[key]
+	if !ok || m.Role == 3 {
+		return false, nil
+	}
+	delete(f.members, key)
+	return true, nil
 }
 
-func (f *fakeGroupUOW) GroupStore() GroupStore {
-	return f.groupStore
-}
 
-func (f *fakeGroupUOW) GroupMemberStore() GroupMemberStore {
-	return f.groupMemberStore
-}
-
-func (f *fakeGroupUOW) RecordEvent(_ context.Context, _ string, _ string, _ []byte) error {
-	return nil
-}
-
-func (f *fakeGroupUOW) WithTx(fn func(tx any) error) error {
-	return fn(f)
-}
 
 func TestGroupService_UpdateGroupInfo_OptimisticLock(t *testing.T) {
 	ctx := context.Background()
@@ -142,11 +152,7 @@ func TestGroupService_UpdateGroupInfo_OptimisticLock(t *testing.T) {
 				},
 			},
 		}
-		uow := &fakeGroupUOW{
-			groupStore:       gStore,
-			groupMemberStore: mStore,
-		}
-		svc := NewGroupService(uow, nil)
+		svc := NewGroupService(nil, gStore, mStore, nil)
 		return svc, gStore
 	}
 
@@ -279,10 +285,8 @@ func TestGroupService_CreateGroup_Idempotent(t *testing.T) {
 
 	gStore := &fakeGroupStore{groups: make(map[string]*GroupInfo)}
 	mStore := &fakeGroupMemberStore{members: make(map[string]*GroupMember)}
-	uow := &fakeGroupUOW{groupStore: gStore, groupMemberStore: mStore}
 	guard := &mockTestGroupGuard{store: make(map[string]string)}
-
-	svc := NewGroupService(uow, nil, guard)
+	svc := NewGroupService(nil, gStore, mStore, nil, guard)
 
 	req := CreateGroupRequest{
 		Name:        "幂等架构群",

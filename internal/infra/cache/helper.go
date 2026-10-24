@@ -30,13 +30,6 @@ type Helper struct {
 // HelperOption Helper 配置选项
 type HelperOption func(*Helper)
 
-// WithLoaderTimeout 设置 loader 超时时间
-func WithLoaderTimeout(d time.Duration) HelperOption {
-	return func(h *Helper) {
-		h.loaderTimeout = d
-	}
-}
-
 // NewHelper 创建缓存辅助工具
 func NewHelper(cache CacheService, opts ...HelperOption) *Helper {
 	h := &Helper{

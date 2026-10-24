@@ -34,12 +34,13 @@ func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	uoW := group.NewUoW(db)
+	groupStore := group.NewGroupStore(db)
+	groupMemberStore := group.NewGroupMemberStore(db)
 	asyncCacheService, cleanup, err := infra.ProvideCache()
 	if err != nil {
 		return nil, nil, err
 	}
-	groupService := group.ProvideGroupService(uoW, asyncCacheService)
+	groupService := group.ProvideGroupService(db, groupStore, groupMemberStore, asyncCacheService)
 	grpcServer := group.NewGrpcServer(groupService)
 	server := provideGRPCServer(grpcServer)
 	registrar, cleanup2, err := provideRegistrar()
@@ -47,7 +48,7 @@ func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 		cleanup()
 		return nil, nil, err
 	}
-	domainEventConsumer, cleanup3 := group.ProvideEventConsumer(uoW, asyncCacheService)
+	domainEventConsumer, cleanup3 := group.ProvideEventConsumer(db, groupStore, groupMemberStore, asyncCacheService)
 	app := newApp(server, registrar, domainEventConsumer)
 	return app, func() {
 		cleanup3()

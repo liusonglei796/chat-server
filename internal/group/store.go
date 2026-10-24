@@ -2,13 +2,12 @@ package group
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"gorm.io/gorm"
 
 	"kama_chat_server/internal/infra/dberr"
-	"kama_chat_server/internal/infra/outbox"
+	"kama_chat_server/pkg/enum/group/group_status"
 	"kama_chat_server/pkg/errorx"
 )
 
@@ -24,8 +23,10 @@ type GroupStore interface {
 	UpdateWithVersion(ctx context.Context, uuid string, expectedVersion int32, updates map[string]interface{}) error
 	UpdateStatusByUuids(ctx context.Context, uuids []string, status int8) error
 	IncrementMemberCount(ctx context.Context, uuid string) error
+	IncrementMemberCountWithLimit(ctx context.Context, uuid string, maxLimit int) (bool, error)
 	DecrementMemberCountBy(ctx context.Context, uuid string, count int) error
 	SoftDeleteByUuids(ctx context.Context, uuids []string) error
+	DismissGroupWithCAS(ctx context.Context, uuid, ownerId string) (bool, error)
 }
 
 type groupStoreImpl struct {
@@ -160,6 +161,16 @@ func (r *groupStoreImpl) IncrementMemberCount(ctx context.Context, uuid string) 
 	return nil
 }
 
+func (r *groupStoreImpl) IncrementMemberCountWithLimit(ctx context.Context, uuid string, maxLimit int) (bool, error) {
+	result := r.db.WithContext(ctx).Model(&GroupInfo{}).
+		Where("uuid = ? AND member_cnt < ?", uuid, maxLimit).
+		UpdateColumn("member_cnt", gorm.Expr("member_cnt + ?", 1))
+	if result.Error != nil {
+		return false, dberr.WrapDBErrorf(result.Error, "增加群成员数(限额) uuid=%s max=%d", uuid, maxLimit)
+	}
+	return result.RowsAffected > 0, nil
+}
+
 func (r *groupStoreImpl) DecrementMemberCountBy(ctx context.Context, uuid string, count int) error {
 	if count <= 0 {
 		return nil
@@ -180,6 +191,20 @@ func (r *groupStoreImpl) SoftDeleteByUuids(ctx context.Context, uuids []string) 
 	return nil
 }
 
+func (r *groupStoreImpl) DismissGroupWithCAS(ctx context.Context, uuid, ownerId string) (bool, error) {
+	result := r.db.WithContext(ctx).Model(&GroupInfo{}).
+		Where("uuid = ? AND owner_id = ? AND status = ?", uuid, ownerId, group_status.NORMAL).
+		Updates(map[string]interface{}{
+			"status":     group_status.DISMISS,
+			"deleted_at": gorm.Expr("NOW()"),
+			"version":    gorm.Expr("version + 1"),
+		})
+	if result.Error != nil {
+		return false, dberr.WrapDBErrorf(result.Error, "CAS解散群组 uuid=%s owner_id=%s", uuid, ownerId)
+	}
+	return result.RowsAffected > 0, nil
+}
+
 // ==================== GroupMemberStore ====================
 
 // GroupMemberStore 群成员数据访问接口
@@ -190,6 +215,7 @@ type GroupMemberStore interface {
 	CreateGroupMember(ctx context.Context, member *GroupMember) error
 	DeleteByGroupUuid(ctx context.Context, groupUuid string) error
 	DeleteByUserUuids(ctx context.Context, groupUuid string, userUuids []string) (int64, error)
+	DeleteMemberIfNotOwner(ctx context.Context, groupUuid, userUuid string) (bool, error)
 	DeleteByGroupUuids(ctx context.Context, groupUuids []string) error
 	GetMemberIdsByGroupUuids(ctx context.Context, groupUuids []string) ([]string, error)
 	FindGroupUuidsByUserPaged(ctx context.Context, userUuid string, page, pageSize int) ([]string, int64, error)
@@ -325,65 +351,24 @@ func (r *groupMemberStoreImpl) FindGroupUuidsByUserPaged(ctx context.Context, us
 	return groupUuids, total, nil
 }
 
+func (r *groupMemberStoreImpl) DeleteMemberIfNotOwner(ctx context.Context, groupUuid, userUuid string) (bool, error) {
+	result := r.db.WithContext(ctx).
+		Where("group_uuid = ? AND user_uuid = ? AND role != ?", groupUuid, userUuid, 3).
+		Delete(&GroupMember{})
+	if result.Error != nil {
+		return false, dberr.WrapDBErrorf(result.Error, "原子退群 group_uuid=%s user_uuid=%s", groupUuid, userUuid)
+	}
+	return result.RowsAffected > 0, nil
+}
+
 func (r *groupMemberStoreImpl) UpdateMuteUntil(ctx context.Context, groupUuid, userUuid string, muteUntil *time.Time) error {
-	if err := r.db.WithContext(ctx).Model(&GroupMember{}).
-		Where("group_uuid = ? AND user_uuid = ?", groupUuid, userUuid).
-		Update("mute_until", muteUntil).Error; err != nil {
+	query := r.db.WithContext(ctx).Model(&GroupMember{}).
+		Where("group_uuid = ? AND user_uuid = ? AND role != ?", groupUuid, userUuid, 3)
+	if muteUntil != nil {
+		query = query.Where("mute_until IS NULL OR mute_until < ?", *muteUntil)
+	}
+	if err := query.Update("mute_until", muteUntil).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "更新群成员禁言时间 group_uuid=%s user_uuid=%s", groupUuid, userUuid)
 	}
 	return nil
-}
-
-// ==================== 工作单元 Unit of Work ====================
-
-// UoW 群组领域事务工作单元
-type UoW interface {
-	WithTx(fn func(tx any) error) error
-	RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error
-	GroupStore() GroupStore
-	GroupMemberStore() GroupMemberStore
-}
-
-type uowImpl struct {
-	db          *gorm.DB
-	groupStore  GroupStore
-	memberStore GroupMemberStore
-}
-
-// NewUoW 创建工作单元实例
-func NewUoW(db *gorm.DB) UoW {
-	return &uowImpl{
-		db:          db,
-		groupStore:  NewGroupStore(db),
-		memberStore: NewGroupMemberStore(db),
-	}
-}
-
-func (u *uowImpl) GroupStore() GroupStore {
-	return u.groupStore
-}
-
-func (u *uowImpl) GroupMemberStore() GroupMemberStore {
-	return u.memberStore
-}
-
-func (u *uowImpl) RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
-	return outbox.RecordEvent(ctx, u.db, aggregateId, eventType, payload)
-}
-
-func (u *uowImpl) WithTx(fn func(tx any) error) error {
-	return u.db.Transaction(func(tx *gorm.DB) error {
-		return fn(NewUoW(tx))
-	})
-}
-
-// WithTx 泛型事务辅助函数
-func WithTx[T any](exec UoW, fn func(tx T) error) error {
-	return exec.WithTx(func(tx any) error {
-		t, ok := tx.(T)
-		if !ok {
-			return fmt.Errorf("transaction callback type mismatch: got %T, want %T", tx, *new(T))
-		}
-		return fn(t)
-	})
 }

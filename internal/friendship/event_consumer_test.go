@@ -26,19 +26,11 @@ func (f *fakeFriendshipStore) CreateFriendship(_ context.Context, fs *Friendship
 	return nil
 }
 
-type fakeUOW struct {
-	friendshipStore *fakeFriendshipStore
-}
 
-func (f *fakeUOW) FriendshipStore() Store { return f.friendshipStore }
-
-func (f *fakeUOW) RecordEvent(_ context.Context, _ string, _ string, _ []byte) error { return nil }
-
-func (f *fakeUOW) WithTx(fn func(tx any) error) error { return fn(f) }
 
 func TestHandleFriendApplyPassed_CreatesBidirectional(t *testing.T) {
 	store := &fakeFriendshipStore{}
-	c := &DomainEventConsumer{uow: &fakeUOW{friendshipStore: store}}
+	c := &DomainEventConsumer{store: store}
 
 	payload, _ := json.Marshal(event.FriendApplyPassedEvent{UserId: "U1", FriendId: "U2"})
 	if err := c.handleEvent(context.Background(), event.EventFriendApplyPassed, payload); err != nil {
@@ -62,7 +54,7 @@ func TestHandleFriendApplyPassed_CreatesBidirectional(t *testing.T) {
 
 func TestHandleFriendApplyPassed_FirstInsertFails_ReturnsError(t *testing.T) {
 	store := &fakeFriendshipStore{err: errors.New("db down")}
-	c := &DomainEventConsumer{uow: &fakeUOW{friendshipStore: store}}
+	c := &DomainEventConsumer{store: store}
 
 	payload, _ := json.Marshal(event.FriendApplyPassedEvent{UserId: "U1", FriendId: "U2"})
 	if err := c.handleEvent(context.Background(), event.EventFriendApplyPassed, payload); err == nil {
@@ -76,7 +68,7 @@ func TestHandleFriendApplyPassed_FirstInsertFails_ReturnsError(t *testing.T) {
 
 func TestHandle_UnrelatedEvent_Noop(t *testing.T) {
 	store := &fakeFriendshipStore{}
-	c := &DomainEventConsumer{uow: &fakeUOW{friendshipStore: store}}
+	c := &DomainEventConsumer{store: store}
 
 	if err := c.handleEvent(context.Background(), event.EventGroupApplyPassed, []byte(`{}`)); err != nil {
 		t.Fatalf("handleEvent returned error: %v", err)
@@ -89,7 +81,7 @@ func TestHandle_UnrelatedEvent_Noop(t *testing.T) {
 
 func TestHandleFriendApplyPassed_DuplicateKey_TreatedAsSuccess(t *testing.T) {
 	store := &fakeFriendshipStore{err: &mysql.MySQLError{Number: 1062, Message: "Duplicate entry"}}
-	c := &DomainEventConsumer{uow: &fakeUOW{friendshipStore: store}}
+	c := &DomainEventConsumer{store: store}
 
 	payload, _ := json.Marshal(event.FriendApplyPassedEvent{UserId: "U1", FriendId: "U2"})
 	if err := c.handleEvent(context.Background(), event.EventFriendApplyPassed, payload); err != nil {

@@ -34,14 +34,13 @@ func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	uoW := user.NewUoW(db)
+	store := user.NewStore(db)
 	asyncCacheService, cleanup, err := infra.ProvideCache()
 	if err != nil {
 		return nil, nil, err
 	}
-	userService := user.ProvideUserService(uoW, asyncCacheService)
+	userService := user.ProvideUserService(db, store, asyncCacheService)
 	userGrpcServer := user.NewUserGrpcServer(userService)
-	store := user.ProvideUserStore(uoW)
 	authService := user.ProvideAuthService(asyncCacheService, store)
 	authGrpcServer := user.NewAuthGrpcServer(authService, userService)
 	server := provideGRPCServer(userGrpcServer, authGrpcServer)

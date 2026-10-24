@@ -136,18 +136,6 @@ func GetUserStatus(ctx context.Context, userId string) (int8, error) {
 	return int8(rsp.Status), nil
 }
 
-// GetUserNicknameAvatar 跨服务取用户昵称头像（GetUserInfo 仅允许本人查询，故 requester=target=本人）
-func GetUserNicknameAvatar(ctx context.Context, targetId string) (nickname, avatar string, err error) {
-	if UserClient == nil {
-		return "", "", errorx.New(errorx.CodeServerBusy, "user grpc client not initialized")
-	}
-	rsp, err := UserClient.GetUserInfo(ctx, &userpb.GetUserInfoRequest{RequesterId: targetId, TargetId: targetId})
-	if err != nil {
-		return "", "", err
-	}
-	return rsp.Nickname, rsp.Avatar, nil
-}
-
 // CheckFriendshipStatus 跨服务查好友关系状态（0=非好友 1=正常 2=已拉黑对方 3=被对方拉黑）
 func CheckFriendshipStatus(ctx context.Context, userId, friendId string) (int8, error) {
 	if FriendshipClient == nil {
@@ -310,57 +298,6 @@ func PushToGateway(ctx context.Context, gatewayAddr string, targetUserId string,
 		return fmt.Errorf("gateway push failed: %s", rsp.ErrorMsg)
 	}
 	return nil
-}
-
-// DeleteGroupMemberSessions 跨服务通知 message_service 批量软删指定群成员的会话
-func DeleteGroupMemberSessions(ctx context.Context, groupId string, userIds []string) error {
-	if MessageClient == nil {
-		return errorx.New(errorx.CodeServerBusy, "message grpc client not initialized")
-	}
-	_, err := MessageClient.DeleteGroupMemberSessions(ctx, &messagepb.DeleteGroupMemberSessionsRequest{
-		GroupId: groupId,
-		UserIds: userIds,
-	})
-	return err
-}
-
-// AddGroupMember 跨服务通知 group_service 添加群成员
-func AddGroupMember(ctx context.Context, groupId, userId string, role int8) error {
-	if GroupClient == nil {
-		return errorx.New(errorx.CodeServerBusy, "group grpc client not initialized")
-	}
-	_, err := GroupClient.AddGroupMember(ctx, &grouppb.AddGroupMemberRequest{
-		GroupId: groupId,
-		UserId:  userId,
-		Role:    int32(role),
-	})
-	return err
-}
-
-// CreateGroupSession 跨服务通知 message_service 创建群会话
-func CreateGroupSession(ctx context.Context, groupId, userId, groupName, groupAvatar string) error {
-	if MessageClient == nil {
-		return errorx.New(errorx.CodeServerBusy, "message grpc client not initialized")
-	}
-	_, err := MessageClient.CreateGroupSession(ctx, &messagepb.CreateGroupSessionRequest{
-		GroupId:     groupId,
-		UserId:      userId,
-		GroupName:   groupName,
-		GroupAvatar: groupAvatar,
-	})
-	return err
-}
-
-// DeleteFriendSessions 跨服务通知 message_service 软删双方私聊会话
-func DeleteFriendSessions(ctx context.Context, userOneId, userTwoId string) error {
-	if MessageClient == nil {
-		return errorx.New(errorx.CodeServerBusy, "message grpc client not initialized")
-	}
-	_, err := MessageClient.DeleteFriendSessions(ctx, &messagepb.DeleteFriendSessionsRequest{
-		UserOneId: userOneId,
-		UserTwoId: userTwoId,
-	})
-	return err
 }
 
 // EstablishFriendship 跨服务通知 friendship_service 建立双向好友关系

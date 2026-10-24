@@ -70,7 +70,7 @@ func (u *UserService) buildLoginResponse(ctx context.Context, user *UserInfo, cl
 
 // Login 登录（密码登录）
 func (u *UserService) Login(ctx context.Context, loginReq LoginRequest, clientIP string) (*LoginRespond, error) {
-	user, err := u.uow.UserStore().FindByNickname(ctx, loginReq.Username)
+	user, err := u.store.FindByNickname(ctx, loginReq.Username)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
 			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -88,7 +88,7 @@ func (u *UserService) Login(ctx context.Context, loginReq LoginRequest, clientIP
 // Register 用户注册
 func (u *UserService) Register(ctx context.Context, registerReq RegisterRequest, clientIP string) (*RegisterRespond, error) {
 	action := func(c context.Context) (*RegisterRespond, error) {
-		existing, err := u.uow.UserStore().FindByNickname(c, registerReq.Username)
+		existing, err := u.store.FindByNickname(c, registerReq.Username)
 		if err == nil && existing != nil {
 			return nil, errorx.New(errorx.CodeUserExist, "用户名已被占用")
 		}
@@ -105,7 +105,7 @@ func (u *UserService) Register(ctx context.Context, registerReq RegisterRequest,
 			Status:      0,
 		}
 
-		if err := u.uow.UserStore().CreateUser(c, user); err != nil {
+		if err := u.store.CreateUser(c, user); err != nil {
 			if dberr.IsDuplicateKey(err) {
 				return nil, errorx.New(errorx.CodeUserExist, "用户名已被占用")
 			}
@@ -154,7 +154,7 @@ func (u *UserService) Logout(ctx context.Context, userId string) error {
 
 // KickUser 管理员踢人下线
 func (u *UserService) KickUser(ctx context.Context, userId string) error {
-	_, err := u.uow.UserStore().FindByUuid(ctx, userId)
+	_, err := u.store.FindByUuid(ctx, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeUserNotExist, "用户不存在")

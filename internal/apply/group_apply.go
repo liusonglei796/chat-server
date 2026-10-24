@@ -38,7 +38,7 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 			return struct{}{}, errorx.New(errorx.CodeInvalidParam, "你已在该群中")
 		}
 
-		apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(execCtx, userId, req.GroupId)
+		apply, err := u.store.FindByApplicantIdAndTargetId(execCtx, userId, req.GroupId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				apply = &Apply{
@@ -54,15 +54,15 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 
 				if int8(groupRsp.AddMode) == add_mode.DIRECT {
 					apply.Status = apply_status.AGREE
-					err = WithTx(u.uow, func(tx UoW) error {
-						if err := tx.ApplyStore().CreateApply(execCtx, apply); err != nil {
+					err = u.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+						if err := txStore.CreateApply(execCtx, apply); err != nil {
 							return err
 						}
 						payload, _ := json.Marshal(event.GroupApplyPassedEvent{
 							GroupId: req.GroupId,
 							UserId:  userId,
 						})
-						return tx.RecordEvent(execCtx, req.GroupId, event.EventGroupApplyPassed, payload)
+						return recordEvent(req.GroupId, event.EventGroupApplyPassed, payload)
 					})
 					if err != nil {
 						zap.L().Error("Direct join group error", zap.Error(err))
@@ -71,9 +71,9 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 					return struct{}{}, nil
 				}
 
-				if err := u.uow.ApplyStore().CreateApply(execCtx, apply); err != nil {
+				if err := u.store.CreateApply(execCtx, apply); err != nil {
 					if dberr.IsDuplicateKey(err) {
-						if existing, getErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(execCtx, userId, req.GroupId); getErr == nil {
+						if existing, getErr := u.store.FindByApplicantIdAndTargetId(execCtx, userId, req.GroupId); getErr == nil {
 							if existing.Status == apply_status.BLACK {
 								return struct{}{}, errorx.New(errorx.CodeInvalidParam, "你已被该群拉黑，无法申请加入")
 							}
@@ -82,7 +82,7 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 							existing.Status = apply_status.PENDING
 							existing.Message = req.Message
 							existing.Version += 1
-							return struct{}{}, u.uow.ApplyStore().Update(execCtx, existing)
+							return struct{}{}, u.store.Update(execCtx, existing)
 						}
 					}
 					zap.L().Error("Create group apply error", zap.Error(err))
@@ -105,15 +105,15 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 			apply.Message = req.Message
 			apply.Version += 1
 
-			err = WithTx(u.uow, func(tx UoW) error {
-				if err := tx.ApplyStore().Update(execCtx, apply); err != nil {
+			err = u.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+				if err := txStore.Update(execCtx, apply); err != nil {
 					return err
 				}
 				payload, _ := json.Marshal(event.GroupApplyPassedEvent{
 					GroupId: req.GroupId,
 					UserId:  userId,
 				})
-				return tx.RecordEvent(execCtx, req.GroupId, event.EventGroupApplyPassed, payload)
+				return recordEvent(req.GroupId, event.EventGroupApplyPassed, payload)
 			})
 			if err != nil {
 				zap.L().Error("Direct join group error", zap.Error(err))
@@ -122,15 +122,20 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 			return struct{}{}, nil
 		}
 
+		oldVersion := apply.Version
 		apply.Uuid = fmt.Sprintf("A%s", snowflake.GenerateIDString())
 		apply.LastApplyAt = time.Now()
 		apply.Status = apply_status.PENDING
 		apply.Message = req.Message
 		apply.Version += 1
 
-		if err := u.uow.ApplyStore().Update(execCtx, apply); err != nil {
+		ok, err := u.store.UpdateWithVersion(execCtx, apply, oldVersion)
+		if err != nil {
 			zap.L().Error("Update group apply error", zap.Error(err))
 			return struct{}{}, errorx.ErrServerBusy
+		}
+		if !ok {
+			return struct{}{}, errorx.New(errorx.CodeConflict, "申请状态发生变化，请刷新重试")
 		}
 
 		return struct{}{}, nil
@@ -170,7 +175,7 @@ func (u *ApplyService) GetGroupApplyList(ctx context.Context, userId, groupId st
 		return nil, errorx.New(errorx.CodeForbidden, "你没有查看加群申请的权限")
 	}
 
-	applyList, total, err := u.uow.ApplyStore().FindByTargetIdPendingPaged(ctx, groupId, page, pageSize)
+	applyList, total, err := u.store.FindByTargetIdPendingPaged(ctx, groupId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find pending applies error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -239,7 +244,7 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 		return errorx.New(errorx.CodeForbidden, "你没有审批权限")
 	}
 
-	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
+	apply, err := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 	if err != nil {
 		zap.L().Error("Find group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -258,14 +263,14 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 	}
 
 	var alreadyAgreed bool
-	err = WithTx(u.uow, func(tx UoW) error {
-		ok, err := tx.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.AGREE, apply.Version)
+	err = u.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+		ok, err := txStore.UpdateStatusIfPending(ctx, apply.Uuid, apply_status.AGREE, apply.Version)
 		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		if !ok {
-			cur, queryErr := tx.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
+			cur, queryErr := txStore.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 			if queryErr != nil || cur == nil {
 				return errorx.New(errorx.CodeNotFound, "申请记录不存在")
 			}
@@ -289,7 +294,7 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 			GroupId: groupId,
 			UserId:  applicantId,
 		})
-		return tx.RecordEvent(ctx, groupId, event.EventGroupApplyPassed, payload)
+		return recordEvent(groupId, event.EventGroupApplyPassed, payload)
 	})
 
 	if err != nil {
@@ -322,7 +327,7 @@ func (u *ApplyService) RefuseGroupApply(ctx context.Context, operatorId, groupId
 		return errorx.New(errorx.CodeForbidden, "你没有审批权限")
 	}
 
-	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
+	apply, err := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 	if err != nil {
 		zap.L().Error("Find group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -335,13 +340,13 @@ func (u *ApplyService) RefuseGroupApply(ctx context.Context, operatorId, groupId
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.REFUSE, apply.Version)
+	ok, err := u.store.UpdateStatusIfPending(ctx, apply.Uuid, apply_status.REFUSE, apply.Version)
 	if err != nil {
 		zap.L().Error("Update group apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	if !ok {
-		cur, queryErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
+		cur, queryErr := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 		if queryErr != nil || cur == nil {
 			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
 		}
@@ -376,7 +381,7 @@ func (u *ApplyService) BlackGroupApply(ctx context.Context, operatorId, groupId,
 		return errorx.New(errorx.CodeForbidden, "你没有审批权限")
 	}
 
-	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
+	apply, err := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
@@ -392,13 +397,13 @@ func (u *ApplyService) BlackGroupApply(ctx context.Context, operatorId, groupId,
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.BLACK, apply.Version)
+	ok, err := u.store.UpdateStatusIfPending(ctx, apply.Uuid, apply_status.BLACK, apply.Version)
 	if err != nil {
 		zap.L().Error("Update group apply status error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	if !ok {
-		cur, queryErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
+		cur, queryErr := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 		if queryErr != nil || cur == nil {
 			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
 		}

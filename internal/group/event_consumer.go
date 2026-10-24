@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/dberr"
@@ -20,14 +21,22 @@ import (
 
 // DomainEventConsumer 领域事件消费者
 type DomainEventConsumer struct {
-	reader *kafkainfra.Consumer
-	uow    UoW
-	cache  cacheinfra.AsyncCacheService
-	quit   chan os.Signal
+	reader      *kafkainfra.Consumer
+	db          *gorm.DB
+	groupStore  GroupStore
+	memberStore GroupMemberStore
+	cache       cacheinfra.AsyncCacheService
+	quit        chan os.Signal
+	eventRecord func(ctx context.Context, tx *gorm.DB, aggregateId, eventType string, payload []byte) error
 }
 
 // NewDomainEventConsumer 构造函数
-func NewDomainEventConsumer(uow UoW, cache ...cacheinfra.AsyncCacheService) *DomainEventConsumer {
+func NewDomainEventConsumer(
+	db *gorm.DB,
+	groupStore GroupStore,
+	memberStore GroupMemberStore,
+	cache ...cacheinfra.AsyncCacheService,
+) *DomainEventConsumer {
 	reader, err := kafkainfra.NewConsumer(kafkainfra.TopicDomainEvents, "group_domain_events")
 	if err != nil {
 		zap.L().Fatal("failed to init group kafka consumer", zap.Error(err))
@@ -36,7 +45,14 @@ func NewDomainEventConsumer(uow UoW, cache ...cacheinfra.AsyncCacheService) *Dom
 	if len(cache) > 0 {
 		c = cache[0]
 	}
-	return &DomainEventConsumer{reader: reader, uow: uow, cache: c, quit: make(chan os.Signal, 1)}
+	return &DomainEventConsumer{
+		reader:      reader,
+		db:          db,
+		groupStore:  groupStore,
+		memberStore: memberStore,
+		cache:       c,
+		quit:        make(chan os.Signal, 1),
+	}
 }
 
 // Start 启动后台消费协程
@@ -91,23 +107,46 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 		return err
 	}
 
-	err := WithTx(c.uow, func(tx UoW) error {
+	execTx := func(fn func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error) error {
+		if c.db == nil {
+			record := func(aggregateId, eventType string, payload []byte) error {
+				if c.eventRecord != nil {
+					return c.eventRecord(ctx, nil, aggregateId, eventType, payload)
+				}
+				return nil
+			}
+			return fn(c.groupStore, c.memberStore, record)
+		}
+		return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			txGroup := NewGroupStore(tx)
+			txMember := NewGroupMemberStore(tx)
+			record := func(aggregateId, eventType string, payload []byte) error {
+				if c.eventRecord != nil {
+					return c.eventRecord(ctx, tx, aggregateId, eventType, payload)
+				}
+				return outbox.RecordEvent(ctx, tx, aggregateId, eventType, payload)
+			}
+			return fn(txGroup, txMember, record)
+		})
+	}
+
+	err := execTx(func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
 		newMember := GroupMember{
 			GroupUuid: e.GroupId,
 			UserUuid:  e.UserId,
 			Role:      1,
 		}
-		if err := tx.GroupMemberStore().CreateGroupMember(ctx, &newMember); err != nil {
+		if err := txMember.CreateGroupMember(ctx, &newMember); err != nil {
 			if dberr.IsDuplicateKey(err) {
 				return nil
 			}
 			return err
 		}
-		if err := tx.GroupStore().IncrementMemberCount(ctx, e.GroupId); err != nil {
+		if err := txGroup.IncrementMemberCount(ctx, e.GroupId); err != nil {
 			return err
 		}
 
-		grp, err := tx.GroupStore().FindByUuid(ctx, e.GroupId)
+		grp, err := txGroup.FindByUuid(ctx, e.GroupId)
 		if err != nil {
 			return err
 		}
@@ -118,7 +157,7 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 			GroupName:   grp.Name,
 			GroupAvatar: grp.Avatar,
 		})
-		return tx.RecordEvent(ctx, e.GroupId, event.EventGroupJoined, joinedPayload)
+		return recordEvent(e.GroupId, event.EventGroupJoined, joinedPayload)
 	})
 	if err != nil {
 		if dberr.IsDuplicateKey(err) {

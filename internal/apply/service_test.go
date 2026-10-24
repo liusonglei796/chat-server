@@ -40,20 +40,17 @@ func (f *fakeApplyStore) UpdateStatusIfPending(_ context.Context, uuid string, t
 	return true, nil
 }
 
-type fakeApplyUOW struct {
-	applyStore *fakeApplyStore
-}
-
-func (f *fakeApplyUOW) ApplyStore() Store {
-	return f.applyStore
-}
-
-func (f *fakeApplyUOW) RecordEvent(_ context.Context, _ string, _ string, _ []byte) error {
-	return nil
-}
-
-func (f *fakeApplyUOW) WithTx(fn func(tx any) error) error {
-	return fn(f)
+func (f *fakeApplyStore) UpdateWithVersion(_ context.Context, apply *Apply, expectedVersion int32) (bool, error) {
+	key := apply.ApplicantId + ":" + apply.TargetId
+	a, ok := f.applies[key]
+	if !ok {
+		return false, nil
+	}
+	if expectedVersion > 0 && a.Version != expectedVersion {
+		return false, nil
+	}
+	*a = *apply
+	return true, nil
 }
 
 type fakeCacheService struct {
@@ -99,8 +96,7 @@ func TestApplyService_RefuseFriendApply_AtomicStatus(t *testing.T) {
 				"APPLY_1": apply,
 			},
 		}
-		uow := &fakeApplyUOW{applyStore: aStore}
-		svc := NewApplyService(uow, &fakeCacheService{})
+		svc := NewApplyService(nil, aStore, &fakeCacheService{})
 		return svc, apply
 	}
 
@@ -157,8 +153,7 @@ func TestApplyService_BlackFriendApply_IdempotentHealing(t *testing.T) {
 				"APPLY_2": apply,
 			},
 		}
-		uow := &fakeApplyUOW{applyStore: aStore}
-		svc := NewApplyService(uow, &fakeCacheService{})
+		svc := NewApplyService(nil, aStore, &fakeCacheService{})
 		return svc, apply
 	}
 

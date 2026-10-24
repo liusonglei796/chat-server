@@ -39,27 +39,6 @@ func WithBreakerTimeout(d time.Duration) BreakerOption {
 	}
 }
 
-// WithBreakerMaxRequests 自定义半开探测请求并发数
-func WithBreakerMaxRequests(n uint32) BreakerOption {
-	return func(c *BreakerConfig) {
-		c.MaxRequests = n
-	}
-}
-
-// WithBreakerInterval 自定义统计计数刷新周期
-func WithBreakerInterval(d time.Duration) BreakerOption {
-	return func(c *BreakerConfig) {
-		c.Interval = d
-	}
-}
-
-// WithReadyToTrip 自定义触发熔断判定规则
-func WithReadyToTrip(fn func(counts gobreaker.Counts) bool) BreakerOption {
-	return func(c *BreakerConfig) {
-		c.ReadyToTrip = fn
-	}
-}
-
 // defaultIsSuccessful 默认成功判定：严格剔除客户端错误与确定性业务逻辑报错
 func defaultIsSuccessful(err error) bool {
 	if err == nil {

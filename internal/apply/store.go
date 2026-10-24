@@ -2,12 +2,10 @@ package apply
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 
 	"kama_chat_server/internal/infra/dberr"
-	"kama_chat_server/internal/infra/outbox"
 	"kama_chat_server/pkg/enum/apply/apply_status"
 )
 
@@ -17,6 +15,7 @@ type Store interface {
 	FindByTargetIdPendingPaged(ctx context.Context, targetId string, page, pageSize int) ([]Apply, int64, error)
 	CreateApply(ctx context.Context, apply *Apply) error
 	Update(ctx context.Context, apply *Apply) error
+	UpdateWithVersion(ctx context.Context, apply *Apply, expectedVersion int32) (bool, error)
 	UpdateStatusIfPending(ctx context.Context, uuid string, toStatus int8, expectedVersion int32) (bool, error)
 	SoftDelete(ctx context.Context, applicantId, targetId string) error
 	SoftDeleteByUsers(ctx context.Context, userUuids []string) error
@@ -76,6 +75,22 @@ func (r *storeImpl) Update(ctx context.Context, apply *Apply) error {
 	return nil
 }
 
+func (r *storeImpl) UpdateWithVersion(ctx context.Context, apply *Apply, expectedVersion int32) (bool, error) {
+	res := r.db.WithContext(ctx).Model(&Apply{}).
+		Where("id = ? AND version = ?", apply.ID, expectedVersion).
+		Updates(map[string]interface{}{
+			"uuid":          apply.Uuid,
+			"last_apply_at": apply.LastApplyAt,
+			"status":        apply.Status,
+			"message":       apply.Message,
+			"version":       expectedVersion + 1,
+		})
+	if res.Error != nil {
+		return false, dberr.WrapDBErrorf(res.Error, "CAS 更新申请记录 id=%d", apply.ID)
+	}
+	return res.RowsAffected > 0, nil
+}
+
 func (r *storeImpl) UpdateStatusIfPending(ctx context.Context, uuid string, toStatus int8, expectedVersion int32) (bool, error) {
 	res := r.db.WithContext(ctx).Model(&Apply{}).
 		Where("uuid = ? AND status = ? AND version = ?", uuid, apply_status.PENDING, expectedVersion).
@@ -104,51 +119,4 @@ func (r *storeImpl) SoftDeleteByUsers(ctx context.Context, userUuids []string) e
 		return dberr.WrapDBErrorf(err, "批量软删除申请 user_count=%d", len(userUuids))
 	}
 	return nil
-}
-
-// ==================== 工作单元 Unit of Work ====================
-
-// UoW 申请领域事务工作单元
-type UoW interface {
-	WithTx(fn func(tx any) error) error
-	RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error
-	ApplyStore() Store
-}
-
-type uowImpl struct {
-	db    *gorm.DB
-	store Store
-}
-
-// NewUoW 创建工作单元实例
-func NewUoW(db *gorm.DB) UoW {
-	return &uowImpl{
-		db:    db,
-		store: NewStore(db),
-	}
-}
-
-func (u *uowImpl) ApplyStore() Store {
-	return u.store
-}
-
-func (u *uowImpl) RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
-	return outbox.RecordEvent(ctx, u.db, aggregateId, eventType, payload)
-}
-
-func (u *uowImpl) WithTx(fn func(tx any) error) error {
-	return u.db.Transaction(func(tx *gorm.DB) error {
-		return fn(NewUoW(tx))
-	})
-}
-
-// WithTx 泛型事务辅助函数
-func WithTx[T any](exec UoW, fn func(tx T) error) error {
-	return exec.WithTx(func(tx any) error {
-		t, ok := tx.(T)
-		if !ok {
-			return fmt.Errorf("transaction callback type mismatch: got %T, want %T", tx, *new(T))
-		}
-		return fn(t)
-	})
 }

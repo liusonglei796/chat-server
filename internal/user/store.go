@@ -2,12 +2,10 @@ package user
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 
 	"kama_chat_server/internal/infra/dberr"
-	"kama_chat_server/internal/infra/outbox"
 )
 
 // Store 用户数据访问接口
@@ -18,6 +16,7 @@ type Store interface {
 	FindByUuids(ctx context.Context, uuids []string) ([]UserInfo, error)
 	CreateUser(ctx context.Context, user *UserInfo) error
 	UpdateUserInfo(ctx context.Context, user *UserInfo) error
+	UpdateUserInfoWithVersion(ctx context.Context, user *UserInfo, expectedVersion int32) (bool, error)
 	UpdateUserStatusByUuids(ctx context.Context, uuids []string, status int8) error
 	UpdateUserIsAdminByUuids(ctx context.Context, uuids []string, isAdmin int8) error
 	SoftDeleteUserByUuids(ctx context.Context, uuids []string) error
@@ -79,6 +78,25 @@ func (r *storeImpl) UpdateUserInfo(ctx context.Context, user *UserInfo) error {
 	return nil
 }
 
+func (r *storeImpl) UpdateUserInfoWithVersion(ctx context.Context, user *UserInfo, expectedVersion int32) (bool, error) {
+	updates := map[string]interface{}{
+		"email":     user.Email,
+		"nickname":  user.Nickname,
+		"birthday":  user.Birthday,
+		"signature": user.Signature,
+		"avatar":    user.Avatar,
+		"gender":    user.Gender,
+		"version":   gorm.Expr("version + 1"),
+	}
+	result := r.db.WithContext(ctx).Model(&UserInfo{}).
+		Where("uuid = ? AND version = ?", user.Uuid, expectedVersion).
+		Updates(updates)
+	if result.Error != nil {
+		return false, dberr.WrapDBError(result.Error, "乐观锁更新用户信息")
+	}
+	return result.RowsAffected > 0, nil
+}
+
 func (r *storeImpl) UpdateUserStatusByUuids(ctx context.Context, uuids []string, status int8) error {
 	if len(uuids) == 0 {
 		return nil
@@ -138,51 +156,4 @@ func (r *storeImpl) FindAllPaged(ctx context.Context, page, pageSize int, keywor
 	}
 
 	return users, total, nil
-}
-
-// ==================== 工作单元 Unit of Work ====================
-
-// UoW 用户领域事务工作单元
-type UoW interface {
-	WithTx(fn func(tx any) error) error
-	RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error
-	UserStore() Store
-}
-
-type uowImpl struct {
-	db    *gorm.DB
-	store Store
-}
-
-// NewUoW 创建工作单元实例
-func NewUoW(db *gorm.DB) UoW {
-	return &uowImpl{
-		db:    db,
-		store: NewStore(db),
-	}
-}
-
-func (u *uowImpl) UserStore() Store {
-	return u.store
-}
-
-func (u *uowImpl) RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
-	return outbox.RecordEvent(ctx, u.db, aggregateId, eventType, payload)
-}
-
-func (u *uowImpl) WithTx(fn func(tx any) error) error {
-	return u.db.Transaction(func(tx *gorm.DB) error {
-		return fn(NewUoW(tx))
-	})
-}
-
-// WithTx 泛型事务辅助函数
-func WithTx[T any](exec UoW, fn func(tx T) error) error {
-	return exec.WithTx(func(tx any) error {
-		t, ok := tx.(T)
-		if !ok {
-			return fmt.Errorf("transaction callback type mismatch: got %T, want %T", tx, *new(T))
-		}
-		return fn(t)
-	})
 }

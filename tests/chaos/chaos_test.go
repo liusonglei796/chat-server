@@ -133,6 +133,7 @@ func setupChaosEnv(t *testing.T) *ChaosTestContext {
 	friendshipStore := friendshipapp.NewStore(db)
 	applyStore := applyapp.NewStore(db)
 	groupStore := groupapp.NewGroupStore(db)
+	groupMemberStore := groupapp.NewGroupMemberStore(db)
 	messageStore := messageapp.NewMessageStore(db)
 	sessionStore := messageapp.NewSessionStore(db)
 
@@ -151,10 +152,10 @@ func setupChaosEnv(t *testing.T) *ChaosTestContext {
 		MessageStore:    messageStore,
 		SessionStore:    sessionStore,
 		CachePort:       cachePort,
-		UserService:     userapp.NewUserService(userapp.NewUoW(db), cachePort, guard),
-		FriendshipSvc:   friendshipapp.NewFriendshipService(friendshipapp.NewUoW(db), cachePort),
-		ApplyService:    applyapp.NewApplyService(applyapp.NewUoW(db), cachePort, guard),
-		GroupService:    groupapp.NewGroupService(groupapp.NewUoW(db), cachePort, guard),
+		UserService:     userapp.NewUserService(db, userStore, cachePort, guard),
+		FriendshipSvc:   friendshipapp.NewFriendshipService(db, friendshipStore, cachePort),
+		ApplyService:    applyapp.NewApplyService(db, applyStore, cachePort, guard),
+		GroupService:    groupapp.NewGroupService(db, groupStore, groupMemberStore, cachePort, guard),
 		MessageSvc:      messageapp.NewMessageService(messageStore, sessionStore, cachePort, guard),
 		SessionSvc:      messageapp.NewSessionService(sessionStore, messageStore, cachePort, guard),
 	}

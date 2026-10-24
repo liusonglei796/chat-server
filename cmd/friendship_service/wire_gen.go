@@ -34,12 +34,12 @@ func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	uoW := friendship.NewUoW(db)
+	store := friendship.NewStore(db)
 	asyncCacheService, cleanup, err := infra.ProvideCache()
 	if err != nil {
 		return nil, nil, err
 	}
-	friendshipService := friendship.ProvideFriendshipService(uoW, asyncCacheService)
+	friendshipService := friendship.ProvideFriendshipService(db, store, asyncCacheService)
 	grpcServer := friendship.NewGrpcServer(friendshipService)
 	server := provideGRPCServer(grpcServer)
 	registrar, cleanup2, err := provideRegistrar()
@@ -47,7 +47,7 @@ func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 		cleanup()
 		return nil, nil, err
 	}
-	domainEventConsumer, cleanup3 := friendship.ProvideEventConsumer(uoW, asyncCacheService)
+	domainEventConsumer, cleanup3 := friendship.ProvideEventConsumer(db, store, asyncCacheService)
 	app := newApp(server, registrar, domainEventConsumer)
 	return app, func() {
 		cleanup3()

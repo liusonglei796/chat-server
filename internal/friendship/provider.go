@@ -13,7 +13,7 @@ import (
 // ProviderSet 集中导出 friendship 领域内所有服务的依赖提供者
 var ProviderSet = wire.NewSet(
 	ProvideDB,
-	NewUoW,
+	NewStore,
 	ProvideFriendshipService,
 	NewGrpcServer,
 	ProvideEventConsumer,
@@ -32,13 +32,13 @@ func ProvideDB(conf *config.Config) (*gorm.DB, error) {
 }
 
 // ProvideFriendshipService 适配 Wire 依赖注入
-func ProvideFriendshipService(uow UoW, cacheService cacheinfra.AsyncCacheService) *FriendshipService {
-	return NewFriendshipService(uow, cacheService)
+func ProvideFriendshipService(db *gorm.DB, store Store, cacheService cacheinfra.AsyncCacheService) *FriendshipService {
+	return NewFriendshipService(db, store, cacheService)
 }
 
 // ProvideEventConsumer 启动领域事件消费者并导出清理函数
-func ProvideEventConsumer(uow UoW, cacheService cacheinfra.AsyncCacheService) (*DomainEventConsumer, func()) {
-	consumer := NewDomainEventConsumer(uow, cacheService)
+func ProvideEventConsumer(db *gorm.DB, store Store, cacheService cacheinfra.AsyncCacheService) (*DomainEventConsumer, func()) {
+	consumer := NewDomainEventConsumer(db, store, cacheService)
 	consumer.Start()
 	cleanup := func() {
 		consumer.Close()

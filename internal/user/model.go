@@ -51,6 +51,9 @@ type UserInfo struct {
 	// Status 账号状态 (0=正常, 1=禁用)
 	Status int8 `gorm:"column:status;index;not null;comment:状态，0.正常，1.禁用"`
 
+	// Version 乐观锁版本号
+	Version int32 `gorm:"column:version;default:1;not null;comment:乐观锁版本号"`
+
 	// RawPassword 明文密码（不存入数据库，BeforeSave 自动加密）
 	RawPassword string `gorm:"-" json:"-"`
 }
@@ -112,6 +115,7 @@ type UpdateUserInfoRequest struct {
 	Birthday  *string `json:"birthday"`
 	Signature *string `json:"signature"`
 	Avatar    *string `json:"avatar"`
+	Version   *int32  `json:"version"`
 }
 
 // LoginRespond 登录成功响应
@@ -144,6 +148,7 @@ type RegisterRespond struct {
 	CreatedAt string `json:"created_at"`
 	IsAdmin   int8   `json:"is_admin"`
 	Status    int8   `json:"status"`
+	Version   int32  `json:"version"`
 }
 
 // GetUserInfoRespond 获取用户信息响应
@@ -159,6 +164,7 @@ type GetUserInfoRespond struct {
 	CreatedAt string `json:"created_at"`
 	IsAdmin   int8   `json:"is_admin"`
 	Status    int8   `json:"status"`
+	Version   int32  `json:"version"`
 }
 
 // PublicUserInfoRespond 公开用户信息响应

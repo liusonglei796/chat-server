@@ -13,7 +13,7 @@ import (
 
 // UpdateUserInfo 修改用户信息
 func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateReq UpdateUserInfoRequest) error {
-	user, err := u.uow.UserStore().FindByUuid(ctx, userId)
+	user, err := u.store.FindByUuid(ctx, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -21,6 +21,14 @@ func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateR
 		zap.L().Error("service error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
+	expectedVersion := user.Version
+	if updateReq.Version != nil && *updateReq.Version > 0 {
+		if user.Version != *updateReq.Version {
+			return errorx.New(errorx.CodeConflict, "用户信息已被修改，请刷新后重试")
+		}
+		expectedVersion = *updateReq.Version
+	}
+
 	if updateReq.Email != nil {
 		user.Email = *updateReq.Email
 	}
@@ -37,11 +45,13 @@ func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateR
 		user.Avatar = *updateReq.Avatar
 	}
 
-	if err := WithTx(u.uow, func(tx UoW) error {
-		return tx.UserStore().UpdateUserInfo(ctx, user)
-	}); err != nil {
+	ok, err := u.store.UpdateUserInfoWithVersion(ctx, user, expectedVersion)
+	if err != nil {
 		zap.L().Error("更新用户信息事务失败", zap.String("userId", userId), zap.Error(err))
 		return errorx.ErrServerBusy
+	}
+	if !ok {
+		return errorx.New(errorx.CodeConflict, "用户信息已被修改，请刷新后重试")
 	}
 
 	if u.cache != nil {
@@ -67,7 +77,7 @@ func (u *UserService) GetUserInfo(ctx context.Context, requesterId, targetId str
 	}
 
 	if u.cacheHelper == nil {
-		user, err := u.uow.UserStore().FindByUuid(ctx, targetId)
+		user, err := u.store.FindByUuid(ctx, targetId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -86,6 +96,7 @@ func (u *UserService) GetUserInfo(ctx context.Context, requesterId, targetId str
 			CreatedAt: user.CreatedAt.Format("2006-01-02 15:04:05"),
 			IsAdmin:   user.IsAdmin,
 			Status:    user.Status,
+			Version:   user.Version,
 		}, nil
 	}
 
@@ -96,7 +107,7 @@ func (u *UserService) GetUserInfo(ctx context.Context, requesterId, targetId str
 		ctx,
 		key,
 		func(loaderCtx context.Context) (interface{}, error) {
-			user, err := u.uow.UserStore().FindByUuid(loaderCtx, targetId)
+			user, err := u.store.FindByUuid(loaderCtx, targetId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -115,6 +126,7 @@ func (u *UserService) GetUserInfo(ctx context.Context, requesterId, targetId str
 				CreatedAt: user.CreatedAt.Format("2006-01-02 15:04:05"),
 				IsAdmin:   user.IsAdmin,
 				Status:    user.Status,
+				Version:   user.Version,
 			}, nil
 		},
 		cacheinfra.RandomizedTTL(time.Hour),
@@ -130,7 +142,7 @@ func (u *UserService) GetUserInfo(ctx context.Context, requesterId, targetId str
 // GetPublicUserInfo 获取用户公开信息（查看他人）
 func (u *UserService) GetPublicUserInfo(ctx context.Context, targetId string) (*PublicUserInfoRespond, error) {
 	if u.cacheHelper == nil {
-		user, err := u.uow.UserStore().FindByUuid(ctx, targetId)
+		user, err := u.store.FindByUuid(ctx, targetId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -154,7 +166,7 @@ func (u *UserService) GetPublicUserInfo(ctx context.Context, targetId string) (*
 		ctx,
 		key,
 		func(loaderCtx context.Context) (interface{}, error) {
-			user, err := u.uow.UserStore().FindByUuid(loaderCtx, targetId)
+			user, err := u.store.FindByUuid(loaderCtx, targetId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
@@ -185,7 +197,7 @@ func (u *UserService) BatchGetPublicUserInfo(ctx context.Context, userIds []stri
 	if len(userIds) == 0 {
 		return []PublicUserInfoRespond{}, nil
 	}
-	userList, err := u.uow.UserStore().FindByUuids(ctx, userIds)
+	userList, err := u.store.FindByUuids(ctx, userIds)
 	if err != nil {
 		zap.L().Error("batch find users error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -206,7 +218,7 @@ func (u *UserService) BatchGetPublicUserInfo(ctx context.Context, userIds []stri
 
 // GetUserStatus 获取用户账号状态（正常/禁用）
 func (u *UserService) GetUserStatus(ctx context.Context, userId string) (int8, error) {
-	user, err := u.uow.UserStore().FindByUuid(ctx, userId)
+	user, err := u.store.FindByUuid(ctx, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return 0, errorx.New(errorx.CodeUserNotExist, "用户不存在")

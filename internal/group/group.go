@@ -32,13 +32,13 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 			Status:    group_status.NORMAL,
 		}
 
-		err := WithTx(g.uow, func(tx UoW) error {
-			existing, err := tx.GroupStore().FindByOwnerIdAndName(c, ownerId, newGroup.Name)
+		err := g.execTx(ctx, func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+			existing, err := txGroup.FindByOwnerIdAndName(c, ownerId, newGroup.Name)
 			if err == nil && existing != nil {
 				return errorx.New(errorx.CodeInvalidParam, "您已拥有同名的正常群聊，请勿重复创建")
 			}
 
-			if err := tx.GroupStore().CreateGroup(c, &newGroup); err != nil {
+			if err := txGroup.CreateGroup(c, &newGroup); err != nil {
 				if dberr.IsDuplicateKey(err) {
 					return errorx.New(errorx.CodeInvalidParam, "您已拥有同名的正常群聊，请勿重复创建")
 				}
@@ -51,7 +51,7 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 				UserUuid:  ownerId,
 				Role:      3,
 			}
-			if err := tx.GroupMemberStore().CreateGroupMember(c, &member); err != nil {
+			if err := txMember.CreateGroupMember(c, &member); err != nil {
 				zap.L().Error("service error", zap.Error(err))
 				return errorx.ErrServerBusy
 			}
@@ -62,7 +62,7 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 				GroupName:   newGroup.Name,
 				GroupAvatar: newGroup.Avatar,
 			})
-			return tx.RecordEvent(c, newGroup.Uuid, event.EventGroupCreated, payload)
+			return recordEvent(newGroup.Uuid, event.EventGroupCreated, payload)
 		})
 
 		if err != nil {
@@ -97,7 +97,7 @@ func (g *GroupService) LoadMyGroup(ctx context.Context, userId string, page, pag
 		pageSize = 20
 	}
 
-	groups, total, err := g.uow.GroupStore().FindByOwnerIdPaged(ctx, userId, page, pageSize)
+	groups, total, err := g.groupStore.FindByOwnerIdPaged(ctx, userId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find my groups by owner id error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -124,7 +124,7 @@ func (g *GroupService) GetGroupListByMember(ctx context.Context, userId string, 
 		pageSize = 20
 	}
 
-	groupUuids, total, err := g.uow.GroupMemberStore().FindGroupUuidsByUserPaged(ctx, userId, page, pageSize)
+	groupUuids, total, err := g.memberStore.FindGroupUuidsByUserPaged(ctx, userId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find group uuids by user paged error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -134,7 +134,7 @@ func (g *GroupService) GetGroupListByMember(ctx context.Context, userId string, 
 		return []MyGroupListRespond{}, total, nil
 	}
 
-	groups, err := g.uow.GroupStore().FindByUuids(ctx, groupUuids)
+	groups, err := g.groupStore.FindByUuids(ctx, groupUuids)
 	if err != nil {
 		zap.L().Error("Batch find groups error", zap.Error(err))
 		return nil, 0, errorx.ErrServerBusy
@@ -155,7 +155,7 @@ func (g *GroupService) GetGroupListByMember(ctx context.Context, userId string, 
 // CheckGroupAddMode 检查群聊加群方式
 func (g *GroupService) CheckGroupAddMode(ctx context.Context, groupId string) (int8, error) {
 	if g.cacheHelper == nil {
-		group, err := g.uow.GroupStore().FindByUuid(ctx, groupId)
+		group, err := g.groupStore.FindByUuid(ctx, groupId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return -1, errorx.New(errorx.CodeNotFound, "群组不存在")
@@ -172,7 +172,7 @@ func (g *GroupService) CheckGroupAddMode(ctx context.Context, groupId string) (i
 		ctx,
 		cacheKey,
 		func(loaderCtx context.Context) (interface{}, error) {
-			group, err := g.uow.GroupStore().FindByUuid(loaderCtx, groupId)
+			group, err := g.groupStore.FindByUuid(loaderCtx, groupId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeNotFound, "群组不存在")
@@ -206,7 +206,7 @@ func (g *GroupService) CheckGroupAddMode(ctx context.Context, groupId string) (i
 
 // DismissGroup 解散群聊 (operatorId 必须是群主)
 func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId string) error {
-	group, err := g.uow.GroupStore().FindByUuid(ctx, groupId)
+	group, err := g.groupStore.FindByUuid(ctx, groupId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return nil
@@ -217,22 +217,29 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 	if group.OwnerId != operatorId {
 		return errorx.New(errorx.CodeForbidden, "只有群主才能解散群聊")
 	}
+	if group.Status == group_status.DISMISS {
+		return nil
+	}
 
-	err = WithTx(g.uow, func(tx UoW) error {
-		if err := tx.GroupMemberStore().DeleteByGroupUuid(ctx, groupId); err != nil {
-			zap.L().Error("Delete members error", zap.Error(err))
+	err = g.execTx(ctx, func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+		ok, err := txGroup.DismissGroupWithCAS(ctx, groupId, operatorId)
+		if err != nil {
+			zap.L().Error("Dismiss group with CAS error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
+		if !ok {
+			return nil
+		}
 
-		if err := tx.GroupStore().SoftDeleteByUuids(ctx, []string{groupId}); err != nil {
-			zap.L().Error("Soft delete group error", zap.Error(err))
+		if err := txMember.DeleteByGroupUuid(ctx, groupId); err != nil {
+			zap.L().Error("Delete members error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 
 		payload, _ := json.Marshal(event.GroupDismissedEvent{
 			GroupId: groupId,
 		})
-		return tx.RecordEvent(ctx, groupId, event.EventGroupDismissed, payload)
+		return recordEvent(groupId, event.EventGroupDismissed, payload)
 	})
 
 	if err != nil {
@@ -258,7 +265,7 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 
 // UpdateGroupInfo 更新群组信息 (operatorId 必须是群主或管理员)
 func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, req UpdateGroupInfoRequest) error {
-	member, err := g.uow.GroupMemberStore().FindByGroupAndUser(ctx, req.Uuid, operatorId)
+	member, err := g.memberStore.FindByGroupAndUser(ctx, req.Uuid, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -292,11 +299,11 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 		return nil
 	}
 
-	if err := WithTx(g.uow, func(tx UoW) error {
-		return tx.GroupStore().UpdateWithVersion(ctx, req.Uuid, *req.Version, updates)
+	if err := g.execTx(ctx, func(txGroup GroupStore, txMember GroupMemberStore, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+		return txGroup.UpdateWithVersion(ctx, req.Uuid, *req.Version, updates)
 	}); err != nil {
 		if errorx.IsCode(err, errorx.CodeConflict) {
-			currentGroup, queryErr := g.uow.GroupStore().FindByUuid(ctx, req.Uuid)
+			currentGroup, queryErr := g.groupStore.FindByUuid(ctx, req.Uuid)
 			if queryErr == nil && currentGroup != nil {
 				matched := true
 				if req.Name != nil && currentGroup.Name != *req.Name {
@@ -342,7 +349,7 @@ func (g *GroupService) GetGroupDetail(ctx context.Context, userId, groupId strin
 		return PublicGroupInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "群聊ID不能为空")
 	}
 
-	_, err := g.uow.GroupMemberStore().FindByGroupAndUser(ctx, groupId, userId)
+	_, err := g.memberStore.FindByGroupAndUser(ctx, groupId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return PublicGroupInfoRespond{}, errorx.New(errorx.CodeForbidden, "你不是该群成员")
@@ -352,7 +359,7 @@ func (g *GroupService) GetGroupDetail(ctx context.Context, userId, groupId strin
 	}
 
 	if g.cacheHelper == nil {
-		grp, err := g.uow.GroupStore().FindByUuid(ctx, groupId)
+		grp, err := g.groupStore.FindByUuid(ctx, groupId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				return PublicGroupInfoRespond{}, errorx.New(errorx.CodeNotFound, "该群聊不存在")
@@ -380,7 +387,7 @@ func (g *GroupService) GetGroupDetail(ctx context.Context, userId, groupId strin
 		ctx,
 		cacheKey,
 		func(loaderCtx context.Context) (interface{}, error) {
-			grp, err := g.uow.GroupStore().FindByUuid(loaderCtx, groupId)
+			grp, err := g.groupStore.FindByUuid(loaderCtx, groupId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
 					return nil, errorx.New(errorx.CodeNotFound, "该群聊不存在")

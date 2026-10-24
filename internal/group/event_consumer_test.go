@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-sql-driver/mysql"
+	"gorm.io/gorm"
 
 	"kama_chat_server/pkg/event"
 )
@@ -34,31 +35,6 @@ func (m *mockConsumerGroupMemberStore) CreateGroupMember(_ context.Context, _ *G
 	return m.err
 }
 
-type mockConsumerUOW struct {
-	gStore      *mockConsumerGroupStore
-	mStore      *mockConsumerGroupMemberStore
-	eventTypes  []string
-	recordedEvt bool
-}
-
-func (m *mockConsumerUOW) GroupStore() GroupStore {
-	return m.gStore
-}
-
-func (m *mockConsumerUOW) GroupMemberStore() GroupMemberStore {
-	return m.mStore
-}
-
-func (m *mockConsumerUOW) RecordEvent(_ context.Context, _ string, eventType string, _ []byte) error {
-	m.recordedEvt = true
-	m.eventTypes = append(m.eventTypes, eventType)
-	return nil
-}
-
-func (m *mockConsumerUOW) WithTx(fn func(tx any) error) error {
-	return fn(m)
-}
-
 func TestGroupConsumer_DuplicateKey_TreatedAsSuccess(t *testing.T) {
 	ctx := context.Background()
 
@@ -71,12 +47,16 @@ func TestGroupConsumer_DuplicateKey_TreatedAsSuccess(t *testing.T) {
 			},
 		}
 		mStore := &mockConsumerGroupMemberStore{}
-		uow := &mockConsumerUOW{
-			gStore: gStore,
-			mStore: mStore,
-		}
 
-		c := &DomainEventConsumer{uow: uow}
+		var recordedEvt bool
+		c := &DomainEventConsumer{
+			groupStore:  gStore,
+			memberStore: mStore,
+			eventRecord: func(_ context.Context, _ *gorm.DB, _, _ string, _ []byte) error {
+				recordedEvt = true
+				return nil
+			},
+		}
 		payload, _ := json.Marshal(event.GroupApplyPassedEvent{
 			GroupId: "G1001",
 			UserId:  "U1001",
@@ -89,7 +69,7 @@ func TestGroupConsumer_DuplicateKey_TreatedAsSuccess(t *testing.T) {
 		if gStore.incrementCalled != 1 {
 			t.Fatalf("expected incrementCalled=1, got %d", gStore.incrementCalled)
 		}
-		if !uow.recordedEvt {
+		if !recordedEvt {
 			t.Fatal("expected EventGroupJoined to be recorded")
 		}
 	})
@@ -108,12 +88,16 @@ func TestGroupConsumer_DuplicateKey_TreatedAsSuccess(t *testing.T) {
 				Message: "Duplicate entry for key 'idx_group_user'",
 			},
 		}
-		uow := &mockConsumerUOW{
-			gStore: gStore,
-			mStore: mStore,
-		}
 
-		c := &DomainEventConsumer{uow: uow}
+		var recordedEvt bool
+		c := &DomainEventConsumer{
+			groupStore:  gStore,
+			memberStore: mStore,
+			eventRecord: func(_ context.Context, _ *gorm.DB, _, _ string, _ []byte) error {
+				recordedEvt = true
+				return nil
+			},
+		}
 		payload, _ := json.Marshal(event.GroupApplyPassedEvent{
 			GroupId: "G1001",
 			UserId:  "U1001",
@@ -126,7 +110,7 @@ func TestGroupConsumer_DuplicateKey_TreatedAsSuccess(t *testing.T) {
 		if gStore.incrementCalled != 0 {
 			t.Fatalf("expected incrementCalled=0 on duplicate join, got %d", gStore.incrementCalled)
 		}
-		if uow.recordedEvt {
+		if recordedEvt {
 			t.Fatal("expected EventGroupJoined NOT to be recorded on duplicate join")
 		}
 	})

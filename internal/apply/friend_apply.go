@@ -74,7 +74,7 @@ func (u *ApplyService) ApplyFriend(ctx context.Context, userId string, req Apply
 		}
 
 		// 4. 查询之前的申请记录
-		apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(execCtx, userId, req.FriendId)
+		apply, err := u.store.FindByApplicantIdAndTargetId(execCtx, userId, req.FriendId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
 				apply = &Apply{
@@ -87,9 +87,9 @@ func (u *ApplyService) ApplyFriend(ctx context.Context, userId string, req Apply
 					LastApplyAt: time.Now(),
 					Version:     1,
 				}
-				if err := u.uow.ApplyStore().CreateApply(execCtx, apply); err != nil {
+				if err := u.store.CreateApply(execCtx, apply); err != nil {
 					if dberr.IsDuplicateKey(err) {
-						if existing, getErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(execCtx, userId, req.FriendId); getErr == nil {
+						if existing, getErr := u.store.FindByApplicantIdAndTargetId(execCtx, userId, req.FriendId); getErr == nil {
 							if existing.Status == apply_status.BLACK {
 								return struct{}{}, errorx.New(errorx.CodeInvalidParam, "对方已将你拉黑，无法发送申请")
 							}
@@ -98,7 +98,7 @@ func (u *ApplyService) ApplyFriend(ctx context.Context, userId string, req Apply
 							existing.Status = apply_status.PENDING
 							existing.Message = req.Message
 							existing.Version += 1
-							return struct{}{}, u.uow.ApplyStore().Update(execCtx, existing)
+							return struct{}{}, u.store.Update(execCtx, existing)
 						}
 					}
 					zap.L().Error("Create friend apply error", zap.Error(err))
@@ -116,15 +116,20 @@ func (u *ApplyService) ApplyFriend(ctx context.Context, userId string, req Apply
 		}
 
 		// 6. 更新旧申请记录（重置状态并刷新 Uuid 与 Version，防止前代审批时序倒退穿透）
+		oldVersion := apply.Version
 		apply.Uuid = fmt.Sprintf("A%s", snowflake.GenerateIDString())
 		apply.LastApplyAt = time.Now()
 		apply.Status = apply_status.PENDING
 		apply.Message = req.Message
 		apply.Version += 1
 
-		if err := u.uow.ApplyStore().Update(execCtx, apply); err != nil {
+		ok, err := u.store.UpdateWithVersion(execCtx, apply, oldVersion)
+		if err != nil {
 			zap.L().Error("Update friend apply error", zap.Error(err))
 			return struct{}{}, errorx.ErrServerBusy
+		}
+		if !ok {
+			return struct{}{}, errorx.New(errorx.CodeConflict, "申请状态发生变化，请刷新重试")
 		}
 
 		return struct{}{}, nil
@@ -154,7 +159,7 @@ func (u *ApplyService) GetFriendApplyList(ctx context.Context, userId string, pa
 		pageSize = 100
 	}
 
-	applyList, total, err := u.uow.ApplyStore().FindByTargetIdPendingPaged(ctx, userId, page, pageSize)
+	applyList, total, err := u.store.FindByTargetIdPendingPaged(ctx, userId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find pending applies error", zap.Error(err))
 		return nil, errorx.ErrServerBusy
@@ -211,7 +216,7 @@ func (u *ApplyService) GetFriendApplyList(ctx context.Context, userId string, pa
 
 // PassFriendApply 通过好友申请
 func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, applicantId string) error {
-	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, userId)
+	apply, err := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 	if err != nil {
 		zap.L().Error("Find friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -237,14 +242,14 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 	}
 
 	var alreadyAgreed bool
-	err = WithTx(u.uow, func(tx UoW) error {
-		ok, err := tx.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.AGREE, apply.Version)
+	err = u.execTx(ctx, func(txStore Store, recordEvent func(aggregateId, eventType string, payload []byte) error) error {
+		ok, err := txStore.UpdateStatusIfPending(ctx, apply.Uuid, apply_status.AGREE, apply.Version)
 		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
 			return errorx.ErrServerBusy
 		}
 		if !ok {
-			cur, queryErr := tx.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, userId)
+			cur, queryErr := txStore.FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 			if queryErr != nil || cur == nil {
 				return errorx.New(errorx.CodeNotFound, "申请记录不存在")
 			}
@@ -268,7 +273,7 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 			UserId:   userId,
 			FriendId: applicantId,
 		})
-		return tx.RecordEvent(ctx, userId, event.EventFriendApplyPassed, payload)
+		return recordEvent(userId, event.EventFriendApplyPassed, payload)
 	})
 
 	if err != nil {
@@ -289,7 +294,7 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 
 // RefuseFriendApply 拒绝好友申请
 func (u *ApplyService) RefuseFriendApply(ctx context.Context, userId string, applicantId string) error {
-	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, userId)
+	apply, err := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 	if err != nil {
 		zap.L().Error("Find friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
@@ -302,13 +307,13 @@ func (u *ApplyService) RefuseFriendApply(ctx context.Context, userId string, app
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.REFUSE, apply.Version)
+	ok, err := u.store.UpdateStatusIfPending(ctx, apply.Uuid, apply_status.REFUSE, apply.Version)
 	if err != nil {
 		zap.L().Error("Update friend apply error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	if !ok {
-		cur, queryErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, userId)
+		cur, queryErr := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 		if queryErr != nil || cur == nil {
 			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
 		}
@@ -331,7 +336,7 @@ func (u *ApplyService) RefuseFriendApply(ctx context.Context, userId string, app
 
 // BlackFriendApply 拉黑好友申请
 func (u *ApplyService) BlackFriendApply(ctx context.Context, userId string, applicantId string) error {
-	apply, err := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, userId)
+	apply, err := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
@@ -347,13 +352,13 @@ func (u *ApplyService) BlackFriendApply(ctx context.Context, userId string, appl
 		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
 	}
 
-	ok, err := u.uow.ApplyStore().UpdateStatusIfPending(ctx, apply.Uuid, apply_status.BLACK, apply.Version)
+	ok, err := u.store.UpdateStatusIfPending(ctx, apply.Uuid, apply_status.BLACK, apply.Version)
 	if err != nil {
 		zap.L().Error("Update friend apply status error", zap.Error(err))
 		return errorx.ErrServerBusy
 	}
 	if !ok {
-		cur, queryErr := u.uow.ApplyStore().FindByApplicantIdAndTargetId(ctx, applicantId, userId)
+		cur, queryErr := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 		if queryErr != nil || cur == nil {
 			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
 		}

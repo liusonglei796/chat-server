@@ -34,9 +34,8 @@ func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	uoW := message.NewUoW(db)
-	messageStore := message.ProvideMessageStore(uoW)
-	sessionStore := message.ProvideSessionStore(uoW)
+	messageStore := message.NewMessageStore(db)
+	sessionStore := message.NewSessionStore(db)
 	asyncCacheService, cleanup, err := infra.ProvideCache()
 	if err != nil {
 		return nil, nil, err
@@ -50,7 +49,7 @@ func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 		cleanup()
 		return nil, nil, err
 	}
-	domainEventConsumer, cleanup3 := message.ProvideEventConsumer(uoW, asyncCacheService)
+	domainEventConsumer, cleanup3 := message.ProvideEventConsumer(sessionStore, asyncCacheService)
 	app := newApp(server, registrar, domainEventConsumer)
 	return app, func() {
 		cleanup3()

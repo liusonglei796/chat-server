@@ -2,12 +2,10 @@ package friendship
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 
 	"kama_chat_server/internal/infra/dberr"
-	"kama_chat_server/internal/infra/outbox"
 )
 
 // Store 好友关系数据访问接口
@@ -148,51 +146,4 @@ func (r *storeImpl) UpdateRemark(ctx context.Context, userId, friendId, remark s
 		return dberr.WrapDBErrorf(err, "更新好友备注 user_id=%s friend_id=%s", userId, friendId)
 	}
 	return nil
-}
-
-// ==================== 工作单元 Unit of Work ====================
-
-// UoW 好友领域事务工作单元
-type UoW interface {
-	WithTx(fn func(tx any) error) error
-	RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error
-	FriendshipStore() Store
-}
-
-type uowImpl struct {
-	db    *gorm.DB
-	store Store
-}
-
-// NewUoW 创建工作单元实例
-func NewUoW(db *gorm.DB) UoW {
-	return &uowImpl{
-		db:    db,
-		store: NewStore(db),
-	}
-}
-
-func (u *uowImpl) FriendshipStore() Store {
-	return u.store
-}
-
-func (u *uowImpl) RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
-	return outbox.RecordEvent(ctx, u.db, aggregateId, eventType, payload)
-}
-
-func (u *uowImpl) WithTx(fn func(tx any) error) error {
-	return u.db.Transaction(func(tx *gorm.DB) error {
-		return fn(NewUoW(tx))
-	})
-}
-
-// WithTx 泛型事务辅助函数
-func WithTx[T any](exec UoW, fn func(tx T) error) error {
-	return exec.WithTx(func(tx any) error {
-		t, ok := tx.(T)
-		if !ok {
-			return fmt.Errorf("transaction callback type mismatch: got %T, want %T", tx, *new(T))
-		}
-		return fn(t)
-	})
 }

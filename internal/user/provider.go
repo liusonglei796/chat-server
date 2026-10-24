@@ -13,8 +13,7 @@ import (
 // ProviderSet 集中导出 user 领域内所有服务的依赖提供者
 var ProviderSet = wire.NewSet(
 	ProvideDB,
-	NewUoW,
-	ProvideUserStore,
+	NewStore,
 	ProvideUserService,
 	NewUserGrpcServer,
 	ProvideAuthService,
@@ -33,14 +32,9 @@ func ProvideDB(conf *config.Config) (*gorm.DB, error) {
 	return db, nil
 }
 
-// ProvideUserStore 导出 Store 提供者
-func ProvideUserStore(uow UoW) Store {
-	return uow.UserStore()
-}
-
 // ProvideUserService 适配 Wire 依赖注入
-func ProvideUserService(uow UoW, cacheService cacheinfra.AsyncCacheService) *UserService {
-	return NewUserService(uow, cacheService)
+func ProvideUserService(db *gorm.DB, store Store, cacheService cacheinfra.AsyncCacheService) *UserService {
+	return NewUserService(db, store, cacheService)
 }
 
 // ProvideAuthService 适配 Wire 依赖注入

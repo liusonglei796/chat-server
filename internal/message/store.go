@@ -12,7 +12,6 @@ import (
 	"gorm.io/gorm/clause"
 
 	"kama_chat_server/internal/infra/dberr"
-	"kama_chat_server/internal/infra/outbox"
 	"kama_chat_server/pkg/errorx"
 )
 
@@ -505,63 +504,10 @@ func (r *sessionStoreImpl) UpdateLastMessage(ctx context.Context, sendId, receiv
 }
 
 func (r *sessionStoreImpl) UpdatePinStatus(ctx context.Context, uuid string, isPinned bool) error {
-	if err := r.db.WithContext(ctx).Model(&Session{}).Where("uuid = ?", uuid).
+	if err := r.db.WithContext(ctx).Model(&Session{}).
+		Where("uuid = ? AND is_pinned != ?", uuid, isPinned).
 		Update("is_pinned", isPinned).Error; err != nil {
 		return dberr.WrapDBErrorf(err, "更新会话置顶状态 uuid=%s", uuid)
 	}
 	return nil
-}
-
-// ==================== 工作单元 Unit of Work ====================
-
-// UoW 消息领域事务工作单元
-type UoW interface {
-	WithTx(fn func(tx any) error) error
-	RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error
-	MessageStore() MessageStore
-	SessionStore() SessionStore
-}
-
-type uowImpl struct {
-	db           *gorm.DB
-	messageStore MessageStore
-	sessionStore SessionStore
-}
-
-// NewUoW 创建工作单元实例
-func NewUoW(db *gorm.DB) UoW {
-	return &uowImpl{
-		db:           db,
-		messageStore: NewMessageStore(db),
-		sessionStore: NewSessionStore(db),
-	}
-}
-
-func (u *uowImpl) MessageStore() MessageStore {
-	return u.messageStore
-}
-
-func (u *uowImpl) SessionStore() SessionStore {
-	return u.sessionStore
-}
-
-func (u *uowImpl) RecordEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
-	return outbox.RecordEvent(ctx, u.db, aggregateId, eventType, payload)
-}
-
-func (u *uowImpl) WithTx(fn func(tx any) error) error {
-	return u.db.Transaction(func(tx *gorm.DB) error {
-		return fn(NewUoW(tx))
-	})
-}
-
-// WithTx 泛型事务辅助函数
-func WithTx[T any](exec UoW, fn func(tx T) error) error {
-	return exec.WithTx(func(tx any) error {
-		t, ok := tx.(T)
-		if !ok {
-			return fmt.Errorf("transaction callback type mismatch: got %T, want %T", tx, *new(T))
-		}
-		return fn(t)
-	})
 }

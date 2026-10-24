@@ -4,24 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"mime/multipart"
-	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	bwsnowflake "github.com/bwmarrin/snowflake"
-	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	userpb "kama_chat_server/api/gen/user"
 	cacheinfra "kama_chat_server/internal/infra/cache"
-	configinfra "kama_chat_server/internal/infra/config"
 	grpcinfra "kama_chat_server/internal/infra/grpc_client"
 	metricsinfra "kama_chat_server/internal/infra/metrics"
 	snowflakeinfra "kama_chat_server/internal/infra/snowflake"
@@ -335,121 +328,6 @@ func (m *MessageService) GetGroupMessageListCursor(ctx context.Context, userId, 
 
 	sessionId := groupId
 	return m.getMessagesBySessionIdCursorWithCache(ctx, sessionId, cursor, pageSize)
-}
-
-// UploadAvatar 上传头像
-func (m *MessageService) UploadAvatar(ctx context.Context, c *gin.Context) (string, error) {
-	if err := c.Request.ParseMultipartForm(constants.FILE_MAX_SIZE); err != nil {
-		zap.L().Error("parse multipart form error", zap.Error(err))
-		return "", errorx.New(errorx.CodeInvalidParam, "文件过大，请上传小于 30MB 的文件")
-	}
-	mForm := c.Request.MultipartForm
-	if len(mForm.File) == 0 {
-		return "", errorx.New(errorx.CodeInvalidParam, "no file uploaded")
-	}
-
-	for _, headers := range mForm.File {
-		for _, fileHeader := range headers {
-			if fileHeader.Size > constants.AVATAR_MAX_SIZE {
-				return "", errorx.New(errorx.CodeInvalidParam, "头像文件过大，最大支持 5MB")
-			}
-			filename, err := m.saveFile(fileHeader, configinfra.GetConfig().StaticAvatarPath, "image/jpeg", "image/png", "image/gif")
-			if err != nil {
-				zap.L().Error("save avatar error", zap.Error(err))
-				if errorx.GetCode(err) == errorx.CodeInvalidParam {
-					continue
-				}
-				return "", errorx.ErrServerBusy
-			}
-			zap.L().Info("upload avatar success", zap.String("filename", filename))
-			return filename, nil
-		}
-	}
-	return "", errorx.New(errorx.CodeInvalidParam, "no file found")
-}
-
-// UploadFile 上传文件
-func (m *MessageService) UploadFile(ctx context.Context, c *gin.Context) ([]string, error) {
-	if err := c.Request.ParseMultipartForm(constants.FILE_MAX_SIZE); err != nil {
-		zap.L().Error("parse multipart form error", zap.Error(err))
-		return nil, errorx.New(errorx.CodeInvalidParam, "文件过大，请上传小于 30MB 的文件")
-	}
-
-	var uploadedFiles []string
-	dstDir := configinfra.GetConfig().StaticFilePath
-	mForm := c.Request.MultipartForm
-
-	for _, headers := range mForm.File {
-		for _, fileHeader := range headers {
-			if fileHeader.Size > constants.UPLOAD_FILE_MAX_SIZE {
-				for _, f := range uploadedFiles {
-					_ = os.Remove(filepath.Join(dstDir, f))
-				}
-				return nil, errorx.New(errorx.CodeInvalidParam, "单个文件过大，最大支持 30MB")
-			}
-
-			filename, err := m.saveFile(fileHeader, dstDir)
-			if err != nil {
-				zap.L().Error("save file error", zap.Error(err))
-				for _, f := range uploadedFiles {
-					_ = os.Remove(filepath.Join(dstDir, f))
-				}
-				return nil, errorx.ErrServerBusy
-			}
-
-			zap.L().Info("upload file success", zap.String("filename", filename), zap.Int64("size", fileHeader.Size))
-			uploadedFiles = append(uploadedFiles, filename)
-		}
-	}
-
-	return uploadedFiles, nil
-}
-
-func (m *MessageService) saveFile(fileHeader *multipart.FileHeader, dstDir string, allowedMimes ...string) (string, error) {
-	src, err := fileHeader.Open()
-	if err != nil {
-		return "", err
-	}
-	defer src.Close()
-
-	buffer := make([]byte, 512)
-	if _, err := src.Read(buffer); err != nil && err != io.EOF {
-		return "", err
-	}
-	contentType := http.DetectContentType(buffer)
-
-	if _, err := src.Seek(0, 0); err != nil {
-		return "", err
-	}
-
-	if len(allowedMimes) > 0 {
-		isAllowed := false
-		for _, mime := range allowedMimes {
-			if strings.HasPrefix(contentType, mime) {
-				isAllowed = true
-				break
-			}
-		}
-		if !isAllowed {
-			return "", errorx.Newf(errorx.CodeInvalidParam, "invalid file type: %s", contentType)
-		}
-	}
-
-	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
-	newFileName := snowflakeinfra.GenerateIDString() + ext
-	dst := filepath.Join(dstDir, newFileName)
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return "", err
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, src); err != nil {
-		return "", err
-	}
-
-	return newFileName, nil
 }
 
 // RecallMessage 撤回消息

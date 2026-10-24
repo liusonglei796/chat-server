@@ -41,6 +41,19 @@ func (f *fakeUserStore) UpdateUserInfo(_ context.Context, user *UserInfo) error 
 	return nil
 }
 
+func (f *fakeUserStore) UpdateUserInfoWithVersion(_ context.Context, user *UserInfo, expectedVersion int32) (bool, error) {
+	current, ok := f.users[user.Uuid]
+	if !ok {
+		return false, dberr.WrapDBError(gorm.ErrRecordNotFound, "更新用户")
+	}
+	if expectedVersion > 0 && current.Version != expectedVersion {
+		return false, nil
+	}
+	user.Version = expectedVersion + 1
+	f.users[user.Uuid] = *user
+	return true, nil
+}
+
 func (f *fakeUserStore) FindByNickname(_ context.Context, nickname string) (*UserInfo, error) {
 	for _, u := range f.users {
 		if u.Nickname == nickname {
@@ -64,22 +77,6 @@ func (f *fakeUserStore) CreateUser(_ context.Context, user *UserInfo) error {
 	return nil
 }
 
-type fakeUOW struct {
-	userStore *fakeUserStore
-}
-
-func (f *fakeUOW) UserStore() Store {
-	return f.userStore
-}
-
-func (f *fakeUOW) RecordEvent(_ context.Context, _ string, _ string, _ []byte) error {
-	return nil
-}
-
-func (f *fakeUOW) WithTx(fn func(tx any) error) error {
-	return fn(f)
-}
-
 func TestBatchGetPublicUserInfo_PreservesOrderAndFiltersMissing(t *testing.T) {
 	store := &fakeUserStore{
 		users: map[string]UserInfo{
@@ -87,7 +84,7 @@ func TestBatchGetPublicUserInfo_PreservesOrderAndFiltersMissing(t *testing.T) {
 			"U3": {Uuid: "U3", Nickname: "Charlie", Avatar: "c.png", Gender: 0, Birthday: "19991231", Signature: "bye"},
 		},
 	}
-	svc := NewUserService(&fakeUOW{userStore: store}, nil)
+	svc := NewUserService(nil, store, nil)
 
 	rsp, err := svc.BatchGetPublicUserInfo(context.Background(), []string{"U1", "U2", "U3"})
 	if err != nil {
@@ -115,10 +112,11 @@ func TestUpdateUserInfo_PartialFieldsOnly(t *testing.T) {
 				Birthday:  "20000101",
 				Signature: "old sig",
 				Avatar:    "old.png",
+				Version:   1,
 			},
 		},
 	}
-	svc := NewUserService(&fakeUOW{userStore: store}, nil)
+	svc := NewUserService(nil, store, nil)
 
 	newName := "NewName"
 	newSig := "new sig"
@@ -136,6 +134,19 @@ func TestUpdateUserInfo_PartialFieldsOnly(t *testing.T) {
 	}
 	if updated.Signature != "new sig" {
 		t.Errorf("expected signature 'new sig', got %s", updated.Signature)
+	}
+	if updated.Version != 2 {
+		t.Errorf("expected version 2, got %d", updated.Version)
+	}
+
+	// 冲突校验：用过期版本号 1 更新应该被拦截
+	staleVersion := int32(1)
+	err = svc.UpdateUserInfo(context.Background(), "U1", UpdateUserInfoRequest{
+		Nickname: &newName,
+		Version:  &staleVersion,
+	})
+	if err == nil {
+		t.Fatal("expected conflict error on stale version, got nil")
 	}
 	if updated.Email != "old@test.com" || updated.Birthday != "20000101" || updated.Avatar != "old.png" {
 		t.Errorf("unmodified fields were altered: %+v", updated)
@@ -161,10 +172,9 @@ func (m *mockTestUserGuard) Execute(ctx context.Context, key string, leaseTTL, s
 func TestUserService_Register_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	store := &fakeUserStore{users: make(map[string]UserInfo)}
-	uow := &fakeUOW{userStore: store}
 	guard := &mockTestUserGuard{store: make(map[string]string)}
 
-	svc := NewUserService(uow, nil, guard)
+	svc := NewUserService(nil, store, nil, guard)
 
 	req := RegisterRequest{
 		Username:    "alice_idempotent",

@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/dberr"
@@ -24,13 +25,14 @@ import (
 // DomainEventConsumer 领域事件消费者
 type DomainEventConsumer struct {
 	reader *kafkainfra.Consumer
-	uow    UoW
+	db     *gorm.DB
+	store  Store
 	cache  cacheinfra.AsyncCacheService
 	quit   chan os.Signal
 }
 
 // NewDomainEventConsumer 构造函数
-func NewDomainEventConsumer(uow UoW, cache ...cacheinfra.AsyncCacheService) *DomainEventConsumer {
+func NewDomainEventConsumer(db *gorm.DB, store Store, cache ...cacheinfra.AsyncCacheService) *DomainEventConsumer {
 	reader, err := kafkainfra.NewConsumer(kafkainfra.TopicDomainEvents, "friendship_domain_events")
 	if err != nil {
 		zap.L().Fatal("failed to init friendship kafka consumer", zap.Error(err))
@@ -39,7 +41,7 @@ func NewDomainEventConsumer(uow UoW, cache ...cacheinfra.AsyncCacheService) *Dom
 	if len(cache) > 0 {
 		c = cache[0]
 	}
-	return &DomainEventConsumer{reader: reader, uow: uow, cache: c, quit: make(chan os.Signal, 1)}
+	return &DomainEventConsumer{reader: reader, db: db, store: store, cache: c, quit: make(chan os.Signal, 1)}
 }
 
 // Start 启动后台消费协程
@@ -96,14 +98,23 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 		return err
 	}
 
-	err := WithTx(c.uow, func(tx UoW) error {
+	execTx := func(fn func(txStore Store) error) error {
+		if c.db == nil {
+			return fn(c.store)
+		}
+		return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			return fn(NewStore(tx))
+		})
+	}
+
+	err := execTx(func(txStore Store) error {
 		newFriendship := Friendship{
 			UserId:   e.UserId,
 			FriendId: e.FriendId,
 			Status:   friendship_status.NORMAL,
 			Version:  1,
 		}
-		if err := tx.FriendshipStore().CreateFriendship(ctx, &newFriendship); err != nil {
+		if err := txStore.CreateFriendship(ctx, &newFriendship); err != nil {
 			if dberr.IsDuplicateKey(err) {
 				return nil
 			}
@@ -116,7 +127,7 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 			Status:   friendship_status.NORMAL,
 			Version:  1,
 		}
-		if err := tx.FriendshipStore().CreateFriendship(ctx, &anotherFriendship); err != nil {
+		if err := txStore.CreateFriendship(ctx, &anotherFriendship); err != nil {
 			if dberr.IsDuplicateKey(err) {
 				return nil
 			}

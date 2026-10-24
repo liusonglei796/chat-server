@@ -3,7 +3,6 @@ package e2e_test
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -282,13 +281,4 @@ func summarize(r *apiResp) string {
 		s += fmt.Sprintf(" msg=%q", msg)
 	}
 	return s
-}
-
-func containsAny(s string, needles ...string) bool {
-	for _, n := range needles {
-		if strings.Contains(s, n) {
-			return true
-		}
-	}
-	return false
 }

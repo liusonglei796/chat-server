@@ -155,17 +155,6 @@ func Publish(ctx context.Context, cl *kgo.Client, key []byte, payload []byte, he
 	return produce(ctx, cl, record)
 }
 
-// PublishToTopic 发送一条消息到显式指定的主题
-func PublishToTopic(ctx context.Context, cl *kgo.Client, topic string, key []byte, payload []byte, headers []kgo.RecordHeader) error {
-	record := &kgo.Record{
-		Topic:   topic,
-		Key:     key,
-		Value:   payload,
-		Headers: headers,
-	}
-	return produce(ctx, cl, record)
-}
-
 // produce 统一的同步投递出口，负责上报发布耗时与失败计数
 func produce(ctx context.Context, cl *kgo.Client, record *kgo.Record) error {
 	start := time.Now()

@@ -13,7 +13,8 @@ import (
 // ProviderSet 集中导出 group 领域内所有服务的依赖提供者
 var ProviderSet = wire.NewSet(
 	ProvideDB,
-	NewUoW,
+	NewGroupStore,
+	NewGroupMemberStore,
 	ProvideGroupService,
 	NewGrpcServer,
 	ProvideEventConsumer,
@@ -32,13 +33,23 @@ func ProvideDB(conf *config.Config) (*gorm.DB, error) {
 }
 
 // ProvideGroupService 适配 Wire 依赖注入
-func ProvideGroupService(uow UoW, cacheService cacheinfra.AsyncCacheService) *GroupService {
-	return NewGroupService(uow, cacheService)
+func ProvideGroupService(
+	db *gorm.DB,
+	groupStore GroupStore,
+	memberStore GroupMemberStore,
+	cacheService cacheinfra.AsyncCacheService,
+) *GroupService {
+	return NewGroupService(db, groupStore, memberStore, cacheService)
 }
 
 // ProvideEventConsumer 启动群组领域事件消费者并导出清理函数
-func ProvideEventConsumer(uow UoW, cacheService cacheinfra.AsyncCacheService) (*DomainEventConsumer, func()) {
-	consumer := NewDomainEventConsumer(uow, cacheService)
+func ProvideEventConsumer(
+	db *gorm.DB,
+	groupStore GroupStore,
+	memberStore GroupMemberStore,
+	cacheService cacheinfra.AsyncCacheService,
+) (*DomainEventConsumer, func()) {
+	consumer := NewDomainEventConsumer(db, groupStore, memberStore, cacheService)
 	consumer.Start()
 	cleanup := func() {
 		consumer.Close()
