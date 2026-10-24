@@ -2,7 +2,6 @@ package apply
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -20,7 +19,6 @@ import (
 	"kama_chat_server/pkg/enum/apply/apply_type"
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/event"
 	"kama_chat_server/pkg/idempotent"
 )
 
@@ -270,11 +268,7 @@ func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, appli
 			return errorx.ErrServerBusy
 		}
 
-		payload, _ := json.Marshal(event.FriendApplyPassedEvent{
-			UserId:   userId,
-			FriendId: applicantId,
-		})
-		return u.recordOutboxEvent(txCtx, userId, event.EventFriendApplyPassed, payload)
+		return u.recordFriendApplyPassedEvent(txCtx, userId, applicantId)
 	})
 
 	if err != nil {

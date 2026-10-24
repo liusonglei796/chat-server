@@ -2,7 +2,6 @@ package apply
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -18,7 +17,6 @@ import (
 	"kama_chat_server/pkg/enum/apply/apply_type"
 	"kama_chat_server/pkg/enum/group/add_mode"
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/event"
 	"kama_chat_server/pkg/idempotent"
 )
 
@@ -59,11 +57,7 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 						if err := u.store.CreateApply(txCtx, apply); err != nil {
 							return err
 						}
-						payload, _ := json.Marshal(event.GroupApplyPassedEvent{
-							GroupId: req.GroupId,
-							UserId:  userId,
-						})
-						return u.recordOutboxEvent(txCtx, req.GroupId, event.EventGroupApplyPassed, payload)
+						return u.recordGroupApplyPassedEvent(txCtx, req.GroupId, userId)
 					})
 					if err != nil {
 						zap.L().Error("Direct join group error", zap.Error(err))
@@ -110,11 +104,7 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 				if err := u.store.Update(txCtx, apply); err != nil {
 					return err
 				}
-				payload, _ := json.Marshal(event.GroupApplyPassedEvent{
-					GroupId: req.GroupId,
-					UserId:  userId,
-				})
-				return u.recordOutboxEvent(txCtx, req.GroupId, event.EventGroupApplyPassed, payload)
+				return u.recordGroupApplyPassedEvent(txCtx, req.GroupId, userId)
 			})
 			if err != nil {
 				zap.L().Error("Direct join group error", zap.Error(err))
@@ -291,11 +281,7 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 			return errorx.ErrServerBusy
 		}
 
-		payload, _ := json.Marshal(event.GroupApplyPassedEvent{
-			GroupId: groupId,
-			UserId:  applicantId,
-		})
-		return u.recordOutboxEvent(txCtx, groupId, event.EventGroupApplyPassed, payload)
+		return u.recordGroupApplyPassedEvent(txCtx, groupId, applicantId)
 	})
 
 	if err != nil {

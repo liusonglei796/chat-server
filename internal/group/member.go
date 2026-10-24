@@ -2,7 +2,6 @@ package group
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"go.uber.org/zap"
@@ -12,7 +11,6 @@ import (
 	"kama_chat_server/internal/infra/grpc_client"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/event"
 )
 
 // LeaveGroup 退群
@@ -43,11 +41,7 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 				return errorx.ErrServerBusy
 			}
 
-			payload, _ := json.Marshal(event.GroupMemberLeftEvent{
-				GroupId: groupId,
-				UserId:  userId,
-			})
-			return g.recordOutboxEvent(txCtx, groupId, event.EventGroupMemberLeft, payload)
+			return g.recordGroupMemberLeftEvent(txCtx, groupId, userId)
 		}
 		return nil
 	})
@@ -179,12 +173,7 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 				return errorx.ErrServerBusy
 			}
 
-			payload, _ := json.Marshal(event.GroupMemberRemovedEvent{
-				GroupId:     req.GroupId,
-				OperatorId:  operatorId,
-				MemberUuids: req.UuidList,
-			})
-			return g.recordOutboxEvent(txCtx, req.GroupId, event.EventGroupMemberRemoved, payload)
+			return g.recordGroupMemberRemovedEvent(txCtx, req.GroupId, operatorId, req.UuidList)
 		}
 		return nil
 	})

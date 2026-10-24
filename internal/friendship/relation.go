@@ -2,7 +2,6 @@ package friendship
 
 import (
 	"context"
-	"encoding/json"
 
 	"go.uber.org/zap"
 
@@ -10,7 +9,6 @@ import (
 	"kama_chat_server/internal/infra/dberr"
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/event"
 )
 
 // DeleteFriend 删除好友（微信同款单向删除：仅删除本人与对方的关系记录，对方仍保留单向好友）
@@ -37,11 +35,7 @@ func (s *FriendshipService) DeleteFriend(ctx context.Context, userId, friendId s
 			return errorx.ErrServerBusy
 		}
 
-		payload, _ := json.Marshal(event.FriendDeletedEvent{
-			UserId:   userId,
-			FriendId: friendId,
-		})
-		return s.recordOutboxEvent(txCtx, userId, event.EventFriendDeleted, payload)
+		return s.recordFriendDeletedEvent(txCtx, userId, friendId)
 	})
 
 	if err != nil {
@@ -136,11 +130,7 @@ func (s *FriendshipService) BlackFriend(ctx context.Context, userId string, frie
 			return errorx.New(errorx.CodeInvalidParam, "好友关系状态异常")
 		}
 
-		payload, _ := json.Marshal(event.FriendBlackedEvent{
-			UserId:   userId,
-			FriendId: friendId,
-		})
-		return s.recordOutboxEvent(txCtx, userId, event.EventFriendBlacked, payload)
+		return s.recordFriendBlackedEvent(txCtx, userId, friendId)
 	})
 
 	if err != nil {

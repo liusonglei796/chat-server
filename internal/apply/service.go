@@ -2,6 +2,7 @@ package apply
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -9,6 +10,7 @@ import (
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/outbox"
+	"kama_chat_server/pkg/event"
 	"kama_chat_server/pkg/idempotent"
 )
 
@@ -48,4 +50,22 @@ func (u *ApplyService) recordOutboxEvent(ctx context.Context, aggregateId, event
 		return nil
 	}
 	return outbox.RecordOutboxEvent(ctx, database.GetDB(ctx, u.db), aggregateId, eventType, payload)
+}
+
+// recordFriendApplyPassedEvent 记录好友申请通过领域事件
+func (u *ApplyService) recordFriendApplyPassedEvent(ctx context.Context, userId, friendId string) error {
+	payload, _ := json.Marshal(event.FriendApplyPassedEvent{
+		UserId:   userId,
+		FriendId: friendId,
+	})
+	return u.recordOutboxEvent(ctx, userId, event.EventFriendApplyPassed, payload)
+}
+
+// recordGroupApplyPassedEvent 记录入群申请通过领域事件
+func (u *ApplyService) recordGroupApplyPassedEvent(ctx context.Context, groupId, userId string) error {
+	payload, _ := json.Marshal(event.GroupApplyPassedEvent{
+		GroupId: groupId,
+		UserId:  userId,
+	})
+	return u.recordOutboxEvent(ctx, groupId, event.EventGroupApplyPassed, payload)
 }

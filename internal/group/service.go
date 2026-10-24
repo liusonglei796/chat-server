@@ -2,6 +2,7 @@ package group
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -9,6 +10,7 @@ import (
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/outbox"
+	"kama_chat_server/pkg/event"
 	"kama_chat_server/pkg/idempotent"
 )
 
@@ -61,4 +63,42 @@ func (g *GroupService) recordOutboxEvent(ctx context.Context, aggregateId, event
 		return nil
 	}
 	return outbox.RecordOutboxEvent(ctx, db, aggregateId, eventType, payload)
+}
+
+// recordGroupCreatedEvent 记录建群领域事件
+func (g *GroupService) recordGroupCreatedEvent(ctx context.Context, group *GroupInfo) error {
+	payload, _ := json.Marshal(event.GroupCreatedEvent{
+		GroupId:     group.Uuid,
+		OwnerId:     group.OwnerId,
+		GroupName:   group.Name,
+		GroupAvatar: group.Avatar,
+	})
+	return g.recordOutboxEvent(ctx, group.Uuid, event.EventGroupCreated, payload)
+}
+
+// recordGroupDismissedEvent 记录解散群领域事件
+func (g *GroupService) recordGroupDismissedEvent(ctx context.Context, groupId string) error {
+	payload, _ := json.Marshal(event.GroupDismissedEvent{
+		GroupId: groupId,
+	})
+	return g.recordOutboxEvent(ctx, groupId, event.EventGroupDismissed, payload)
+}
+
+// recordGroupMemberLeftEvent 记录成员退群领域事件
+func (g *GroupService) recordGroupMemberLeftEvent(ctx context.Context, groupId, userId string) error {
+	payload, _ := json.Marshal(event.GroupMemberLeftEvent{
+		GroupId: groupId,
+		UserId:  userId,
+	})
+	return g.recordOutboxEvent(ctx, groupId, event.EventGroupMemberLeft, payload)
+}
+
+// recordGroupMemberRemovedEvent 记录成员被移出群领域事件
+func (g *GroupService) recordGroupMemberRemovedEvent(ctx context.Context, groupId, operatorId string, memberUuids []string) error {
+	payload, _ := json.Marshal(event.GroupMemberRemovedEvent{
+		GroupId:     groupId,
+		OperatorId:  operatorId,
+		MemberUuids: memberUuids,
+	})
+	return g.recordOutboxEvent(ctx, groupId, event.EventGroupMemberRemoved, payload)
 }

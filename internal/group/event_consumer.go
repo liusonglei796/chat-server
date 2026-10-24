@@ -129,20 +129,7 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 			return err
 		}
 
-		joinedPayload, _ := json.Marshal(event.GroupJoinedEvent{
-			GroupId:     e.GroupId,
-			UserId:      e.UserId,
-			GroupName:   grp.Name,
-			GroupAvatar: grp.Avatar,
-		})
-		if c.eventRecord != nil {
-			return c.eventRecord(txCtx, database.GetDB(txCtx, c.db), e.GroupId, event.EventGroupJoined, joinedPayload)
-		}
-		db := database.GetDB(txCtx, c.db)
-		if db == nil {
-			return nil
-		}
-		return outbox.RecordOutboxEvent(txCtx, db, e.GroupId, event.EventGroupJoined, joinedPayload)
+		return c.recordGroupJoinedEvent(txCtx, e.GroupId, e.UserId, grp.Name, grp.Avatar)
 	})
 	if err != nil {
 		if dberr.IsDuplicateKey(err) {
@@ -157,4 +144,22 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 		_ = c.cache.Delete(ctx, constants.CacheKeyGroupInfo+e.GroupId)
 	}
 	return nil
+}
+
+// recordGroupJoinedEvent 记录群成员加入领域事件
+func (c *DomainEventConsumer) recordGroupJoinedEvent(ctx context.Context, groupId, userId, groupName, groupAvatar string) error {
+	payload, _ := json.Marshal(event.GroupJoinedEvent{
+		GroupId:     groupId,
+		UserId:      userId,
+		GroupName:   groupName,
+		GroupAvatar: groupAvatar,
+	})
+	if c.eventRecord != nil {
+		return c.eventRecord(ctx, database.GetDB(ctx, c.db), groupId, event.EventGroupJoined, payload)
+	}
+	db := database.GetDB(ctx, c.db)
+	if db == nil {
+		return nil
+	}
+	return outbox.RecordOutboxEvent(ctx, db, groupId, event.EventGroupJoined, payload)
 }

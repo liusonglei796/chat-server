@@ -2,7 +2,6 @@ package group
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -16,7 +15,6 @@ import (
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/group/group_status"
 	"kama_chat_server/pkg/errorx"
-	"kama_chat_server/pkg/event"
 )
 
 // CreateGroup 创建群聊 (ownerId 从 JWT 获取)
@@ -57,13 +55,7 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 				return errorx.ErrServerBusy
 			}
 
-			payload, _ := json.Marshal(event.GroupCreatedEvent{
-				GroupId:     newGroup.Uuid,
-				OwnerId:     ownerId,
-				GroupName:   newGroup.Name,
-				GroupAvatar: newGroup.Avatar,
-			})
-			return g.recordOutboxEvent(txCtx, newGroup.Uuid, event.EventGroupCreated, payload)
+			return g.recordGroupCreatedEvent(txCtx, &newGroup)
 		})
 
 		if err != nil {
@@ -237,10 +229,7 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 			return errorx.ErrServerBusy
 		}
 
-		payload, _ := json.Marshal(event.GroupDismissedEvent{
-			GroupId: groupId,
-		})
-		return g.recordOutboxEvent(txCtx, groupId, event.EventGroupDismissed, payload)
+		return g.recordGroupDismissedEvent(txCtx, groupId)
 	})
 
 	if err != nil {
