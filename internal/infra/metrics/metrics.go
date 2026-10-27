@@ -50,7 +50,7 @@ var (
 		Subsystem: "message",
 		Name:      "published_total",
 		Help:      "发布到 Kafka 的消息总数",
-	}, []string{"type"}) // type: text, file, audio_video
+	}, []string{"type"}) // type: text, file
 
 	// MessagesConsumed 从 Kafka 消费的消息总数，按消息类型分类
 	MessagesConsumed = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -58,7 +58,7 @@ var (
 		Subsystem: "message",
 		Name:      "consumed_total",
 		Help:      "从 Kafka 消费的消息总数",
-	}, []string{"type"}) // type: text, file, audio_video
+	}, []string{"type"}) // type: text, file
 
 	// MessagesDuplicated 被去重跳过的消息数
 	MessagesDuplicated = prometheus.NewCounter(prometheus.CounterOpts{
@@ -84,12 +84,20 @@ var (
 		Help:      "成功分发到 WebSocket 客户端的消息数",
 	})
 
-	// MessagesDropped 因 channel 满而丢弃的消息数
+	// MessagesDropped 因 channel 满、路由缺失或推送失败而丢弃的消息数
 	MessagesDropped = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: "kama_chat",
 		Subsystem: "message",
 		Name:      "dropped_total",
-		Help:      "因 SendBack channel 满而丢弃的消息数",
+		Help:      "因 SendBack channel 满、路由缺失或推送失败而丢弃的消息数",
+	})
+
+	// GroupFanoutRejected 因全局扇出并发上限被拒绝的群消息批次数
+	GroupFanoutRejected = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "kama_chat",
+		Subsystem: "message",
+		Name:      "group_fanout_rejected_total",
+		Help:      "因全局群聊扇出并发上限被拒绝的消息批次数",
 	})
 
 	// MessageProcessDuration 消息处理耗时直方图（从消费到分发完成）
@@ -99,7 +107,7 @@ var (
 		Name:      "process_duration_seconds",
 		Help:      "消息处理耗时（秒）",
 		Buckets:   prometheus.DefBuckets, // 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10
-	}, []string{"type"}) // type: text, file, audio_video
+	}, []string{"type"}) // type: text, file
 
 	// PublishDuration 消息发布到 Kafka 的耗时
 	PublishDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -172,6 +180,7 @@ func init() {
 		MessagesDegrade,
 		MessagesDispatched,
 		MessagesDropped,
+		GroupFanoutRejected,
 		MessageProcessDuration,
 		PublishDuration,
 		// Kafka 指标

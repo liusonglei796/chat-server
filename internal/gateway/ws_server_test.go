@@ -54,9 +54,23 @@ func TestWsServer_ExtractWsUserID(t *testing.T) {
 	req3.Header.Set("Authorization", "Bearer "+tokenStr3)
 	assert.Equal(t, "u1003", extractWsUserID(req3))
 
-	// 4. 测试无认证信息
+	// 4. 测试 Sec-WebSocket-Protocol: Bearer, <token>（浏览器 WebSocket 用法）
+	tokenStr4, err := jwt.GenerateAccessToken("u1004", false)
+	assert.NoError(t, err)
 	req4 := httptest.NewRequest(http.MethodGet, "/ws", nil)
-	assert.Equal(t, "", extractWsUserID(req4))
+	req4.Header.Set("Sec-WebSocket-Protocol", "Bearer, "+tokenStr4)
+	assert.Equal(t, "u1004", extractWsUserID(req4))
+
+	// 5. 测试 Sec-WebSocket-Protocol: Bearer <token>（合并写法）
+	tokenStr5, err := jwt.GenerateAccessToken("u1005", false)
+	assert.NoError(t, err)
+	req5 := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req5.Header.Set("Sec-WebSocket-Protocol", "Bearer "+tokenStr5)
+	assert.Equal(t, "u1005", extractWsUserID(req5))
+
+	// 6. 测试无认证信息
+	req6 := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	assert.Equal(t, "", extractWsUserID(req6))
 }
 
 func TestWsServer_UnauthorizedWs(t *testing.T) {

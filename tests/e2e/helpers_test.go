@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	"github.com/redis/go-redis/v9"
 	"github.com/twmb/franz-go/pkg/kgo"
 	mysqldriver "gorm.io/driver/mysql"
@@ -440,9 +440,10 @@ func (r *eventReader) countEvents(eventType, needle string) int {
 // ---------------------------------------------------------------------------
 
 type wsClient struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
-	msgs [][]byte
+	conn   *websocket.Conn
+	mu     sync.Mutex
+	msgs   [][]byte
+	cancel context.CancelFunc
 }
 
 func dialWS(t *testing.T, gatewayURL, token string) *wsClient {
@@ -452,8 +453,11 @@ func dialWS(t *testing.T, gatewayURL, token string) *wsClient {
 	if token != "" {
 		hdr.Set("Authorization", "Bearer "+token)
 	}
-	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second}
-	conn, resp, err := dialer.Dial(wsURL, hdr)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	conn, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPHeader: hdr,
+	})
 	if err != nil {
 		status := 0
 		if resp != nil {
@@ -461,10 +465,11 @@ func dialWS(t *testing.T, gatewayURL, token string) *wsClient {
 		}
 		t.Fatalf("[WS] 握手失败 %s (http=%d): %v", wsURL, status, err)
 	}
-	c := &wsClient{conn: conn}
+	readCtx, readCancel := context.WithCancel(context.Background())
+	c := &wsClient{conn: conn, cancel: readCancel}
 	go func() {
 		for {
-			_, data, err := conn.ReadMessage()
+			_, data, err := conn.Read(readCtx)
 			if err != nil {
 				return
 			}
@@ -476,7 +481,10 @@ func dialWS(t *testing.T, gatewayURL, token string) *wsClient {
 	return c
 }
 
-func (c *wsClient) close() { c.conn.Close() }
+func (c *wsClient) close() {
+	c.cancel()
+	c.conn.CloseNow()
+}
 
 // waitMessage 等待满足条件的消息
 func (c *wsClient) waitMessage(t *testing.T, timeout time.Duration, pred func([]byte) bool) ([]byte, bool) {

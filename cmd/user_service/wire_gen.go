@@ -23,6 +23,8 @@ import (
 	"kama_chat_server/internal/infra/config"
 	"kama_chat_server/internal/user"
 	"kama_chat_server/pkg/discovery"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -82,9 +84,13 @@ func provideRegistrar() (registry.Registrar, func(), error) {
 
 	kratosRegistrar := etcd.New(etcdCli)
 
+	regHost := strings.ReplaceAll(serviceName, "_", "-")
+	if h := os.Getenv("SERVICE_HOST"); h != "" {
+		regHost = h
+	}
 	legacyRegister, err := discovery.NewRegister(etcdEndpoints, discovery.ServerInfo{
 		Name:   serviceName,
-		Addr:   fmt.Sprintf("%s:%d", serviceName, grpcPort),
+		Addr:   fmt.Sprintf("%s:%d", regHost, grpcPort),
 		Weight: 1,
 	}, 10)
 	if err != nil {

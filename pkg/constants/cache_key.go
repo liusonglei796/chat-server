@@ -12,7 +12,7 @@ const (
 	// 群组相关
 	CacheKeyGroupInfo      = "group:info:"       // 群组详情
 	CacheKeyGroupMembers   = "group:members:"    // 群成员详情列表
-	CacheKeyGroupMemberIDs = "group:member_ids:" // 群成员 ID 列表（Kafka 消费者用）
+	CacheKeyGroupMemberIDs = "group:member_ids:" // 群成员 ID 列表（消息扇出/撤回用，成员变更时失效）
 
 	// 消息相关
 	CacheKeyMessageList      = "message:list:"       // 私聊消息列表
@@ -22,7 +22,6 @@ const (
 	// 会话相关
 	CacheKeySessionOpen = "session:open:" // 单个会话缓存（OpenSession）
 	CacheKeySessionSeq  = "session:seq:"  // 会话内单调递增 SeqID 发号器 (INCR)
-
 
 	// 网关路由相关
 	CacheKeyUserGateway = "user:gateway:" // 用户所在网关实例地址 (Value: gateway_grpc_addr)

@@ -36,13 +36,13 @@ spec:
             # 其它服务仍直连 mysql:3306 / redis:6379，避免把 CDC 的 binlog 位点
             # 也拖进故障域。
             - name: MYSQL_HOST
-              value: "toxiproxy"
+              value: "mysql"
             - name: MYSQL_PORT
-              value: "33066"
+              value: "3306"
             - name: REDIS_HOST
-              value: "toxiproxy"
+              value: "redis"
             - name: REDIS_PORT
-              value: "63855"
+              value: "6379"
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -94,7 +94,7 @@ metadata:
   namespace: chat-system
 spec:
   selector:
-    app: toxiproxy
+    app: friendship
   ports:
     - protocol: TCP
       name: grpc

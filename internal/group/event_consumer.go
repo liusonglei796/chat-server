@@ -141,6 +141,7 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 
 	if c.cache != nil {
 		_ = c.cache.Delete(ctx, constants.CacheKeyGroupMembers+e.GroupId)
+		_ = c.cache.Delete(ctx, constants.CacheKeyGroupMemberIDs+e.GroupId)
 		_ = c.cache.Delete(ctx, constants.CacheKeyGroupInfo+e.GroupId)
 	}
 	return nil

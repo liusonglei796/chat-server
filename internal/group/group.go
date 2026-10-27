@@ -242,11 +242,13 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 	}
 	if g.cache != nil {
 		_ = g.cache.Delete(ctx, constants.CacheKeyGroupMembers+groupId)
+		_ = g.cache.Delete(ctx, constants.CacheKeyGroupMemberIDs+groupId)
 		g.cache.SubmitTask(func() {
 			if g.cacheHelper != nil {
 				_ = g.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+groupId)
 			}
 			_ = g.cache.Delete(context.Background(), constants.CacheKeyGroupMembers+groupId)
+			_ = g.cache.Delete(context.Background(), constants.CacheKeyGroupMemberIDs+groupId)
 		})
 	}
 

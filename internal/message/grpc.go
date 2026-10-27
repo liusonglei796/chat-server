@@ -2,30 +2,63 @@ package message
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/go-kratos/kratos/v2/transport"
 
 	messagepb "kama_chat_server/api/gen/message"
+	"kama_chat_server/internal/infra/jwt"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/interceptor"
 )
 
-// extractTrustedUserID 从 Kratos HTTP 传输上下文或标准 Context 中提取网关注入的受信用户身份
-func extractTrustedUserID(ctx context.Context) string {
+func requestHeader(ctx context.Context, key string) string {
 	if tr, ok := transport.FromServerContext(ctx); ok {
-		uid := tr.RequestHeader().Get("X-User-Id")
-		if uid != "" {
-			return uid
-		}
-	}
-	if val := ctx.Value("user_id"); val != nil {
-		if s, ok := val.(string); ok {
-			return s
-		}
+		return tr.RequestHeader().Get(key)
 	}
 	return ""
+}
+
+// extractTrustedUserID 提取受信用户身份。
+// 优先级：JWT Authorization（HTTP 转码请求） > 网关注入的 X-User-Id（内部 gRPC） > Context。
+// Authorization 存在但解析失败时返回空，调用方必须按未认证处理，不能回退到客户端传入的字段。
+func extractTrustedUserID(ctx context.Context) string {
+	if auth := requestHeader(ctx, "Authorization"); auth != "" {
+		parts := strings.SplitN(auth, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			if claims, err := jwt.ParseToken(parts[1]); err == nil && claims != nil {
+				return claims.UserID
+			}
+		}
+		return ""
+	}
+	if uid := requestHeader(ctx, "X-User-Id"); uid != "" {
+		return uid
+	}
+	return interceptor.GetUserIDFromContext(ctx)
+}
+
+// resolveSendID 校验并确定消息发送者。
+// HTTP 请求必须携带有效 JWT；内部 gRPC 调用可使用网关注入的身份。
+// 只要存在受信身份，请求体中的 send_id 只能与其一致，不能被用来伪造他人发送。
+func resolveSendID(ctx context.Context, requested string) (string, error) {
+	hasAuthorization := requestHeader(ctx, "Authorization") != ""
+	trusted := extractTrustedUserID(ctx)
+	if hasAuthorization && trusted == "" {
+		return "", errorx.New(errorx.CodeUnauthorized, "登录状态无效，请重新登录")
+	}
+	if trusted != "" {
+		if requested != "" && requested != trusted {
+			return "", errorx.New(errorx.CodeForbidden, "发送者身份与登录用户不一致")
+		}
+		return trusted, nil
+	}
+	if requested == "" {
+		return "", errorx.New(errorx.CodeUnauthorized, "请先登录")
+	}
+	return requested, nil
 }
 
 // GrpcServer gRPC 服务端适配器，聚合消息与会话领域服务
@@ -267,19 +300,23 @@ func (s *GrpcServer) SendMessage(ctx context.Context, req *messagepb.SendMessage
 		clientMsgId = interceptor.GetIdempotencyKeyFromContext(ctx)
 	}
 
+	sendId, err := resolveSendID(ctx, req.SendId)
+	if err != nil {
+		return nil, err
+	}
+
 	chatReq := ChatMessageRequest{
 		SessionId:   req.SessionId,
 		Type:        int8(req.Type),
 		Content:     req.Content,
 		Url:         req.Url,
-		SendId:      req.SendId,
+		SendId:      sendId,
 		SendName:    req.SendName,
 		SendAvatar:  req.SendAvatar,
 		ReceiveId:   req.ReceiveId,
 		FileSize:    req.FileSize,
 		FileType:    req.FileType,
 		FileName:    req.FileName,
-		AVdata:      req.AvData,
 		ClientMsgId: clientMsgId,
 	}
 
@@ -305,6 +342,44 @@ func (s *GrpcServer) GetMessages(ctx context.Context, req *messagepb.GetMessages
 	pageSize := req.PageSize
 	if pageSize < 1 {
 		pageSize = 20
+	}
+
+	if strings.HasPrefix(req.Cursor, "after_seq:") {
+		afterSeq, _ := strconv.ParseInt(strings.TrimPrefix(req.Cursor, "after_seq:"), 10, 64)
+		sessionId := req.TargetId
+		if !strings.HasPrefix(req.TargetId, "G") {
+			sessionId = ResolveSessionId(userId, req.TargetId)
+		}
+		list, err := s.msgSvc.SyncMessages(ctx, userId, sessionId, afterSeq, int(pageSize))
+		if err != nil {
+			return nil, err
+		}
+		var rspList []*messagepb.GetMessageListRespond
+		var maxSeq int64 = afterSeq
+		for _, v := range list {
+			if v.SeqId > maxSeq {
+				maxSeq = v.SeqId
+			}
+			rspList = append(rspList, &messagepb.GetMessageListRespond{
+				SendId:     v.SendId,
+				SendName:   v.SendName,
+				SendAvatar: v.SendAvatar,
+				ReceiveId:  v.ReceiveId,
+				Content:    v.Content,
+				Url:        v.Url,
+				Type:       int32(v.Type),
+				FileType:   v.FileType,
+				FileName:   v.FileName,
+				FileSize:   func() int64 { i, _ := strconv.ParseInt(v.FileSize, 10, 64); return i }(),
+				CreatedAt:  v.CreatedAt,
+				SeqId:      v.SeqId,
+			})
+		}
+		return &messagepb.GetMessagesResponse{
+			List:       rspList,
+			NextCursor: fmt.Sprintf("after_seq:%d", maxSeq),
+			HasMore:    len(rspList) >= int(pageSize),
+		}, nil
 	}
 
 	if strings.HasPrefix(req.TargetId, "G") {
@@ -372,6 +447,7 @@ func (s *GrpcServer) GetMessageListCursor(ctx context.Context, req *messagepb.Ge
 			FileName:   v.FileName,
 			FileSize:   func() int64 { i, _ := strconv.ParseInt(v.FileSize, 10, 64); return i }(),
 			CreatedAt:  v.CreatedAt,
+			SeqId:      v.SeqId,
 		})
 	}
 	return &messagepb.GetMessageListCursorResponse{List: rspList, NextCursor: next, HasMore: more}, nil
@@ -409,6 +485,7 @@ func (s *GrpcServer) GetGroupMessageListCursor(ctx context.Context, req *message
 			FileName:   v.FileName,
 			FileSize:   func() int64 { i, _ := strconv.ParseInt(v.FileSize, 10, 64); return i }(),
 			CreatedAt:  v.CreatedAt,
+			SeqId:      v.SeqId,
 		})
 	}
 	return &messagepb.GetGroupMessageListCursorResponse{List: rspList, NextCursor: next, HasMore: more}, nil

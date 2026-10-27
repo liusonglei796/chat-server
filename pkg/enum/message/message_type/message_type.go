@@ -1,19 +1,17 @@
 package message_type
 
 // 消息类型
-// Text: 文本
-// Voice: 语音
-// File: 文件
-// AudioOrVideo: 音视频通话
-// KickNotification: 设备下线通知
+// 注意：这些数值会持久化到数据库并传给客户端，不能随意调整。
+// 1（原语音）和 3（原音视频通话）已移除，保留占位以兼容历史数据。
 const (
+	// 文本
 	Text = iota
-	// 语音
-	Voice
+	// 原语音消息，已移除，仅保留编号
+	_
 	// 文件
 	File
-	// 通话
-	AudioOrVideo
+	// 原音视频通话，已移除，仅保留编号
+	_
 	// 消息撤回
 	Recall
 	// 设备下线通知（单点登录互踢）

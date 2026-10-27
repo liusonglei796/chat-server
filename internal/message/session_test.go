@@ -128,8 +128,8 @@ func (m *mockEventHandlerSessionStore) UpdateByReceiveId(ctx context.Context, re
 	return nil
 }
 
-func (m *mockEventHandlerSessionStore) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time, seqId int64) error {
-	return nil
+func (m *mockEventHandlerSessionStore) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time, seqId int64) (bool, error) {
+	return true, nil
 }
 
 var _ SessionStore = (*mockEventHandlerSessionStore)(nil)

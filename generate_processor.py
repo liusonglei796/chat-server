@@ -104,8 +104,6 @@ new_start = """func (k *KafkaProcessor) Start() {
 				k.handleTextMessage(msgCtx, chatMessageReq)
 			case message_type.File:
 				k.handleFileMessage(msgCtx, chatMessageReq)
-			case message_type.AudioOrVideo:
-				k.handleAVMessage(msgCtx, chatMessageReq)
 			}
 		}
 	}()

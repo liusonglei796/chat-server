@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 
 	friendshippb "kama_chat_server/api/gen/friendship"
+	userpb "kama_chat_server/api/gen/user"
 	grpcinfra "kama_chat_server/internal/infra/grpc_client"
 	"kama_chat_server/pkg/constants"
 	msgtype "kama_chat_server/pkg/enum/message/message_type"
@@ -109,16 +111,26 @@ func (m *mockMsgStore) Create(ctx context.Context, message *Message) error {
 type mockSessStore struct {
 	mu          sync.Mutex
 	lastContent string
+	sessions    map[string]*Session
+}
+
+func sessionKey(sendId, receiveId string) string {
+	return sendId + ":" + receiveId
 }
 
 func (s *mockSessStore) FindByUuid(ctx context.Context, uuid string) (*Session, error) {
 	return nil, nil
 }
 func (s *mockSessStore) FindBySendIdAndReceiveId(ctx context.Context, sendId, receiveId string) (*Session, error) {
-	return nil, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if session, ok := s.sessions[sessionKey(sendId, receiveId)]; ok {
+		return session, nil
+	}
+	return nil, errorx.New(errorx.CodeNotFound, "会话不存在")
 }
 func (s *mockSessStore) FindBySendIdAndReceiveIdUnscoped(ctx context.Context, sendId, receiveId string) (*Session, error) {
-	return nil, nil
+	return s.FindBySendIdAndReceiveId(ctx, sendId, receiveId)
 }
 func (s *mockSessStore) FindBySendIdAndTypePaged(ctx context.Context, sendId string, receiveIdPrefix string, page, pageSize int) ([]Session, int64, error) {
 	return nil, 0, nil
@@ -127,6 +139,17 @@ func (s *mockSessStore) FindBySendIdAndTypeCursor(ctx context.Context, sendId st
 	return nil, nil
 }
 func (s *mockSessStore) CreateSession(ctx context.Context, session *Session) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sessions == nil {
+		s.sessions = make(map[string]*Session)
+	}
+	key := sessionKey(session.SendId, session.ReceiveId)
+	if existing, ok := s.sessions[key]; ok {
+		session.Uuid = existing.Uuid
+		return nil
+	}
+	s.sessions[key] = session
 	return nil
 }
 func (s *mockSessStore) SoftDeleteByUuids(ctx context.Context, uuids []string) error {
@@ -141,11 +164,18 @@ func (s *mockSessStore) UpdatePinStatus(ctx context.Context, uuid string, isPinn
 func (s *mockSessStore) UpdateByReceiveId(ctx context.Context, receiveId string, updates map[string]interface{}) error {
 	return nil
 }
-func (s *mockSessStore) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time, seqId int64) error {
+func (s *mockSessStore) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time, seqId int64) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	session, ok := s.sessions[sessionKey(sendId, receiveId)]
+	if !ok {
+		return false, nil
+	}
+	session.LastMessage = content
+	session.LastMessageType = msgType
+	session.LastSeqId = seqId
 	s.lastContent = content
-	return nil
+	return true, nil
 }
 
 type zsetItem struct {
@@ -620,6 +650,117 @@ func TestSendMessage_SuccessReplayAndCachedResponse(t *testing.T) {
 	}
 }
 
+func TestSendMessage_RejectsRemovedAudioVideoTypes(t *testing.T) {
+	for _, typ := range []int8{1, 3} {
+		t.Run(fmt.Sprintf("type_%d", typ), func(t *testing.T) {
+			svc := NewMessageService(&mockMsgStore{}, &mockSessStore{}, newMockCache())
+
+			_, err := svc.SendMessage(context.Background(), ChatMessageRequest{
+				ClientMsgId: fmt.Sprintf("removed-type-%d", typ),
+				SendId:      "U1001",
+				ReceiveId:   "U1002",
+				Content:     "should be rejected",
+				Type:        typ,
+			})
+			if err == nil {
+				t.Fatalf("expected type %d to be rejected", typ)
+			}
+		})
+	}
+}
+
+func TestSendMessage_UpdatesSessionLastMessageSynchronously(t *testing.T) {
+	msgStore := &mockMsgStore{}
+	sessStore := &mockSessStore{}
+	svc := NewMessageService(msgStore, sessStore, newMockCache())
+
+	req := ChatMessageRequest{
+		ClientMsgId: "client-msg-sync-session",
+		SendId:      "U1001",
+		ReceiveId:   "U1002",
+		Content:     "sync session update",
+		Type:        int8(msgtype.Text),
+	}
+	if _, err := svc.SendMessage(context.Background(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sessStore.mu.Lock()
+	got := sessStore.lastContent
+	sessStore.mu.Unlock()
+	if got != req.Content {
+		t.Fatalf("expected session last message %q right after SendMessage, got %q", req.Content, got)
+	}
+}
+
+func TestSendMessage_CreatesRecipientSessionOnFirstDirectMessage(t *testing.T) {
+	msgStore := &mockMsgStore{}
+	sessStore := &mockSessStore{}
+	svc := NewMessageService(msgStore, sessStore, newMockCache())
+
+	req := ChatMessageRequest{
+		ClientMsgId: "client-msg-first-direct",
+		SendId:      "U1001",
+		ReceiveId:   "U1002",
+		Content:     "first direct message",
+		Type:        int8(msgtype.Text),
+	}
+	if _, err := svc.SendMessage(context.Background(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sessStore.mu.Lock()
+	defer sessStore.mu.Unlock()
+	if _, ok := sessStore.sessions[sessionKey("U1001", "U1002")]; !ok {
+		t.Fatal("expected sender session to exist")
+	}
+	recipient, ok := sessStore.sessions[sessionKey("U1002", "U1001")]
+	if !ok {
+		t.Fatal("expected recipient session to be created on first direct message")
+	}
+	if recipient.LastMessage != req.Content {
+		t.Fatalf("expected recipient last message %q, got %q", req.Content, recipient.LastMessage)
+	}
+}
+
+func TestGetGroupMemberIds_UsesCache(t *testing.T) {
+	cache := newMockCache()
+	ids := []string{"U1", "U2", "U3"}
+	data, _ := json.Marshal(ids)
+	cache.setnx[constants.CacheKeyGroupMemberIDs+"G1"] = string(data)
+
+	svc := NewMessageService(nil, nil, cache)
+	got, err := svc.getGroupMemberIds(context.Background(), "G1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != len(ids) {
+		t.Fatalf("expected %d ids, got %d", len(ids), len(got))
+	}
+	for i := range ids {
+		if got[i] != ids[i] {
+			t.Fatalf("expected ids[%d]=%s, got %s", i, ids[i], got[i])
+		}
+	}
+}
+
+func TestResolveGatewayTargets_GroupsByGateway(t *testing.T) {
+	cache := newMockCache()
+	cache.setnx[constants.CacheKeyUserGateway+"U1"] = "gateway-1:8001"
+	cache.setnx[constants.CacheKeyUserGateway+"U2"] = "gateway-1:8001"
+	cache.setnx[constants.CacheKeyUserGateway+"U3"] = "gateway-2:8001"
+
+	svc := NewMessageService(nil, nil, cache)
+	got := svc.resolveGatewayTargets([]string{"U1", "U2", "U3", "U4"})
+
+	if len(got["gateway-1:8001"]) != 2 {
+		t.Fatalf("expected 2 users on gateway-1, got %v", got["gateway-1:8001"])
+	}
+	if len(got["gateway-2:8001"]) != 1 || got["gateway-2:8001"][0] != "U3" {
+		t.Fatalf("expected U3 on gateway-2, got %v", got["gateway-2:8001"])
+	}
+}
+
 func TestResolveSessionId(t *testing.T) {
 	sid1 := ResolveSessionId("U1001", "U1002")
 	sid2 := ResolveSessionId("U1002", "U1001")
@@ -661,7 +802,10 @@ func TestBuildMessageFromRequest_SessionId(t *testing.T) {
 		Content:   "test",
 		Type:      int8(msgtype.Text),
 	}
-	msg := svc.buildMessageFromRequest(req)
+	msg, err := svc.buildMessageFromRequest(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if msg.SessionId != "P_U1001_U1002" {
 		t.Fatalf("expected SessionId P_U1001_U1002, got %s", msg.SessionId)
 	}
@@ -672,9 +816,40 @@ func TestBuildMessageFromRequest_SessionId(t *testing.T) {
 		Content:   "test group",
 		Type:      int8(msgtype.Text),
 	}
-	msgGroup := svc.buildMessageFromRequest(reqGroup)
+	msgGroup, err := svc.buildMessageFromRequest(reqGroup)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if msgGroup.SessionId != "G3001" {
 		t.Fatalf("expected SessionId G3001, got %s", msgGroup.SessionId)
+	}
+
+	// 显式传入的会话 ID 与收发双方不一致时必须拒绝，避免跨会话写入。
+	reqMismatch := ChatMessageRequest{
+		SessionId: "P_U1001_U9999",
+		SendId:    "U1002",
+		ReceiveId: "U1001",
+		Content:   "cross session",
+		Type:      int8(msgtype.Text),
+	}
+	if _, err := svc.buildMessageFromRequest(reqMismatch); err == nil {
+		t.Fatal("expected error for mismatched session id")
+	}
+
+	// 会话列表返回的 S 开头会话 UUID 不参与消息归属判定，应以收发双方为准。
+	reqSessionUuid := ChatMessageRequest{
+		SessionId: "S123456",
+		SendId:    "U1002",
+		ReceiveId: "U1001",
+		Content:   "session uuid",
+		Type:      int8(msgtype.Text),
+	}
+	msgSessionUuid, err := svc.buildMessageFromRequest(reqSessionUuid)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if msgSessionUuid.SessionId != "P_U1001_U1002" {
+		t.Fatalf("expected resolved SessionId P_U1001_U1002, got %s", msgSessionUuid.SessionId)
 	}
 }
 
@@ -851,10 +1026,46 @@ func TestSyncMessages(t *testing.T) {
 type mockFriendshipClient struct {
 	friendshippb.FriendshipServiceClient
 	status int32
+	err    error
 }
 
 func (m *mockFriendshipClient) CheckFriendship(ctx context.Context, in *friendshippb.CheckFriendshipRequest, opts ...grpc.CallOption) (*friendshippb.CheckFriendshipResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
 	return &friendshippb.CheckFriendshipResponse{Status: m.status}, nil
+}
+
+type mockUserClient struct {
+	userpb.UserServiceClient
+	status int32
+	err    error
+}
+
+func (m *mockUserClient) GetUserStatus(ctx context.Context, in *userpb.GetUserStatusRequest, opts ...grpc.CallOption) (*userpb.GetUserStatusResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &userpb.GetUserStatusResponse{Status: m.status}, nil
+}
+
+func (m *mockUserClient) BatchGetPublicUserInfo(ctx context.Context, in *userpb.BatchGetPublicUserInfoRequest, opts ...grpc.CallOption) (*userpb.BatchGetPublicUserInfoResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &userpb.BatchGetPublicUserInfoResponse{}, nil
+}
+
+// TestMain 为消息发送测试提供默认的跨服务权限依赖，避免每个用例重复初始化。
+func TestMain(m *testing.M) {
+	oldUserClient := grpcinfra.UserClient
+	oldFriendshipClient := grpcinfra.FriendshipClient
+	grpcinfra.UserClient = &mockUserClient{status: 0}
+	grpcinfra.FriendshipClient = &mockFriendshipClient{status: 1}
+	code := m.Run()
+	grpcinfra.UserClient = oldUserClient
+	grpcinfra.FriendshipClient = oldFriendshipClient
+	os.Exit(code)
 }
 
 func TestCheckSendPermission_FriendshipStatuses(t *testing.T) {
@@ -916,4 +1127,37 @@ func TestCheckSendPermission_FriendshipStatuses(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCheckSendPermission_DependencyErrorFailsClosed(t *testing.T) {
+	svc := NewMessageService(&mockMsgStore{}, &mockSessStore{}, newMockCache())
+	ctx := context.Background()
+
+	t.Run("user service error", func(t *testing.T) {
+		old := grpcinfra.UserClient
+		t.Cleanup(func() { grpcinfra.UserClient = old })
+		grpcinfra.UserClient = &mockUserClient{err: errors.New("user service unavailable")}
+
+		err := svc.checkSendPermission(ctx, "U1001", "U1002")
+		if err == nil {
+			t.Fatal("expected error when user service is unavailable")
+		}
+		if !errorx.IsCode(err, errorx.CodeServerBusy) {
+			t.Fatalf("expected CodeServerBusy, got %v", err)
+		}
+	})
+
+	t.Run("friendship service error", func(t *testing.T) {
+		old := grpcinfra.FriendshipClient
+		t.Cleanup(func() { grpcinfra.FriendshipClient = old })
+		grpcinfra.FriendshipClient = &mockFriendshipClient{err: errors.New("friendship service unavailable")}
+
+		err := svc.checkSendPermission(ctx, "U1001", "U1002")
+		if err == nil {
+			t.Fatal("expected error when friendship service is unavailable")
+		}
+		if !errorx.IsCode(err, errorx.CodeServerBusy) {
+			t.Fatalf("expected CodeServerBusy, got %v", err)
+		}
+	})
 }

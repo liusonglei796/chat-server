@@ -46,6 +46,69 @@
       return Math.floor(Math.random() * exponential);
     }
 
+    /* ==================== GapHoldingBuffer (时序空洞暂存与自愈队列) ==================== */
+    class GapHoldingBuffer {
+      constructor(initialSeq, onRelease) {
+        this.lastContinuousSeq = Number(initialSeq || 0);
+        this.pendingQueue = new Map();
+        this.onRelease = onRelease;
+      }
+
+      getWatermark() {
+        return this.lastContinuousSeq;
+      }
+
+      setWatermark(seq) {
+        const s = Number(seq || 0);
+        if (s > this.lastContinuousSeq) {
+          this.lastContinuousSeq = s;
+          this.drain();
+        }
+      }
+
+      push(msg) {
+        const seq = Number(msg.seq_id || 0);
+        if (!seq) {
+          this.onRelease(msg);
+          return true;
+        }
+        if (seq <= this.lastContinuousSeq) {
+          return false; // 重复或已展示历史消息
+        }
+        if (seq === this.lastContinuousSeq + 1) {
+          this.lastContinuousSeq = seq;
+          this.onRelease(msg);
+          this.drain();
+          return true;
+        }
+        // 发现时序空洞断层 (如期望 lastContinuousSeq+1，收到更高 seq)
+        this.pendingQueue.set(seq, msg);
+        return false;
+      }
+
+      reconcileDelta(messages) {
+        if (!messages || !messages.length) return;
+        const sorted = [...messages].sort((a, b) => Number(a.seq_id || 0) - Number(b.seq_id || 0));
+        for (const msg of sorted) {
+          this.push(msg);
+        }
+      }
+
+      drain() {
+        while (this.pendingQueue.has(this.lastContinuousSeq + 1)) {
+          const nextSeq = this.lastContinuousSeq + 1;
+          const nextMsg = this.pendingQueue.get(nextSeq);
+          this.pendingQueue.delete(nextSeq);
+          this.lastContinuousSeq = nextSeq;
+          this.onRelease(nextMsg);
+        }
+      }
+
+      hasGap() {
+        return this.pendingQueue.size > 0;
+      }
+    }
+
     /* ==================== API Client ==================== */
     const api = {
       // Step 1.3: 执行具备多领域分级重试与幂等保障的 HTTP 请求
@@ -229,6 +292,9 @@
       getMessages(targetId, page = 1, pageSize = 20) {
         return this.req('/messages?target_id=' + encodeURIComponent(targetId) + '&page=' + page + '&page_size=' + pageSize);
       },
+      syncMessages(targetId, afterSeq = 0, pageSize = 50) {
+        return this.req('/messages?target_id=' + encodeURIComponent(targetId) + '&cursor=after_seq:' + afterSeq + '&page_size=' + pageSize);
+      },
     };
 
     /* ==================== WebSocket ==================== */
@@ -248,16 +314,27 @@
           this.attempts = 0;
           this.startHB();
           App.setStatus('已连接');
+          App.onReconnected();
         };
         this.conn.onmessage = (e) => {
           try {
             const d = JSON.parse(e.data);
             if (d.type === 'kick') { App.showToast('您的账号在其他地方登录', 'error'); App.logout(); return; }
+            if (d.type === 'pong') return;
+            if (d.type === 'sync_resp') { App.onSyncResp(d); return; }
             if (d.content || d.send_id) App.onIncoming(d);
           } catch { }
         };
         this.conn.onclose = () => { this.stopHB(); App.setStatus('已断开'); this.reconnect(); };
         this.conn.onerror = () => { };
+      },
+      sync(targetId, afterSeq = 0, limit = 50) {
+        return this.send({
+          action: 'sync',
+          target_id: targetId,
+          after_seq: afterSeq,
+          limit: limit,
+        });
       },
       send(d) {
         if (this.conn && this.conn.readyState === WebSocket.OPEN) { this.conn.send(JSON.stringify(d)); return true; }
@@ -290,6 +367,13 @@
       loadingMsgs: false,
 
       async init() {
+        if (typeof document !== 'undefined') {
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+              this.onForegroundVisible();
+            }
+          });
+        }
         const tok = localStorage.getItem('access_token');
         if (tok) {
           try { await this.loadMe(); this.showApp(); } catch { this.showLogin(); }
@@ -610,14 +694,29 @@
         this.loadingMsgs = true;
         const c = document.getElementById('chat-messages');
         try {
-          const data = await api.getMessages(this.session.targetId, this.msgPage, 20);
+          const res = await api.getMessages(this.session.targetId, this.msgPage, 20);
+          const data = res?.list || res;
           if (data?.length) {
             const oldH = c.scrollHeight;
             const oldT = c.scrollTop;
-            c.insertAdjacentHTML('afterbegin', data.reverse().map(m => this.renderMsg(m)).join(''));
+            const reversed = [...data].reverse();
+            c.insertAdjacentHTML('afterbegin', reversed.map(m => this.renderMsg(m)).join(''));
             c.scrollTop = c.scrollHeight - oldH + oldT;
             this.msgPage++;
             if (data.length < 20) this.hasMore = false;
+
+            // 同步维护内存消息列表与 GapHoldingBuffer 水位
+            for (const m of data) {
+              if (!this.msgs.some(existing => (m.seq_id && existing.seq_id === m.seq_id) || (m.client_msg_id && existing.client_msg_id === m.client_msg_id))) {
+                this.msgs.push(m);
+              }
+            }
+            let maxSeq = 0;
+            for (const m of this.msgs) {
+              if (m.seq_id && m.seq_id > maxSeq) maxSeq = m.seq_id;
+            }
+            const buf = this.getOrCreateGapBuffer(this.session.targetId);
+            buf.setWatermark(maxSeq);
           } else { this.hasMore = false; }
         } catch (e) { console.error('loadMsgs:', e); }
         finally { this.loadingMsgs = false; }
@@ -668,7 +767,7 @@
         this.pendingMessages = this.pendingMessages || {};
         this.pendingMessages[client_msg_id] = {
           sessionId: this.session.sessionId,
-          type: 1,
+          type: 0,
           content,
           targetId: this.session.targetId,
           client_msg_id,
@@ -680,7 +779,7 @@
           send_id: this.me.uuid,
           send_name: this.me.nickname,
           send_avatar: this.me.avatar,
-          type: 1,
+          type: 0,
           content,
           created_at: new Date().toISOString(),
           client_msg_id,
@@ -729,8 +828,12 @@
               method: 'POST',
               body: {
                 session_id: pending.sessionId,
+                type: pending.type,
                 content: pending.content,
-                msg_type: pending.type,
+                send_id: this.me.uuid,
+                send_name: this.me.nickname,
+                send_avatar: this.me.avatar,
+                receive_id: pending.targetId,
                 client_msg_id,
               },
               headers: {
@@ -761,11 +864,92 @@
         this.dispatchMessage(client_msg_id);
       },
 
-      // Step 2.8: 接收下行实时消息并更新界面
-      // 来源: WebSocket 接收到的事件 payload d
-      // 用于: 动态追加新消息到聊天流并更新左侧会话列表
+      getOrCreateGapBuffer(targetId) {
+        if (!this.gapBuffers) this.gapBuffers = new Map();
+        if (!this.gapBuffers.has(targetId)) {
+          let maxSeq = 0;
+          if (this.msgs && this.msgs.length) {
+            for (const m of this.msgs) {
+              if (m.seq_id && m.seq_id > maxSeq) {
+                maxSeq = m.seq_id;
+              }
+            }
+          }
+          const buf = new GapHoldingBuffer(maxSeq, (releasedMsg) => {
+            this.appendMessageToUI(releasedMsg);
+          });
+          this.gapBuffers.set(targetId, buf);
+        }
+        return this.gapBuffers.get(targetId);
+      },
+
+      appendMessageToUI(d) {
+        if (d.seq_id && this.msgs.some(m => m.seq_id === d.seq_id)) return;
+        if (d.client_msg_id && this.msgs.some(m => m.client_msg_id === d.client_msg_id)) return;
+
+        this.msgs.push(d);
+
+        const isCurrent = this.session && (
+          d.session_id === this.session.sessionId ||
+          d.receive_id === this.session.targetId ||
+          d.send_id === this.session.targetId
+        );
+        if (isCurrent && document.getElementById('chat-active').style.display !== 'none') {
+          document.getElementById('chat-messages').insertAdjacentHTML('beforeend', this.renderMsg(d));
+          this.scrollBottom();
+        }
+
+        const s = this.sessions.find(s => s.sessionId === d.session_id || s.targetId === d.receive_id || s.targetId === d.send_id);
+        if (s) {
+          s.lastMessage = d.content || (d.type === 2 ? '[图片]' : d.type === 3 ? '[文件]' : '');
+          s.lastTime = d.created_at || new Date().toISOString();
+          this.renderSessions();
+        } else {
+          this.loadSessions();
+        }
+      },
+
+      async syncSessionDelta(targetId, watermark) {
+        if (!targetId) return;
+        try {
+          const res = await api.syncMessages(targetId, watermark, 50);
+          const list = res?.list || res || [];
+          if (list && list.length > 0) {
+            const buf = this.getOrCreateGapBuffer(targetId);
+            buf.reconcileDelta(list);
+          }
+        } catch (e) {
+          console.warn('[SyncDelta] error reconciling delta via HTTP, trying WS sync:', e);
+          WS.sync(targetId, watermark, 50);
+        }
+      },
+
+      onSyncResp(d) {
+        if (!d || !d.target_id) return;
+        const list = d.messages || [];
+        if (list.length > 0) {
+          const buf = this.getOrCreateGapBuffer(d.target_id);
+          buf.reconcileDelta(list);
+        }
+      },
+
+      onReconnected() {
+        if (this.session?.targetId) {
+          const buf = this.getOrCreateGapBuffer(this.session.targetId);
+          this.syncSessionDelta(this.session.targetId, buf.getWatermark());
+        }
+        this.loadSessions();
+      },
+
+      onForegroundVisible() {
+        if (this.session?.targetId) {
+          const buf = this.getOrCreateGapBuffer(this.session.targetId);
+          this.syncSessionDelta(this.session.targetId, buf.getWatermark());
+        }
+        this.loadSessions();
+      },
+
       onIncoming(d) {
-        // 如果携带 client_msg_id，清除对应的发送中状态指示器并清理暂存
         if (d.client_msg_id) {
           const statusEl = document.getElementById(`msg-status-${d.client_msg_id}`);
           if (statusEl) statusEl.remove();
@@ -774,21 +958,33 @@
           }
         }
 
-        const isCurrent = d.session_id === this.session?.sessionId || d.receive_id === this.session?.targetId || d.send_id === this.session?.targetId;
-        // 若为自己发送且已由乐观 UI 渲染的消息，防止下行广播二次追加导致重影
+        // 己方已乐观上屏的消息
         if (d.send_id === this.me?.uuid && d.client_msg_id) {
-          // 状态已由上方清理，跳过重复渲染
-        } else if (isCurrent && document.getElementById('chat-active').style.display !== 'none') {
-          document.getElementById('chat-messages').insertAdjacentHTML('beforeend', this.renderMsg(d));
-          this.scrollBottom();
+          const existing = this.msgs.find(m => m.client_msg_id === d.client_msg_id);
+          if (existing && d.seq_id) {
+            existing.seq_id = d.seq_id;
+            const targetId = this.session?.targetId || d.receive_id;
+            if (targetId) {
+              const buf = this.getOrCreateGapBuffer(targetId);
+              buf.setWatermark(d.seq_id);
+            }
+          }
+          return;
         }
-        // 更新会话最后消息与时间
-        const s = this.sessions.find(s => s.sessionId === d.session_id);
-        if (s) { s.lastMessage = d.content || ''; s.lastTime = d.created_at || new Date().toISOString(); this.renderSessions(); }
-        else { this.loadSessions(); }
-      },
-        if (s) { s.lastMessage = d.content || ''; s.lastTime = d.created_at || new Date().toISOString(); this.renderSessions(); }
-        else { this.loadSessions(); }
+
+        const targetId = (d.receive_id && d.receive_id[0] === 'G') ? d.receive_id : (d.send_id === this.me?.uuid ? d.receive_id : d.send_id);
+        if (!targetId) {
+          this.appendMessageToUI(d);
+          return;
+        }
+
+        const buf = this.getOrCreateGapBuffer(targetId);
+        const ok = buf.push(d);
+
+        // 若产生空洞断层 (如期望 5 却收到 8)，向服务端拉取增量差异进行自愈
+        if (!ok && buf.hasGap()) {
+          this.syncSessionDelta(targetId, buf.getWatermark());
+        }
       },
       handleInputKeydown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendMessage(); } },
       autoResizeInput(ta) { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'; },

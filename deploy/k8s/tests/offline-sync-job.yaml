@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: e2e-offline-sync
+  namespace: chat-system
+  labels:
+    app: e2e-offline-sync
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: e2e-offline-sync
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: e2e
+          image: kama-chat/e2e:latest
+          imagePullPolicy: IfNotPresent
+          args: ["-test.run=Test_OfflineMessageSync_CatchUp"]
+          env:
+            - name: E2E_ENVOY_URL
+              value: "http://envoy:9080"
+            - name: E2E_GATEWAY_URL
+              value: "http://chat-server:8000"
+            - name: E2E_TOXIPROXY_API
+              value: "http://toxiproxy:8474"
+            - name: E2E_MYSQL_HOST
+              value: "mysql"
+            - name: E2E_MYSQL_PORT
+              value: "3306"
+            - name: E2E_MYSQL_USER
+              value: "root"
+            - name: E2E_MYSQL_PASSWORD
+              value: "root123456"
+            - name: E2E_KAFKA_BROKERS
+              value: "kafka:9092"
+            - name: E2E_REDIS_HOST
+              value: "redis"
+            - name: E2E_REDIS_PORT
+              value: "6379"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"

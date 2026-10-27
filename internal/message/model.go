@@ -23,8 +23,8 @@ type Message struct {
 	// SeqId 会话内单调递增序号
 	SeqId int64 `gorm:"column:seq_id;not null;default:0;index:idx_session_seq,priority:2;comment:会话内单调递增序号"`
 
-	// Type 消息类型 (0.文本 1.语音 2.文件 3.通话)
-	Type int8 `gorm:"column:type;not null;comment:消息类型，0.文本，1.语音，2.文件，3.通话"`
+	// Type 消息类型 (0.文本 2.文件 4.撤回；1/3 为历史保留值)
+	Type int8 `gorm:"column:type;not null;comment:消息类型，0.文本，2.文件，4.撤回"`
 
 	// Content 消息文本内容
 	Content string `gorm:"column:content;type:TEXT;comment:消息内容"`
@@ -46,9 +46,6 @@ type Message struct {
 
 	// FileSize 文件大小
 	FileSize string `gorm:"column:file_size;type:char(20);comment:文件大小"`
-
-	// AVdata 音视频通话信令数据
-	AVdata string `gorm:"column:av_data;comment:通话传递数据"`
 }
 
 // TableName 指定表名
@@ -121,14 +118,7 @@ type ChatMessageRequest struct {
 	FileSize    string `json:"file_size"`
 	FileType    string `json:"file_type"`
 	FileName    string `json:"file_name"`
-	AVdata      string `json:"av_data"`
 	ClientMsgId string `json:"client_msg_id"`
-}
-
-// AVSignalData 音视频通话信令数据
-type AVSignalData struct {
-	MessageId string `json:"messageId"`
-	Type      string `json:"type"`
 }
 
 // GetMessageListRequest 获取消息列表请求
@@ -142,23 +132,6 @@ type GetMessageListRequest struct {
 // RecallMessageRequest 撤回消息请求
 type RecallMessageRequest struct {
 	MessageUuid string `json:"message_uuid" binding:"required"`
-}
-
-// AVMessageRespond 音视频信令响应
-type AVMessageRespond struct {
-	SendId     string `json:"send_id"`
-	SendName   string `json:"send_name"`
-	SendAvatar string `json:"send_avatar"`
-	ReceiveId  string `json:"receive_id"`
-	Type       int8   `json:"type"`
-	Content    string `json:"content"`
-	Url        string `json:"url"`
-	FileType   string `json:"file_type"`
-	FileName   string `json:"file_name"`
-	FileSize   string `json:"file_size"`
-	SeqId      int64  `json:"seq_id"`
-	CreatedAt  string `json:"created_at"`
-	AVdata     string `json:"av_data"`
 }
 
 // GetMessageListRespond 消息列表项响应

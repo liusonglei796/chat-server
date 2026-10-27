@@ -75,6 +75,9 @@ func GenerateRefreshToken(userID string) (tokenString string, tokenID string, er
 
 // ParseToken 解析并验证 Token
 func ParseToken(tokenString string) (*Claims, error) {
+	if jwtConfig == nil {
+		return nil, errorx.New(errorx.CodeUnauthorized, "JWT 配置未初始化")
+	}
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) { // 解析并校验
 		return []byte(jwtConfig.Secret), nil // 提供签名密钥
 	})

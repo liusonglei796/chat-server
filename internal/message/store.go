@@ -44,7 +44,7 @@ type SessionStore interface {
 	SoftDeleteByUsers(ctx context.Context, userUuids []string) error
 	UpdatePinStatus(ctx context.Context, uuid string, isPinned bool) error
 	UpdateByReceiveId(ctx context.Context, receiveId string, updates map[string]interface{}) error
-	UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time, seqId int64) error
+	UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time, seqId int64) (bool, error)
 }
 
 // ==================== MessageStore 实现 ====================
@@ -479,7 +479,7 @@ func (r *sessionStoreImpl) UpdateByReceiveId(ctx context.Context, receiveId stri
 	return nil
 }
 
-func (r *sessionStoreImpl) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time, seqId int64) error {
+func (r *sessionStoreImpl) UpdateLastMessage(ctx context.Context, sendId, receiveId, content string, msgType int8, msgTime time.Time, seqId int64) (bool, error) {
 	updates := map[string]interface{}{
 		"last_message":      content,
 		"last_message_at":   msgTime,
@@ -496,10 +496,11 @@ func (r *sessionStoreImpl) UpdateLastMessage(ctx context.Context, sendId, receiv
 		query = query.Where("(last_message_at IS NULL OR last_message_at <= ?)", msgTime)
 	}
 
-	if err := query.Updates(updates).Error; err != nil {
-		return dberr.WrapDBErrorf(err, "更新会话最后消息 send_id=%s receive_id=%s", sendId, receiveId)
+	result := query.Updates(updates)
+	if result.Error != nil {
+		return false, dberr.WrapDBErrorf(result.Error, "更新会话最后消息 send_id=%s receive_id=%s", sendId, receiveId)
 	}
-	return nil
+	return result.RowsAffected > 0, nil
 }
 
 func (r *sessionStoreImpl) UpdatePinStatus(ctx context.Context, uuid string, isPinned bool) error {

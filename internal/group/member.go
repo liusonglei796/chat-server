@@ -56,11 +56,13 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 	}
 	if g.cache != nil {
 		_ = g.cache.Delete(ctx, constants.CacheKeyGroupMembers+groupId)
+		_ = g.cache.Delete(ctx, constants.CacheKeyGroupMemberIDs+groupId)
 		g.cache.SubmitTask(func() {
 			if g.cacheHelper != nil {
 				_ = g.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+groupId)
 			}
 			_ = g.cache.Delete(context.Background(), constants.CacheKeyGroupMembers+groupId)
+			_ = g.cache.Delete(context.Background(), constants.CacheKeyGroupMemberIDs+groupId)
 		})
 	}
 	return nil
@@ -188,11 +190,13 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 	}
 	if g.cache != nil {
 		_ = g.cache.Delete(ctx, constants.CacheKeyGroupMembers+req.GroupId)
+		_ = g.cache.Delete(ctx, constants.CacheKeyGroupMemberIDs+req.GroupId)
 		g.cache.SubmitTask(func() {
 			if g.cacheHelper != nil {
 				_ = g.cacheHelper.InvalidateWithNull(context.Background(), constants.CacheKeyGroupInfo+req.GroupId)
 			}
 			_ = g.cache.Delete(context.Background(), constants.CacheKeyGroupMembers+req.GroupId)
+			_ = g.cache.Delete(context.Background(), constants.CacheKeyGroupMemberIDs+req.GroupId)
 		})
 	}
 
@@ -322,6 +326,7 @@ func (g *GroupService) AddGroupMember(ctx context.Context, groupId, userId strin
 	}
 	if g.cache != nil {
 		_ = g.cache.Delete(ctx, constants.CacheKeyGroupMembers+groupId)
+		_ = g.cache.Delete(ctx, constants.CacheKeyGroupMemberIDs+groupId)
 	}
 
 	return nil

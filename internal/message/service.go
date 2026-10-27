@@ -12,6 +12,8 @@ import (
 	bwsnowflake "github.com/bwmarrin/snowflake"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 
 	userpb "kama_chat_server/api/gen/user"
 	cacheinfra "kama_chat_server/internal/infra/cache"
@@ -25,12 +27,24 @@ import (
 	"kama_chat_server/pkg/idempotent"
 )
 
+const (
+	// defaultGroupFanoutConcurrency 进程内同时进行的群聊扇出上限。
+	// 达到上限后直接拒绝本次实时扇出，客户端可通过 seq 增量同步补偿。
+	defaultGroupFanoutConcurrency = 200
+	// groupMemberLookupConcurrency 单条群消息解析成员网关路由的并发上限。
+	groupMemberLookupConcurrency = 10
+	// groupMemberIDsCacheTTL 群成员 ID 缓存时间；群成员变更时由 group 服务主动失效。
+	groupMemberIDsCacheTTL = 5 * time.Minute
+)
+
 // MessageService 消息业务逻辑实现
 type MessageService struct {
-	messageStore MessageStore
-	sessionStore SessionStore
-	cache        cacheinfra.AsyncCacheService
-	guard        idempotent.Guard
+	messageStore      MessageStore
+	sessionStore      SessionStore
+	cache             cacheinfra.AsyncCacheService
+	guard             idempotent.Guard
+	groupMembersCache *cacheinfra.Helper
+	groupFanoutSem    *semaphore.Weighted
 	// pushRecallNotify 撤回通知回调
 	pushRecallNotify func(messageUuid, receiveId string)
 }
@@ -51,10 +65,14 @@ func NewMessageService(
 		g = idempotent.NewRedisGuard(rc.Client())
 	}
 	m := &MessageService{
-		messageStore: messageStore,
-		sessionStore: sessionStore,
-		cache:        cacheService,
-		guard:        g,
+		messageStore:   messageStore,
+		sessionStore:   sessionStore,
+		cache:          cacheService,
+		guard:          g,
+		groupFanoutSem: semaphore.NewWeighted(defaultGroupFanoutConcurrency),
+	}
+	if cacheService != nil {
+		m.groupMembersCache = cacheinfra.NewHelper(cacheService)
 	}
 	m.pushRecallNotify = m.PushRecallNotify
 	return m
@@ -182,7 +200,7 @@ func (m *MessageService) cacheMessageToZSet(message *Message) {
 		if err != nil {
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = m.cache.ZAdd(ctx, key, score, string(data))
 		_ = m.cache.ZRemRangeByRank(ctx, key, 0, -201)
@@ -196,7 +214,7 @@ func (m *MessageService) updateRecalledMessageInZSet(sessionId, messageUuid stri
 	}
 	m.cache.SubmitTask(func() {
 		key := constants.CacheKeyMessageZSet + sessionId
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		members, err := m.cache.ZRevRangeByScore(ctx, key, "+inf", "-inf", 0, 200)
 		if err != nil || len(members) == 0 {
@@ -388,7 +406,7 @@ func (m *MessageService) RecallMessage(ctx context.Context, userId string, req R
 		}
 	}
 
-	m.updateSessionLastMessage(msg, "[一条消息已被撤回]")
+	m.updateSessionLastMessage(ctx, msg, "[一条消息已被撤回]")
 
 	sessionId := msg.SessionId
 	if sessionId == "" {
@@ -408,30 +426,55 @@ func (m *MessageService) checkSendPermission(ctx context.Context, sendId, receiv
 	if len(receiveId) == 0 {
 		return errorx.New(errorx.CodeInvalidParam, "接收者ID不能为空")
 	}
+	if receiveId[0] != 'U' && receiveId[0] != 'G' {
+		return errorx.New(errorx.CodeInvalidParam, "无效的接收者ID格式")
+	}
+	if sendId == receiveId {
+		return errorx.New(errorx.CodeInvalidParam, "不能给自己发送消息")
+	}
 
 	senderStatus, err := grpcinfra.GetUserStatus(ctx, sendId)
-	if err == nil && senderStatus == user_status.DISABLE {
+	if err != nil {
+		zap.L().Error("查询发送者状态失败，拒绝发送", zap.String("sendId", sendId), zap.Error(err))
+		return errorx.ErrServerBusy
+	}
+	if senderStatus == user_status.DISABLE {
 		zap.L().Warn("被禁用的用户尝试发送消息", zap.String("sendId", sendId))
 		return errorx.New(errorx.CodeForbidden, "您的账号已被禁用，无法发送消息")
 	}
 
 	if receiveId[0] == 'U' {
 		fsStatus, err := grpcinfra.CheckFriendshipStatus(ctx, sendId, receiveId)
-		if err == nil {
-			switch fsStatus {
-			case 1, 2:
-				// 1=正常好友; 2=我拉黑了对方(微信同款特权放行)
-			case 3:
-				return errorx.New(errorx.CodeForbidden, "消息已发出，但被对方拒收了")
-			case 4:
-				return errorx.New(errorx.CodeForbidden, "开启了朋友验证，你还不是他（她）朋友")
-			default:
-				return errorx.New(errorx.CodeForbidden, "你们不是好友，请先添加好友")
-			}
+		if err != nil {
+			// 关系查询失败时必须拒绝发送，不能因为依赖异常而放行。
+			zap.L().Error("查询好友关系失败，拒绝发送",
+				zap.String("sendId", sendId),
+				zap.String("receiveId", receiveId),
+				zap.Error(err),
+			)
+			return errorx.ErrServerBusy
+		}
+		switch fsStatus {
+		case 1, 2:
+			// 1=正常好友; 2=我拉黑了对方(微信同款特权放行)
+		case 3:
+			return errorx.New(errorx.CodeForbidden, "消息已发出，但被对方拒收了")
+		case 4:
+			return errorx.New(errorx.CodeForbidden, "开启了朋友验证，你还不是他（她）朋友")
+		default:
+			return errorx.New(errorx.CodeForbidden, "你们不是好友，请先添加好友")
 		}
 	} else if receiveId[0] == 'G' {
 		isMember, err := grpcinfra.CheckGroupMember(ctx, receiveId, sendId)
-		if err == nil && !isMember {
+		if err != nil {
+			zap.L().Error("查询群成员关系失败，拒绝发送",
+				zap.String("groupId", receiveId),
+				zap.String("sendId", sendId),
+				zap.Error(err),
+			)
+			return errorx.ErrServerBusy
+		}
+		if !isMember {
 			return errorx.New(errorx.CodeForbidden, "你不是该群成员，无法发送消息")
 		}
 	}
@@ -439,10 +482,24 @@ func (m *MessageService) checkSendPermission(ctx context.Context, sendId, receiv
 	return nil
 }
 
-func (m *MessageService) buildMessageFromRequest(req ChatMessageRequest) Message {
-	sessionId := req.SessionId
-	if sessionId == "" || (!strings.HasPrefix(sessionId, "P_") && !strings.HasPrefix(sessionId, "G")) {
-		sessionId = ResolveSessionId(req.SendId, req.ReceiveId)
+// normalizeSessionId 校验并归一化消息所属会话。
+// 客户端可以传会话列表中的 S 开头会话 UUID，此时按收发双方重新计算；
+// 但显式传入的 P_/G 会话 ID 必须与收发双方一致，防止跨会话写入。
+func normalizeSessionId(sendId, receiveId, requested string) (string, error) {
+	expected := ResolveSessionId(sendId, receiveId)
+	if requested == "" || (!strings.HasPrefix(requested, "P_") && !strings.HasPrefix(requested, "G")) {
+		return expected, nil
+	}
+	if requested != expected {
+		return "", errorx.New(errorx.CodeInvalidParam, "会话ID与收发双方不匹配")
+	}
+	return expected, nil
+}
+
+func (m *MessageService) buildMessageFromRequest(req ChatMessageRequest) (Message, error) {
+	sessionId, err := normalizeSessionId(req.SendId, req.ReceiveId, req.SessionId)
+	if err != nil {
+		return Message{}, err
 	}
 	return Message{
 		Uuid:        "M" + snowflakeinfra.GenerateIDString(),
@@ -456,8 +513,7 @@ func (m *MessageService) buildMessageFromRequest(req ChatMessageRequest) Message
 		FileSize:    req.FileSize,
 		FileType:    req.FileType,
 		FileName:    req.FileName,
-		AVdata:      req.AVdata,
-	}
+	}, nil
 }
 
 func (m *MessageService) nextSessionSeq(ctx context.Context, sessionId string) (int64, error) {
@@ -502,7 +558,7 @@ func (m *MessageService) trySendBack(targetUserId string, messageUuid string, pa
 	if m.cache == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	gatewayAddr, err := m.cache.Get(ctx, constants.CacheKeyUserGateway+targetUserId)
@@ -541,9 +597,10 @@ func (m *MessageService) PushRecallNotify(messageUuid, receiveId string) {
 	if len(receiveId) > 0 && receiveId[0] == 'G' {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		memberIds, err := grpcinfra.ListGroupMemberIds(ctx, receiveId)
+		memberIds, err := m.getGroupMemberIds(ctx, receiveId)
 		if err != nil {
 			zap.L().Error("get group members via grpc for recall error", zap.Error(err))
+			return
 		}
 		for _, uid := range memberIds {
 			m.trySendBack(uid, "", jsonMsg)
@@ -554,38 +611,97 @@ func (m *MessageService) PushRecallNotify(messageUuid, receiveId string) {
 	m.trySendBack(receiveId, "", jsonMsg)
 }
 
-func (m *MessageService) updateSessionLastMessage(message *Message, content string) {
+// updateSessionLastMessage 同步更新会话读模型的最后一条消息。
+// 消息已成功落库，因此更新失败只记录日志，不影响发送结果。
+func (m *MessageService) updateSessionLastMessage(ctx context.Context, message *Message, content string) {
 	if m.sessionStore == nil {
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := m.sessionStore.UpdateLastMessage(ctx,
-			message.SendId,
-			message.ReceiveId,
-			content,
-			message.Type,
-			message.CreatedAt,
-			message.SeqId,
-		); err != nil {
-			zap.L().Error("更新发送者会话最后消息失败", zap.Error(err))
-		}
+	// 消息已经落库，读模型更新不应因客户端断开而取消；保留 trace 等 value，但解除取消信号。
+	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
 
-		if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
-			if err := m.sessionStore.UpdateLastMessage(ctx,
-				message.ReceiveId,
-				message.SendId,
-				content,
-				message.Type,
-				message.CreatedAt,
-				message.SeqId,
-			); err != nil {
-				zap.L().Warn("更新接收者会话最后消息失败", zap.Error(err))
-			}
-		}
-	}()
+	m.updateOneSessionLastMessage(updateCtx, message.SendId, message.ReceiveId, message, content, "发送者")
+	if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
+		m.updateOneSessionLastMessage(updateCtx, message.ReceiveId, message.SendId, message, content, "接收者")
+	}
+}
+
+// updateOneSessionLastMessage 更新单个用户视角的会话读模型。
+// 首次单聊时接收方可能还没有会话行，此时补建会话后再更新，保证双方会话列表都能看到消息。
+func (m *MessageService) updateOneSessionLastMessage(ctx context.Context, sendId, receiveId string, message *Message, content, role string) {
+	updated, err := m.sessionStore.UpdateLastMessage(ctx,
+		sendId,
+		receiveId,
+		content,
+		message.Type,
+		message.CreatedAt,
+		message.SeqId,
+	)
+	if err != nil {
+		zap.L().Error("更新"+role+"会话最后消息失败",
+			zap.String("sendId", sendId),
+			zap.String("receiveId", receiveId),
+			zap.Error(err),
+		)
+		return
+	}
+	if updated || !m.ensureDirectSession(ctx, sendId, receiveId) {
+		return
+	}
+
+	// 会话行刚补建完成，重试一次最后消息更新；失败只记录日志，不影响消息落库结果。
+	if _, err := m.sessionStore.UpdateLastMessage(ctx,
+		sendId,
+		receiveId,
+		content,
+		message.Type,
+		message.CreatedAt,
+		message.SeqId,
+	); err != nil {
+		zap.L().Error("补建会话后更新"+role+"最后消息失败",
+			zap.String("sendId", sendId),
+			zap.String("receiveId", receiveId),
+			zap.Error(err),
+		)
+	}
+}
+
+// ensureDirectSession 确保单聊双方中存在指定用户视角的会话行。
+// 仅处理 U-U 单聊；群会话由群事件投影维护。返回 true 表示会话已存在或补建成功。
+func (m *MessageService) ensureDirectSession(ctx context.Context, ownerId, peerId string) bool {
+	if m.sessionStore == nil || !strings.HasPrefix(ownerId, "U") || !strings.HasPrefix(peerId, "U") {
+		return false
+	}
+
+	existing, err := m.sessionStore.FindBySendIdAndReceiveId(ctx, ownerId, peerId)
+	if err == nil && existing != nil {
+		return true
+	}
+	if err != nil && !errorx.IsNotFound(err) {
+		zap.L().Warn("查询会话失败，跳过补建",
+			zap.String("ownerId", ownerId),
+			zap.String("peerId", peerId),
+			zap.Error(err),
+		)
+		return false
+	}
+
+	session := &Session{
+		Uuid:      "S" + snowflakeinfra.GenerateIDString(),
+		SendId:    ownerId,
+		ReceiveId: peerId,
+	}
+	if err := m.sessionStore.CreateSession(ctx, session); err != nil {
+		zap.L().Warn("补建单聊会话失败",
+			zap.String("ownerId", ownerId),
+			zap.String("peerId", peerId),
+			zap.Error(err),
+		)
+		return false
+	}
+	return true
 }
 
 func (m *MessageService) hydrateMessages(ctx context.Context, messages []Message) []GetMessageListRespond {
@@ -652,6 +768,31 @@ func (m *MessageService) dispatchToUser(message Message, sendName, originalAvata
 	m.trySendBack(message.SendId, message.Uuid, jsonMessage)
 }
 
+// getGroupMemberIds 获取群成员 ID，优先读本地缓存，未命中时通过 gRPC 回源。
+// 群成员变更时由 group 服务删除 CacheKeyGroupMemberIDs，保证缓存最终一致。
+func (m *MessageService) getGroupMemberIds(ctx context.Context, groupId string) ([]string, error) {
+	if m.groupMembersCache == nil {
+		return grpcinfra.ListGroupMemberIds(ctx, groupId)
+	}
+
+	var ids []string
+	err := m.groupMembersCache.GetOrLoad(
+		ctx,
+		constants.CacheKeyGroupMemberIDs+groupId,
+		func(loaderCtx context.Context) (interface{}, error) {
+			return grpcinfra.ListGroupMemberIds(loaderCtx, groupId)
+		},
+		groupMemberIDsCacheTTL,
+		0,
+		&ids,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// dispatchToGroup 群聊下行分发：缓存成员列表，按网关实例聚合后批量推送。
 func (m *MessageService) dispatchToGroup(ctx context.Context, message Message, sendName, originalAvatar string) {
 	messageRsp := GetMessageListRespond{
 		SendId:     message.SendId,
@@ -669,60 +810,120 @@ func (m *MessageService) dispatchToGroup(ctx context.Context, message Message, s
 	}
 	jsonMessage, _ := json.Marshal(messageRsp)
 
-	memberIds, err := grpcinfra.ListGroupMemberIds(ctx, message.ReceiveId)
+	memberIds, err := m.getGroupMemberIds(ctx, message.ReceiveId)
 	if err != nil {
-		zap.L().Error("get group members via grpc error", zap.Error(err))
+		zap.L().Error("get group members via grpc error",
+			zap.String("groupId", message.ReceiveId),
+			zap.Error(err),
+		)
+		return
 	}
 	if len(memberIds) == 0 {
 		return
 	}
 
-	go func(members []string, payload []byte, msgUuid string) {
-		const maxWorkers = 10
-		workers := maxWorkers
-		if len(members) < workers {
-			workers = len(members)
-		}
-		ch := make(chan string, len(members))
-		for _, uid := range members {
-			ch <- uid
-		}
-		close(ch)
-
-		var wg sync.WaitGroup
-		for i := 0; i < workers; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for uid := range ch {
-					m.trySendBack(uid, msgUuid, payload)
-				}
-			}()
-		}
-		wg.Wait()
-	}(memberIds, jsonMessage, message.Uuid)
+	go m.fanoutGroupMessage(memberIds, message.Uuid, jsonMessage)
 }
 
-func (m *MessageService) dispatchAVToUser(message Message, sendName, sendAvatar string) {
-	if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
-		messageRsp := AVMessageRespond{
-			SendId:     message.SendId,
-			SendName:   sendName,
-			SendAvatar: sendAvatar,
-			ReceiveId:  message.ReceiveId,
-			Type:       message.Type,
-			Content:    message.Content,
-			Url:        message.Url,
-			FileSize:   message.FileSize,
-			FileName:   message.FileName,
-			FileType:   message.FileType,
-			SeqId:      message.SeqId,
-			CreatedAt:  message.CreatedAt.Format("2006-01-02 15:04:05"),
-			AVdata:     message.AVdata,
-		}
-		jsonMessage, _ := json.Marshal(messageRsp)
-		m.trySendBack(message.ReceiveId, message.Uuid, jsonMessage)
+// fanoutGroupMessage 在后台完成群消息扇出。
+// 全局信号量限制同时进行的群消息扇出数量，避免大量群消息同时打爆 Redis 与网关。
+func (m *MessageService) fanoutGroupMessage(memberIds []string, msgUuid string, payload []byte) {
+	if m.groupFanoutSem != nil && !m.groupFanoutSem.TryAcquire(1) {
+		metricsinfra.GroupFanoutRejected.Inc()
+		zap.L().Warn("group fanout rejected by global concurrency limit",
+			zap.Int("members", len(memberIds)),
+			zap.String("messageUuid", msgUuid),
+		)
+		return
 	}
+	if m.groupFanoutSem != nil {
+		defer m.groupFanoutSem.Release(1)
+	}
+
+	targetsByGateway := m.resolveGatewayTargets(memberIds)
+	if len(targetsByGateway) == 0 {
+		return
+	}
+
+	var wg sync.WaitGroup
+	for gatewayAddr, userIds := range targetsByGateway {
+		gatewayAddr, userIds := gatewayAddr, userIds
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			failedUserIds, err := grpcinfra.BatchPushToGateway(ctx, gatewayAddr, userIds, msgUuid, payload)
+			if err != nil {
+				metricsinfra.MessagesDropped.Add(float64(len(userIds)))
+				zap.L().Warn("batch push to gateway failed",
+					zap.String("gatewayAddr", gatewayAddr),
+					zap.Int("users", len(userIds)),
+					zap.Error(err),
+				)
+				m.clearGatewayRoutes(userIds)
+				return
+			}
+
+			if len(failedUserIds) > 0 {
+				metricsinfra.MessagesDropped.Add(float64(len(failedUserIds)))
+				m.clearGatewayRoutes(failedUserIds)
+			}
+			if delivered := len(userIds) - len(failedUserIds); delivered > 0 {
+				metricsinfra.MessagesDispatched.Add(float64(delivered))
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// resolveGatewayTargets 并发查询成员的网关路由，并按网关实例聚合。
+func (m *MessageService) resolveGatewayTargets(memberIds []string) map[string][]string {
+	targets := make(map[string][]string)
+	if m.cache == nil {
+		return targets
+	}
+
+	var mu sync.Mutex
+	g := new(errgroup.Group)
+	g.SetLimit(groupMemberLookupConcurrency)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	for _, uid := range memberIds {
+		uid := uid
+		g.Go(func() error {
+			gatewayAddr, err := m.cache.Get(ctx, constants.CacheKeyUserGateway+uid)
+			if err != nil || gatewayAddr == "" {
+				metricsinfra.MessagesDropped.Inc()
+				return nil
+			}
+			mu.Lock()
+			targets[gatewayAddr] = append(targets[gatewayAddr], uid)
+			mu.Unlock()
+			return nil
+		})
+	}
+	_ = g.Wait()
+	return targets
+}
+
+// clearGatewayRoutes 清理失效的用户→网关路由，交给缓存池异步执行。
+func (m *MessageService) clearGatewayRoutes(userIds []string) {
+	if m.cache == nil || len(userIds) == 0 {
+		return
+	}
+	ids := append([]string(nil), userIds...)
+	m.cache.SubmitTask(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		for _, uid := range ids {
+			_ = m.cache.Delete(ctx, constants.CacheKeyUserGateway+uid)
+		}
+	})
 }
 
 // SendMessage 上行消息发送
@@ -732,7 +933,10 @@ func (m *MessageService) SendMessage(ctx context.Context, req ChatMessageRequest
 			return nil, err
 		}
 
-		message := m.buildMessageFromRequest(req)
+		message, err := m.buildMessageFromRequest(req)
+		if err != nil {
+			return nil, err
+		}
 
 		seqId, err := m.nextSessionSeq(execCtx, message.SessionId)
 		if err != nil {
@@ -748,13 +952,12 @@ func (m *MessageService) SendMessage(ctx context.Context, req ChatMessageRequest
 			message.FileSize = "0B"
 			message.FileType = ""
 			message.FileName = ""
-			message.AVdata = ""
 			if err := m.messageStore.Create(execCtx, &message); err != nil {
 				zap.L().Error("创建文本消息失败", zap.Error(err))
 				return nil, errorx.ErrServerBusy
 			}
 			m.cacheMessageToZSet(&message)
-			m.updateSessionLastMessage(&message, message.Content)
+			m.updateSessionLastMessage(execCtx, &message, message.Content)
 			if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
 				m.dispatchToUser(message, req.SendName, req.SendAvatar)
 			} else if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'G' {
@@ -764,42 +967,19 @@ func (m *MessageService) SendMessage(ctx context.Context, req ChatMessageRequest
 		case int8(msgtype.File):
 			metricsinfra.MessagesConsumed.WithLabelValues("file").Inc()
 			message.Content = ""
-			message.AVdata = ""
 			if err := m.messageStore.Create(execCtx, &message); err != nil {
 				zap.L().Error("创建文件消息失败", zap.Error(err))
 				return nil, errorx.ErrServerBusy
 			}
 			m.cacheMessageToZSet(&message)
 			content := "[文件] " + req.FileName
-			m.updateSessionLastMessage(&message, content)
+			m.updateSessionLastMessage(execCtx, &message, content)
 			if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'U' {
 				m.dispatchToUser(message, req.SendName, req.SendAvatar)
 			} else if len(message.ReceiveId) > 0 && message.ReceiveId[0] == 'G' {
 				m.dispatchToGroup(execCtx, message, req.SendName, req.SendAvatar)
 			}
 
-		case int8(msgtype.AudioOrVideo):
-			metricsinfra.MessagesConsumed.WithLabelValues("audio_video").Inc()
-			var avData AVSignalData
-			_ = json.Unmarshal([]byte(req.AVdata), &avData)
-			message.Content = ""
-
-			if avData.MessageId == "PROXY" && (avData.Type == "start_call" || avData.Type == "receive_call" || avData.Type == "reject_call") {
-				if err := m.messageStore.Create(execCtx, &message); err == nil {
-					m.cacheMessageToZSet(&message)
-				}
-				var summary string
-				switch avData.Type {
-				case "start_call":
-					summary = "[通话] 发起了通话"
-				case "receive_call":
-					summary = "[通话] 已接听"
-				case "reject_call":
-					summary = "[通话] 已拒绝"
-				}
-				m.updateSessionLastMessage(&message, summary)
-			}
-			m.dispatchAVToUser(message, req.SendName, req.SendAvatar)
 		default:
 			return nil, errorx.New(errorx.CodeInvalidParam, "不支持的消息类型")
 		}

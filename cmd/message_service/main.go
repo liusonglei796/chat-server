@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"kama_chat_server/internal/infra/config"
+	"kama_chat_server/internal/infra/jwt"
 	"kama_chat_server/internal/infra/logger"
 	otelinit "kama_chat_server/pkg/otel"
 )
@@ -20,6 +21,9 @@ func main() {
 	if err := logger.Init(&conf.LogConfig, "dev"); err != nil {
 		log.Fatalf("init logger failed: %v", err)
 	}
+
+	// Step 1.2.1: 初始化 JWT，用于 HTTP 转码请求的身份校验
+	jwt.Init(conf.JWTConfig.Secret, conf.JWTConfig.AccessTokenExpiry, conf.JWTConfig.RefreshTokenExpiry)
 
 	// Step 1.3: 初始化 OpenTelemetry 链路追踪
 	var otelShutdown func(context.Context) error

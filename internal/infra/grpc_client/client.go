@@ -28,13 +28,13 @@ import (
 )
 
 var (
-	UserClient     userpb.UserServiceClient
-	AuthClient     authpb.AuthServiceClient
-	ApplyClient applypb.ApplyServiceClient
+	UserClient       userpb.UserServiceClient
+	AuthClient       authpb.AuthServiceClient
+	ApplyClient      applypb.ApplyServiceClient
 	FriendshipClient friendshippb.FriendshipServiceClient
-	GroupClient grouppb.GroupServiceClient
-	MessageClient  messagepb.MessageServiceClient
-	once           sync.Once
+	GroupClient      grouppb.GroupServiceClient
+	MessageClient    messagepb.MessageServiceClient
+	once             sync.Once
 )
 
 func Init(etcdEndpoints []string) {
@@ -48,7 +48,7 @@ func Init(etcdEndpoints []string) {
 
 		retryOpts := []retry.CallOption{
 			retry.WithMax(3),
-			retry.WithPerRetryTimeout(2 * time.Second), // 单次调用超时上限，严格受父 context deadline 约束
+			retry.WithPerRetryTimeout(5 * time.Second), // 单次调用超时上限，严格受父 context deadline 约束
 			retry.WithBackoff(retry.BackoffExponentialWithJitter(50*time.Millisecond, 0.1)),
 			retry.WithCodes(codes.Unavailable, codes.ResourceExhausted), // 仅临时错误重试
 			retry.WithOnRetryCallback(func(ctx context.Context, attempt uint, err error) {
@@ -238,6 +238,14 @@ func SendMessage(ctx context.Context, req *messagepb.SendMessageRequest) (*messa
 	return MessageClient.SendMessage(ctx, req)
 }
 
+// GetMessages 查询会话历史或增量同步消息
+func GetMessages(ctx context.Context, req *messagepb.GetMessagesRequest) (*messagepb.GetMessagesResponse, error) {
+	if MessageClient == nil {
+		return nil, errorx.New(errorx.CodeServerBusy, "message grpc client not initialized")
+	}
+	return MessageClient.GetMessages(ctx, req)
+}
+
 var (
 	gatewayClients sync.Map // map[string]gatewaypb.GatewayServiceClient
 	gatewayMu      sync.Mutex
@@ -300,6 +308,27 @@ func PushToGateway(ctx context.Context, gatewayAddr string, targetUserId string,
 	return nil
 }
 
+// BatchPushToGateway 向指定网关实例批量直推消息。
+// 返回 FailedUserIds：这些用户不在该网关（路由过期/已下线），调用方可据此清理路由缓存。
+func BatchPushToGateway(ctx context.Context, gatewayAddr string, targetUserIds []string, messageUuid string, payload []byte) ([]string, error) {
+	client, err := GetGatewayClient(gatewayAddr)
+	if err != nil {
+		return nil, err
+	}
+	rsp, err := client.BatchPushMessage(ctx, &gatewaypb.BatchPushMessageRequest{
+		TargetUserIds: targetUserIds,
+		MessageUuid:   messageUuid,
+		Payload:       payload,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if rsp == nil {
+		return nil, fmt.Errorf("gateway batch push returned empty response")
+	}
+	return rsp.FailedUserIds, nil
+}
+
 // EstablishFriendship 跨服务通知 friendship_service 建立双向好友关系
 func EstablishFriendship(ctx context.Context, userId, friendId string) error {
 	if FriendshipClient == nil {
@@ -311,5 +340,3 @@ func EstablishFriendship(ctx context.Context, userId, friendId string) error {
 	})
 	return err
 }
-
-

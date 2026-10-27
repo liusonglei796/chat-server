@@ -23,6 +23,7 @@ cp -r "$REPO/web" "$CTX/web"
 
 cd "$CTX"
 k3s-nerdctl build \
+  --no-cache \
   --build-arg SERVICE_BINARY=app \
   --build-arg TEST_BINARY=app \
   -t "$IMG" \

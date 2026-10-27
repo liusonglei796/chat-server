@@ -5,6 +5,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	etcdregistry "github.com/go-kratos/kratos/contrib/registry/etcd/v2"
@@ -57,9 +59,13 @@ func provideRegistrar() (registry.Registrar, func(), error) {
 
 	kratosRegistrar := etcdregistry.New(etcdCli)
 
+	regHost := strings.ReplaceAll(serviceName, "_", "-")
+	if h := os.Getenv("SERVICE_HOST"); h != "" {
+		regHost = h
+	}
 	legacyRegister, err := discovery.NewRegister(etcdEndpoints, discovery.ServerInfo{
 		Name:   serviceName,
-		Addr:   fmt.Sprintf("%s:%d", serviceName, grpcPort),
+		Addr:   fmt.Sprintf("%s:%d", regHost, grpcPort),
 		Weight: 1,
 	}, 10)
 	if err != nil {
