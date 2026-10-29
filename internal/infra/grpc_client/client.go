@@ -71,7 +71,7 @@ func Init(etcdEndpoints []string) {
 			grpc.WithChainUnaryInterceptor(
 				interceptor.CircuitBreakerInterceptor(),
 				retry.UnaryClientInterceptor(retryOpts...),
-				interceptor.RetryBudgetInterceptor(100*time.Millisecond),
+				interceptor.RetryBudgetInterceptor(interceptor.DefaultClientRPCRetryBudget),
 				interceptor.ClientAuthInterceptor(),
 				otelinit.ClientTraceInterceptor(),
 			),
@@ -274,7 +274,7 @@ func GetGatewayClient(addr string) (gatewaypb.GatewayServiceClient, error) {
 		grpc.WithChainUnaryInterceptor(
 			interceptor.CircuitBreakerInterceptor(),
 			retry.UnaryClientInterceptor(retryOpts...),
-			interceptor.RetryBudgetInterceptor(100*time.Millisecond),
+			interceptor.RetryBudgetInterceptor(interceptor.DefaultClientRPCRetryBudget),
 			interceptor.ClientAuthInterceptor(),
 			otelinit.ClientTraceInterceptor(),
 		),

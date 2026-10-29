@@ -12,6 +12,7 @@ import (
 	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
 	"kama_chat_server/internal/infra/grpc_client"
+	"kama_chat_server/internal/infra/idempotency"
 	"kama_chat_server/internal/infra/snowflake"
 	"kama_chat_server/pkg/enum/apply/apply_status"
 	"kama_chat_server/pkg/enum/apply/apply_type"
@@ -132,7 +133,18 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 		return struct{}{}, nil
 	}
 
-	if u.guard != nil && req.ClientToken != "" {
+	if req.ClientToken != "" && u.idempStore != nil {
+		type applyGroupResp struct {
+			Status string `json:"status"`
+		}
+		_, _, err := idempotency.ExecuteJSON(ctx, u.idempStore, userId, "ApplyGroup", req.ClientToken, func(execCtx context.Context) (*applyGroupResp, error) {
+			if _, aErr := action(execCtx); aErr != nil {
+				return nil, aErr
+			}
+			return &applyGroupResp{Status: "ok"}, nil
+		})
+		return err
+	} else if u.guard != nil && req.ClientToken != "" {
 		key := "apply:group:" + req.ClientToken
 		_, _, err := idempotent.ExecuteJSON(ctx, u.guard, key, 5*time.Second, 24*time.Hour, action)
 		return err

@@ -139,19 +139,29 @@ func (c *UserConn) cleanup() {
 
 // HandleUserMessageTask 异步业务协程池任务：解耦 Reactor 事件循环与耗时 gRPC 调用
 func HandleUserMessageTask(c *UserConn, jsonMessage []byte, cmdHeader *struct {
-	Type     string `json:"type"`
-	Action   string `json:"action"`
-	TargetId string `json:"target_id"`
-	AfterSeq int64  `json:"after_seq"`
-	Limit    int32  `json:"limit"`
+	Type      string `json:"type"`
+	Action    string `json:"action"`
+	TargetId  string `json:"target_id"`
+	AfterSeq  int64  `json:"after_seq"`
+	Limit     int32  `json:"limit"`
+	TimeoutMs int64  `json:"timeout_ms"`
 }) {
+	// 继承客户端传入的 timeout_ms，默认 6s，上限保护 15s
+	timeout := 6 * time.Second
+	if cmdHeader != nil && cmdHeader.TimeoutMs > 0 {
+		timeout = time.Duration(cmdHeader.TimeoutMs) * time.Millisecond
+	}
+	if timeout > 15*time.Second {
+		timeout = 15 * time.Second
+	}
+
 	if cmdHeader != nil && (cmdHeader.Type == "sync" || cmdHeader.Action == "sync") {
 		limit := cmdHeader.Limit
 		if limit <= 0 {
 			limit = 50
 		}
 		ctx := context.WithValue(context.Background(), interceptor.UserIDKey, c.Uuid)
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, timeout)
 		syncResp, syncErr := grpcinfra.GetMessages(ctx, &messagepb.GetMessagesRequest{
 			TargetId:    cmdHeader.TargetId,
 			Cursor:      "after_seq:" + strconv.FormatInt(cmdHeader.AfterSeq, 10),
@@ -187,7 +197,7 @@ func HandleUserMessageTask(c *UserConn, jsonMessage []byte, cmdHeader *struct {
 
 	// 将连接身份写入 gRPC context，message 服务会校验请求体与鉴权上下文
 	ctx := context.WithValue(context.Background(), interceptor.UserIDKey, c.Uuid)
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	resp, err := grpcinfra.SendMessage(ctx, &req)
 	cancel()
 	if err != nil {

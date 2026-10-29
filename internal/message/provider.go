@@ -10,6 +10,7 @@ import (
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/config"
 	"kama_chat_server/internal/infra/database"
+	"kama_chat_server/internal/infra/idempotency"
 	"kama_chat_server/internal/infra/kafka"
 )
 
@@ -30,15 +31,15 @@ func ProvideDB(conf *config.Config) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := database.AutoMigrate(db, &Message{}, &Session{}); err != nil {
+	if err := database.AutoMigrate(db, &Message{}, &Session{}, &idempotency.Record{}); err != nil {
 		return nil, err
 	}
 	return db, nil
 }
 
 // ProvideMessageService 适配 Wire 依赖注入
-func ProvideMessageService(msgStore MessageStore, sessionStore SessionStore, cacheService cacheinfra.AsyncCacheService) *MessageService {
-	return NewMessageService(msgStore, sessionStore, cacheService)
+func ProvideMessageService(db *gorm.DB, msgStore MessageStore, sessionStore SessionStore, cacheService cacheinfra.AsyncCacheService) *MessageService {
+	return NewMessageService(msgStore, sessionStore, cacheService, db)
 }
 
 // ProvideSessionService 适配 Wire 依赖注入

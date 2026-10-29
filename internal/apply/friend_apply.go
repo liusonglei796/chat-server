@@ -14,6 +14,7 @@ import (
 	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
 	"kama_chat_server/internal/infra/grpc_client"
+	"kama_chat_server/internal/infra/idempotency"
 	"kama_chat_server/internal/infra/snowflake"
 	"kama_chat_server/pkg/enum/apply/apply_status"
 	"kama_chat_server/pkg/enum/apply/apply_type"
@@ -26,6 +27,22 @@ import (
 // userId: 发起申请的用户ID
 // req: 包含目标好友ID和申请信息的请求对象
 func (u *ApplyService) ApplyFriend(ctx context.Context, userId string, req ApplyFriendRequest) error {
+	// 加持双向好友对称分布式锁，防止并发双向申请产生竞态
+	if u.lock != nil && req.FriendId != "" {
+		u1, u2 := userId, req.FriendId
+		if u1 > u2 {
+			u1, u2 = u2, u1
+		}
+		lockKey := fmt.Sprintf("lock:friendship:%s:%s", u1, u2)
+		token := fmt.Sprintf("%s:%s:%d", userId, req.FriendId, time.Now().UnixNano())
+		acquired, err := u.lock.Acquire(ctx, lockKey, token, 5*time.Second)
+		if err == nil && acquired {
+			defer func() {
+				_ = u.lock.Release(context.Background(), lockKey, token)
+			}()
+		}
+	}
+
 	// Step 1.1: 声明好友申请执行体闭包
 	action := func(execCtx context.Context) (struct{}, error) {
 		// 1. 参数校验
@@ -134,8 +151,19 @@ func (u *ApplyService) ApplyFriend(ctx context.Context, userId string, req Apply
 		return struct{}{}, nil
 	}
 
-	// Step 1.2: 接入第三代状态机幂等保护
-	if u.guard != nil && req.ClientToken != "" {
+	// Step 1.2: 优先采用 MySQL 持久化幂等表进行事务级防重与回放
+	if req.ClientToken != "" && u.idempStore != nil {
+		type applyFriendResp struct {
+			Status string `json:"status"`
+		}
+		_, _, err := idempotency.ExecuteJSON(ctx, u.idempStore, userId, "ApplyFriend", req.ClientToken, func(execCtx context.Context) (*applyFriendResp, error) {
+			if _, aErr := action(execCtx); aErr != nil {
+				return nil, aErr
+			}
+			return &applyFriendResp{Status: "ok"}, nil
+		})
+		return err
+	} else if u.guard != nil && req.ClientToken != "" {
 		key := "apply:friend:" + req.ClientToken
 		_, _, err := idempotent.ExecuteJSON(ctx, u.guard, key, 5*time.Second, 24*time.Hour, action)
 		return err
@@ -215,6 +243,22 @@ func (u *ApplyService) GetFriendApplyList(ctx context.Context, userId string, pa
 
 // PassFriendApply 通过好友申请
 func (u *ApplyService) PassFriendApply(ctx context.Context, userId string, applicantId string) error {
+	// 加持双向好友对称分布式锁，防止并发通过申请导致好友记录重复或死锁
+	if u.lock != nil && applicantId != "" {
+		u1, u2 := userId, applicantId
+		if u1 > u2 {
+			u1, u2 = u2, u1
+		}
+		lockKey := fmt.Sprintf("lock:friendship:%s:%s", u1, u2)
+		token := fmt.Sprintf("%s:%s:%d", userId, applicantId, time.Now().UnixNano())
+		acquired, err := u.lock.Acquire(ctx, lockKey, token, 5*time.Second)
+		if err == nil && acquired {
+			defer func() {
+				_ = u.lock.Release(context.Background(), lockKey, token)
+			}()
+		}
+	}
+
 	apply, err := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, userId)
 	if err != nil {
 		zap.L().Error("Find friend apply error", zap.Error(err))

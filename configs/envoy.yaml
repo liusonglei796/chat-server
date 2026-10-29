@@ -94,6 +94,8 @@ static_resources:
                 route:
                   cluster: user_service_cluster
                   timeout: 15s
+                  max_stream_duration:
+                    grpc_timeout_header_max: 15s
 
               # Step 3: 用户资料服务路由 (转码后匹配 /user.UserService，调用 user_service gRPC 50051)
               - match:
@@ -101,6 +103,8 @@ static_resources:
                 route:
                   cluster: user_service_cluster
                   timeout: 15s
+                  max_stream_duration:
+                    grpc_timeout_header_max: 15s
 
               # Step 4: 申请业务服务路由 (转码后匹配 /apply.ApplyService，涵盖好友申请与入群申请，调用 apply_service gRPC 50053)
               - match:
@@ -108,6 +112,8 @@ static_resources:
                 route:
                   cluster: apply_service_cluster
                   timeout: 15s
+                  max_stream_duration:
+                    grpc_timeout_header_max: 15s
 
               # Step 5: 好友关系服务路由 (转码后匹配 /friendship.FriendshipService，调用 friendship_service gRPC 50054)
               - match:
@@ -115,6 +121,8 @@ static_resources:
                 route:
                   cluster: friendship_service_cluster
                   timeout: 15s
+                  max_stream_duration:
+                    grpc_timeout_header_max: 15s
 
               # Step 6: 群组管理服务路由 (转码后匹配 /group.GroupService，调用 group_service gRPC 50055)
               - match:
@@ -122,6 +130,8 @@ static_resources:
                 route:
                   cluster: group_service_cluster
                   timeout: 15s
+                  max_stream_duration:
+                    grpc_timeout_header_max: 15s
 
               # Step 7: 消息与会话服务路由 (转码后匹配 /message.MessageService，调用 message_service gRPC 50056)
               - match:
@@ -129,6 +139,8 @@ static_resources:
                 route:
                   cluster: message_service_cluster
                   timeout: 15s
+                  max_stream_duration:
+                    grpc_timeout_header_max: 15s
 
               # Step 8: 兜底路由 (未转码的非 gRPC 请求、探测与长连接控制)
               - match:
@@ -136,6 +148,8 @@ static_resources:
                 route:
                   cluster: conn_service_cluster
                   timeout: 15s
+                  max_stream_duration:
+                    grpc_timeout_header_max: 15s
 
           # 4. HTTP 过滤器链
           http_filters:

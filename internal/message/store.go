@@ -58,6 +58,10 @@ func NewMessageStore(db *gorm.DB) MessageStore {
 	return &messageStoreImpl{db: db}
 }
 
+func (r *messageStoreImpl) DB() *gorm.DB {
+	return r.db
+}
+
 func (r *messageStoreImpl) FindByUserIdsPaged(ctx context.Context, userOneId, userTwoId string, page, pageSize int) ([]Message, int64, error) {
 	var messages []Message
 	var total int64

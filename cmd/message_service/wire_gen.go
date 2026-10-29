@@ -20,9 +20,12 @@ import (
 	message2 "kama_chat_server/api/gen/message"
 	"kama_chat_server/internal/infra"
 	"kama_chat_server/internal/infra/config"
+	"kama_chat_server/internal/infra/debounce"
 	"kama_chat_server/internal/infra/grpc_client"
 	"kama_chat_server/internal/message"
+	"kama_chat_server/internal/middleware"
 	"kama_chat_server/pkg/discovery"
+	"kama_chat_server/pkg/interceptor"
 	"os"
 	"strings"
 	"time"
@@ -42,10 +45,11 @@ func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	messageService := message.ProvideMessageService(messageStore, sessionStore, asyncCacheService)
+	messageService := message.ProvideMessageService(db, messageStore, sessionStore, asyncCacheService)
 	sessionService := message.ProvideSessionService(sessionStore, messageStore, asyncCacheService)
 	grpcServer := message.NewGrpcServer(messageService, sessionService)
-	server := provideGRPCServer(grpcServer)
+	store := infra.ProvideDebounceStore()
+	server := provideGRPCServer(grpcServer, store)
 	registrar, cleanup2, err := provideRegistrar()
 	if err != nil {
 		cleanup()
@@ -62,10 +66,10 @@ func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 
 // wire.go:
 
-func provideGRPCServer(messageServer *message.GrpcServer) *grpc.Server {
+func provideGRPCServer(messageServer *message.GrpcServer, debounceStore debounce.Store) *grpc.Server {
 	grpcPort := 50056
 	grpcAddr := fmt.Sprintf("0.0.0.0:%d", grpcPort)
-	grpcSrv := grpc.NewServer(grpc.Address(grpcAddr), grpc.Timeout(2*time.Second), grpc.Middleware(recovery.Recovery(), tracing.Server(), metadata.Server()),
+	grpcSrv := grpc.NewServer(grpc.Address(grpcAddr), grpc.Timeout(15*time.Second), grpc.Middleware(recovery.Recovery(), tracing.Server(), metadata.Server(), interceptor.ServerDeadlineBudgetMiddleware(interceptor.DefaultServerMinBudget), middleware.RequestDebounce(debounceStore)),
 	)
 	message2.RegisterMessageServiceServer(grpcSrv, messageServer)
 	return grpcSrv

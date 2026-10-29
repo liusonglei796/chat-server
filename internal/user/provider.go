@@ -7,6 +7,7 @@ import (
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/config"
 	"kama_chat_server/internal/infra/database"
+	"kama_chat_server/internal/infra/idempotency"
 	"kama_chat_server/internal/infra/outbox"
 )
 
@@ -26,7 +27,7 @@ func ProvideDB(conf *config.Config) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := database.AutoMigrate(db, &UserInfo{}, &outbox.Outbox{}); err != nil {
+	if err := database.AutoMigrate(db, &UserInfo{}, &outbox.Outbox{}, &idempotency.Record{}); err != nil {
 		return nil, err
 	}
 	return db, nil

@@ -2,6 +2,7 @@ package group
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.uber.org/zap"
@@ -301,6 +302,18 @@ func (g *GroupService) ListGroupMemberIds(ctx context.Context, groupId string) (
 
 // AddGroupMember 跨服务向群组中添加成员（由 apply 审批通过后直调）
 func (g *GroupService) AddGroupMember(ctx context.Context, groupId, userId string, role int8) error {
+	// 加持群成员容量互斥锁，防止并发拉人超出群人数容量上限
+	if g.lock != nil {
+		token := fmt.Sprintf("%s:%d", userId, time.Now().UnixNano())
+		lockKey := fmt.Sprintf("lock:group:member:%s", groupId)
+		acquired, err := g.lock.Acquire(ctx, lockKey, token, 3*time.Second)
+		if err == nil && acquired {
+			defer func() {
+				_ = g.lock.Release(context.Background(), lockKey, token)
+			}()
+		}
+	}
+
 	err := database.ExecTx(ctx, g.db, func(txCtx context.Context) error {
 		newMember := GroupMember{
 			GroupUuid: groupId,

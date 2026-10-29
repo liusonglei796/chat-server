@@ -5,6 +5,7 @@ import (
 	"gorm.io/gorm"
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
+	"kama_chat_server/internal/infra/idempotency"
 	"kama_chat_server/pkg/idempotent"
 )
 
@@ -15,6 +16,7 @@ type UserService struct {
 	cache       cacheinfra.AsyncCacheService
 	cacheHelper *cacheinfra.Helper
 	guard       idempotent.Guard
+	idempStore  idempotency.Store
 }
 
 // NewUserService 构造函数，注入所有依赖
@@ -29,11 +31,16 @@ func NewUserService(db *gorm.DB, store Store, cacheService cacheinfra.AsyncCache
 	if cacheService != nil {
 		helper = cacheinfra.NewHelper(cacheService)
 	}
+	var idemp idempotency.Store
+	if db != nil {
+		idemp = idempotency.NewGormStore(db)
+	}
 	return &UserService{
 		db:          db,
 		store:       store,
 		cache:       cacheService,
 		cacheHelper: helper,
 		guard:       g,
+		idempStore:  idemp,
 	}
 }

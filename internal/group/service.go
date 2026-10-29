@@ -9,6 +9,8 @@ import (
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/database"
+	"kama_chat_server/internal/infra/idempotency"
+	"kama_chat_server/internal/infra/lock"
 	"kama_chat_server/internal/infra/outbox"
 	"kama_chat_server/pkg/event"
 	"kama_chat_server/pkg/idempotent"
@@ -22,10 +24,12 @@ type GroupService struct {
 	cache       cacheinfra.AsyncCacheService
 	cacheHelper *cacheinfra.Helper
 	guard       idempotent.Guard
+	idempStore  idempotency.Store
+	lock        lock.Distributed
 	eventRecord func(ctx context.Context, tx *gorm.DB, aggregateId, eventType string, payload []byte) error
 }
 
-// NewGroupService 构造函数，注入所有依赖
+// NewGroupService 构造函数注入
 func NewGroupService(
 	db *gorm.DB,
 	groupStore GroupStore,
@@ -36,12 +40,20 @@ func NewGroupService(
 	var g idempotent.Guard
 	if len(guard) > 0 && guard[0] != nil {
 		g = guard[0]
-	} else if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc.Client() != nil {
+	} else if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc != nil && rc.Client() != nil {
 		g = idempotent.NewRedisGuard(rc.Client())
 	}
 	var helper *cacheinfra.Helper
 	if cacheService != nil {
 		helper = cacheinfra.NewHelper(cacheService)
+	}
+	var idemp idempotency.Store
+	if db != nil {
+		idemp = idempotency.NewGormStore(db)
+	}
+	var distLock lock.Distributed
+	if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc != nil && rc.Client() != nil {
+		distLock = lock.NewRedis(rc.Client())
 	}
 	return &GroupService{
 		db:          db,
@@ -50,10 +62,12 @@ func NewGroupService(
 		cache:       cacheService,
 		cacheHelper: helper,
 		guard:       g,
+		idempStore:  idemp,
+		lock:        distLock,
 	}
 }
 
-// recordOutboxEvent 记录领域事件至本地 Outbox 发件箱表，支持单测 hook 拦截
+// recordOutboxEvent 记录事件到 Outbox（支持注入 hook 测试）
 func (g *GroupService) recordOutboxEvent(ctx context.Context, aggregateId, eventType string, payload []byte) error {
 	if g.eventRecord != nil {
 		return g.eventRecord(ctx, database.GetDB(ctx, g.db), aggregateId, eventType, payload)
@@ -65,7 +79,7 @@ func (g *GroupService) recordOutboxEvent(ctx context.Context, aggregateId, event
 	return outbox.RecordOutboxEvent(ctx, db, aggregateId, eventType, payload)
 }
 
-// recordGroupCreatedEvent 记录建群领域事件
+// recordGroupCreatedEvent 记录建群事件
 func (g *GroupService) recordGroupCreatedEvent(ctx context.Context, group *GroupInfo) error {
 	payload, _ := json.Marshal(event.GroupCreatedEvent{
 		GroupId:     group.Uuid,
@@ -76,7 +90,7 @@ func (g *GroupService) recordGroupCreatedEvent(ctx context.Context, group *Group
 	return g.recordOutboxEvent(ctx, group.Uuid, event.EventGroupCreated, payload)
 }
 
-// recordGroupDismissedEvent 记录解散群领域事件
+// recordGroupDismissedEvent 记录解散群事件
 func (g *GroupService) recordGroupDismissedEvent(ctx context.Context, groupId string) error {
 	payload, _ := json.Marshal(event.GroupDismissedEvent{
 		GroupId: groupId,
@@ -84,7 +98,7 @@ func (g *GroupService) recordGroupDismissedEvent(ctx context.Context, groupId st
 	return g.recordOutboxEvent(ctx, groupId, event.EventGroupDismissed, payload)
 }
 
-// recordGroupMemberLeftEvent 记录成员退群领域事件
+// recordGroupMemberLeftEvent 记录成员退群事件
 func (g *GroupService) recordGroupMemberLeftEvent(ctx context.Context, groupId, userId string) error {
 	payload, _ := json.Marshal(event.GroupMemberLeftEvent{
 		GroupId: groupId,
@@ -93,7 +107,7 @@ func (g *GroupService) recordGroupMemberLeftEvent(ctx context.Context, groupId, 
 	return g.recordOutboxEvent(ctx, groupId, event.EventGroupMemberLeft, payload)
 }
 
-// recordGroupMemberRemovedEvent 记录成员被移出群领域事件
+// recordGroupMemberRemovedEvent 记录成员被移出群事件
 func (g *GroupService) recordGroupMemberRemovedEvent(ctx context.Context, groupId, operatorId string, memberUuids []string) error {
 	payload, _ := json.Marshal(event.GroupMemberRemovedEvent{
 		GroupId:     groupId,

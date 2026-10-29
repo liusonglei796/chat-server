@@ -52,6 +52,7 @@ func provideGrpcComponents(conf *config.Config, srvImpl *gateway.GatewayGrpcServ
 	gatewayGrpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			interceptor.ServerAuthInterceptor(),
+			interceptor.ServerDeadlineBudgetInterceptor(interceptor.DefaultServerMinBudget),
 			otelinit.ServerTraceInterceptor(),
 		),
 	)

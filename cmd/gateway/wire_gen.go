@@ -75,7 +75,7 @@ func provideGrpcComponents(conf *config.Config, srvImpl *gateway.GatewayGrpcServ
 		return nil, nil, fmt.Errorf("failed to listen on gateway grpc port: %w", err)
 	}
 
-	gatewayGrpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(interceptor.ServerAuthInterceptor(), otel.ServerTraceInterceptor()),
+	gatewayGrpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(interceptor.ServerAuthInterceptor(), interceptor.ServerDeadlineBudgetInterceptor(interceptor.DefaultServerMinBudget), otel.ServerTraceInterceptor()),
 	)
 	gateway2.RegisterGatewayServiceServer(gatewayGrpcServer, srvImpl)
 

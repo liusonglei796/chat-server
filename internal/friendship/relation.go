@@ -2,6 +2,8 @@ package friendship
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -270,6 +272,22 @@ func (s *FriendshipService) UpdateRemark(ctx context.Context, userId, friendId, 
 func (s *FriendshipService) EstablishFriendship(ctx context.Context, userId, friendId string) error {
 	if userId == "" || friendId == "" || userId == friendId {
 		return errorx.New(errorx.CodeInvalidParam, "参数错误")
+	}
+
+	// 加持双向好友对称分布式锁，防止并发双向加好友导致死锁或重复写入
+	if s.lock != nil {
+		u1, u2 := userId, friendId
+		if u1 > u2 {
+			u1, u2 = u2, u1
+		}
+		lockKey := fmt.Sprintf("lock:friendship:%s:%s", u1, u2)
+		token := fmt.Sprintf("%s:%s:%d", userId, friendId, time.Now().UnixNano())
+		acquired, err := s.lock.Acquire(ctx, lockKey, token, 5*time.Second)
+		if err == nil && acquired {
+			defer func() {
+				_ = s.lock.Release(context.Background(), lockKey, token)
+			}()
+		}
 	}
 
 	err := database.ExecTx(ctx, s.db, func(txCtx context.Context) error {

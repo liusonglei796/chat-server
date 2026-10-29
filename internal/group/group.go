@@ -11,6 +11,7 @@ import (
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
+	"kama_chat_server/internal/infra/idempotency"
 	"kama_chat_server/internal/infra/snowflake"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/group/group_status"
@@ -69,7 +70,28 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 		return newGroup.Uuid, nil
 	}
 
-	if groupReq.ClientToken != "" && g.guard != nil {
+	// 优先采用 MySQL 持久化幂等表进行事务级防重与回放
+	if groupReq.ClientToken != "" && g.idempStore != nil {
+		type createGroupResp struct {
+			GroupID string `json:"group_id"`
+		}
+		res, isReplay, err := idempotency.ExecuteJSON(ctx, g.idempStore, ownerId, "CreateGroup", groupReq.ClientToken, func(execCtx context.Context) (*createGroupResp, error) {
+			gid, aErr := action(execCtx)
+			if aErr != nil {
+				return nil, aErr
+			}
+			return &createGroupResp{GroupID: gid}, nil
+		})
+		if err != nil {
+			return "", err
+		}
+		if isReplay && res != nil {
+			zap.L().Info("命中建群持久化幂等表回放，直接返回群号", zap.String("groupId", res.GroupID), zap.String("ownerId", ownerId))
+		}
+		if res != nil {
+			return res.GroupID, nil
+		}
+	} else if groupReq.ClientToken != "" && g.guard != nil {
 		key := fmt.Sprintf("grp:create:%s:%s", ownerId, groupReq.ClientToken)
 		groupID, isReplay, err := g.guard.Execute(ctx, key, 5*time.Second, 24*time.Hour, action)
 		if isReplay {

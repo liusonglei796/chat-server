@@ -14,10 +14,12 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
+	"gorm.io/gorm"
 
 	userpb "kama_chat_server/api/gen/user"
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	grpcinfra "kama_chat_server/internal/infra/grpc_client"
+	"kama_chat_server/internal/infra/idempotency"
 	metricsinfra "kama_chat_server/internal/infra/metrics"
 	snowflakeinfra "kama_chat_server/internal/infra/snowflake"
 	"kama_chat_server/pkg/constants"
@@ -25,6 +27,7 @@ import (
 	"kama_chat_server/pkg/enum/user/user_status"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/idempotent"
+	"kama_chat_server/pkg/interceptor"
 )
 
 const (
@@ -43,6 +46,7 @@ type MessageService struct {
 	sessionStore      SessionStore
 	cache             cacheinfra.AsyncCacheService
 	guard             idempotent.Guard
+	idempStore        idempotency.Store
 	groupMembersCache *cacheinfra.Helper
 	groupFanoutSem    *semaphore.Weighted
 	// pushRecallNotify 撤回通知回调
@@ -54,21 +58,37 @@ func NewMessageService(
 	messageStore MessageStore,
 	sessionStore SessionStore,
 	cacheService cacheinfra.AsyncCacheService,
-	guard ...idempotent.Guard,
+	opts ...any,
 ) *MessageService {
 	var g idempotent.Guard
-	if len(guard) > 0 && guard[0] != nil {
-		g = guard[0]
-	} else if ig, ok := cacheService.(idempotent.Guard); ok && ig != nil {
-		g = ig
-	} else if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc != nil && rc.Client() != nil {
-		g = idempotent.NewRedisGuard(rc.Client())
+	var idemp idempotency.Store
+	for _, opt := range opts {
+		if s, ok := opt.(idempotency.Store); ok && s != nil {
+			idemp = s
+		} else if db, ok := opt.(*gorm.DB); ok && db != nil {
+			idemp = idempotency.NewGormStore(db)
+		} else if gOpt, ok := opt.(idempotent.Guard); ok && gOpt != nil {
+			g = gOpt
+		}
+	}
+	if g == nil {
+		if ig, ok := cacheService.(idempotent.Guard); ok && ig != nil {
+			g = ig
+		} else if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc != nil && rc.Client() != nil {
+			g = idempotent.NewRedisGuard(rc.Client())
+		}
+	}
+	if idemp == nil {
+		if dbg, ok := messageStore.(interface{ DB() *gorm.DB }); ok && dbg != nil && dbg.DB() != nil {
+			idemp = idempotency.NewGormStore(dbg.DB())
+		}
 	}
 	m := &MessageService{
 		messageStore:   messageStore,
 		sessionStore:   sessionStore,
 		cache:          cacheService,
 		guard:          g,
+		idempStore:     idemp,
 		groupFanoutSem: semaphore.NewWeighted(defaultGroupFanoutConcurrency),
 	}
 	if cacheService != nil {
@@ -929,6 +949,11 @@ func (m *MessageService) clearGatewayRoutes(userIds []string) {
 // SendMessage 上行消息发送
 func (m *MessageService) SendMessage(ctx context.Context, req ChatMessageRequest) (*SendMessageRespond, error) {
 	execFn := func(execCtx context.Context) (*SendMessageRespond, error) {
+		// 关键写操作与事务前判断剩余时间预算（至少保留 200ms），不足则主动放弃
+		if err := interceptor.CheckRemainingBudget(execCtx, interceptor.DefaultDBCriticalBudget); err != nil {
+			return nil, err
+		}
+
 		if err := m.checkSendPermission(execCtx, req.SendId, req.ReceiveId); err != nil {
 			return nil, err
 		}
@@ -991,7 +1016,20 @@ func (m *MessageService) SendMessage(ctx context.Context, req ChatMessageRequest
 		}, nil
 	}
 
-	if m.guard != nil && req.ClientMsgId != "" {
+	if req.ClientMsgId != "" && m.idempStore != nil {
+		rsp, isReplay, err := idempotency.ExecuteJSON(ctx, m.idempStore, req.SendId, "SendMessage", req.ClientMsgId, execFn)
+		if err != nil {
+			return nil, err
+		}
+		if isReplay {
+			metricsinfra.MessagesDuplicated.Inc()
+			zap.L().Info("命中消息持久化幂等表回放，直接返回已发送消息记录",
+				zap.String("client_msg_id", req.ClientMsgId),
+				zap.String("message_uuid", rsp.MessageUuid),
+			)
+		}
+		return rsp, nil
+	} else if m.guard != nil && req.ClientMsgId != "" {
 		key := "msg:dedup:" + req.ClientMsgId
 		rsp, isReplay, err := idempotent.ExecuteJSON(ctx, m.guard, key, 5*time.Second, 24*time.Hour, execFn)
 		if err != nil {

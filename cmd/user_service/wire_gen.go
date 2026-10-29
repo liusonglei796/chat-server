@@ -21,8 +21,11 @@ import (
 	user2 "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/infra"
 	"kama_chat_server/internal/infra/config"
+	"kama_chat_server/internal/infra/debounce"
+	"kama_chat_server/internal/middleware"
 	"kama_chat_server/internal/user"
 	"kama_chat_server/pkg/discovery"
+	"kama_chat_server/pkg/interceptor"
 	"os"
 	"strings"
 	"time"
@@ -45,7 +48,8 @@ func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 	userGrpcServer := user.NewUserGrpcServer(userService)
 	authService := user.ProvideAuthService(asyncCacheService, store)
 	authGrpcServer := user.NewAuthGrpcServer(authService, userService)
-	server := provideGRPCServer(userGrpcServer, authGrpcServer)
+	debounceStore := infra.ProvideDebounceStore()
+	server := provideGRPCServer(userGrpcServer, authGrpcServer, debounceStore)
 	registrar, cleanup2, err := provideRegistrar()
 	if err != nil {
 		cleanup()
@@ -60,10 +64,10 @@ func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 
 // wire.go:
 
-func provideGRPCServer(userServer *user.UserGrpcServer, authServer *user.AuthGrpcServer) *grpc.Server {
+func provideGRPCServer(userServer *user.UserGrpcServer, authServer *user.AuthGrpcServer, debounceStore debounce.Store) *grpc.Server {
 	grpcPort := 50051
 	grpcAddr := fmt.Sprintf("0.0.0.0:%d", grpcPort)
-	grpcSrv := grpc.NewServer(grpc.Address(grpcAddr), grpc.Timeout(2*time.Second), grpc.Middleware(recovery.Recovery(), tracing.Server(), metadata.Server()),
+	grpcSrv := grpc.NewServer(grpc.Address(grpcAddr), grpc.Timeout(15*time.Second), grpc.Middleware(recovery.Recovery(), tracing.Server(), metadata.Server(), interceptor.ServerDeadlineBudgetMiddleware(interceptor.DefaultServerMinBudget), middleware.RequestDebounce(debounceStore)),
 	)
 	user2.RegisterUserServiceServer(grpcSrv, userServer)
 	auth.RegisterAuthServiceServer(grpcSrv, authServer)

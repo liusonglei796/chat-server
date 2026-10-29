@@ -91,11 +91,12 @@ func (s *WsServer) registerReactorCallbacks() {
 
 		// 1. 快速检查是否为心跳 Ping 指令（毫秒级非阻塞就地回包）
 		var cmdHeader struct {
-			Type     string `json:"type"`
-			Action   string `json:"action"`
-			TargetId string `json:"target_id"`
-			AfterSeq int64  `json:"after_seq"`
-			Limit    int32  `json:"limit"`
+			Type      string `json:"type"`
+			Action    string `json:"action"`
+			TargetId  string `json:"target_id"`
+			AfterSeq  int64  `json:"after_seq"`
+			Limit     int32  `json:"limit"`
+			TimeoutMs int64  `json:"timeout_ms"`
 		}
 		if err := json.Unmarshal(data, &cmdHeader); err == nil {
 			if cmdHeader.Type == "ping" || cmdHeader.Action == "ping" {

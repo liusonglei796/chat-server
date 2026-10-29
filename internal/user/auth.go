@@ -9,6 +9,7 @@ import (
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/dberr"
+	"kama_chat_server/internal/infra/idempotency"
 	"kama_chat_server/internal/infra/jwt"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/user/user_status"
@@ -128,7 +129,13 @@ func (u *UserService) Register(ctx context.Context, registerReq RegisterRequest,
 		}, nil
 	}
 
-	if registerReq.ClientToken != "" && u.guard != nil {
+	if registerReq.ClientToken != "" && u.idempStore != nil {
+		rsp, isReplay, err := idempotency.ExecuteJSON(ctx, u.idempStore, registerReq.Username, "Register", registerReq.ClientToken, action)
+		if isReplay {
+			zap.L().Info("命中用户注册持久化幂等表回放，直接返回已创建用户实体", zap.String("userId", rsp.Uuid), zap.String("username", registerReq.Username))
+		}
+		return rsp, err
+	} else if registerReq.ClientToken != "" && u.guard != nil {
 		key := fmt.Sprintf("auth:reg:%s:%s", registerReq.Username, registerReq.ClientToken)
 		rsp, isReplay, err := idempotent.ExecuteJSON(ctx, u.guard, key, 5*time.Second, 24*time.Hour, action)
 		if isReplay {

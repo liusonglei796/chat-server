@@ -23,21 +23,26 @@ import (
 	messagepb "kama_chat_server/api/gen/message"
 	"kama_chat_server/internal/infra"
 	"kama_chat_server/internal/infra/config"
+	"kama_chat_server/internal/infra/debounce"
 	"kama_chat_server/internal/infra/grpc_client"
 	"kama_chat_server/internal/message"
+	"kama_chat_server/internal/middleware"
 	"kama_chat_server/pkg/discovery"
+	"kama_chat_server/pkg/interceptor"
 )
 
-func provideGRPCServer(messageServer *message.GrpcServer) *kgrpc.Server {
+func provideGRPCServer(messageServer *message.GrpcServer, debounceStore debounce.Store) *kgrpc.Server {
 	grpcPort := 50056
 	grpcAddr := fmt.Sprintf("0.0.0.0:%d", grpcPort)
 	grpcSrv := kgrpc.NewServer(
 		kgrpc.Address(grpcAddr),
-		kgrpc.Timeout(2*time.Second),
+		kgrpc.Timeout(15*time.Second),
 		kgrpc.Middleware(
 			recovery.Recovery(),
 			tracing.Server(),
 			metadata.Server(),
+			interceptor.ServerDeadlineBudgetMiddleware(interceptor.DefaultServerMinBudget),
+			middleware.RequestDebounce(debounceStore),
 		),
 	)
 	messagepb.RegisterMessageServiceServer(grpcSrv, messageServer)
@@ -97,6 +102,7 @@ func newApp(srv *kgrpc.Server, r registry.Registrar, _ *message.DomainEventConsu
 func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 	panic(wire.Build(
 		infra.ProvideCache,
+		infra.ProvideDebounceStore,
 		message.ProviderSet,
 		provideGRPCServer,
 		provideRegistrar,

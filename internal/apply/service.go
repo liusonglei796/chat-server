@@ -9,6 +9,8 @@ import (
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/database"
+	"kama_chat_server/internal/infra/idempotency"
+	"kama_chat_server/internal/infra/lock"
 	"kama_chat_server/internal/infra/outbox"
 	"kama_chat_server/pkg/event"
 	"kama_chat_server/pkg/idempotent"
@@ -21,6 +23,8 @@ type ApplyService struct {
 	cache       cacheinfra.AsyncCacheService
 	cacheHelper *cacheinfra.Helper
 	guard       idempotent.Guard
+	idempStore  idempotency.Store
+	lock        lock.Distributed
 }
 
 // NewApplyService 构造函数，注入所有依赖
@@ -28,12 +32,20 @@ func NewApplyService(db *gorm.DB, store Store, cacheService cacheinfra.AsyncCach
 	var g idempotent.Guard
 	if len(guard) > 0 && guard[0] != nil {
 		g = guard[0]
-	} else if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc.Client() != nil {
+	} else if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc != nil && rc.Client() != nil {
 		g = idempotent.NewRedisGuard(rc.Client())
 	}
 	var helper *cacheinfra.Helper
 	if cacheService != nil {
 		helper = cacheinfra.NewHelper(cacheService)
+	}
+	var idemp idempotency.Store
+	if db != nil {
+		idemp = idempotency.NewGormStore(db)
+	}
+	var distLock lock.Distributed
+	if rc, ok := cacheService.(interface{ Client() *redis.Client }); ok && rc != nil && rc.Client() != nil {
+		distLock = lock.NewRedis(rc.Client())
 	}
 	return &ApplyService{
 		db:          db,
@@ -41,6 +53,8 @@ func NewApplyService(db *gorm.DB, store Store, cacheService cacheinfra.AsyncCach
 		cache:       cacheService,
 		cacheHelper: helper,
 		guard:       g,
+		idempStore:  idemp,
+		lock:        distLock,
 	}
 }
 

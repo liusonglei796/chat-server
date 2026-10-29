@@ -142,6 +142,9 @@
         if (tok) headers.Authorization = 'Bearer ' + tok;
         const method = (opts.method || 'GET').toUpperCase();
 
+        // 统一注入 grpc-timeout 请求头（如 5000m、6000m、8000m），透传给 Envoy 与下游微服务
+        headers['grpc-timeout'] = `${timeoutMs}m`;
+
         // 仅对非安全敏感的写操作注入 X-Idempotency-Key；若重试则严格沿用第一次生成的 key
         if (method !== 'GET' && method !== 'HEAD' && !path.startsWith('/auth/login') && !opts.headers?.['X-Idempotency-Key']) {
           headers['X-Idempotency-Key'] = genIdempotencyKey();
@@ -334,6 +337,7 @@
           target_id: targetId,
           after_seq: afterSeq,
           limit: limit,
+          timeout_ms: 6000,
         });
       },
       send(d) {
@@ -820,6 +824,7 @@
             send_avatar: this.me.avatar,
             receive_id: pending.targetId,
             client_msg_id,
+            timeout_ms: 6000,
           });
 
           if (!wsSent) {
