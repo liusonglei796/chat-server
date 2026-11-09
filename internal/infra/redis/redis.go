@@ -156,8 +156,8 @@ func (r *RedisCache) ZAdd(ctx context.Context, key string, score float64, member
 }
 
 // ZRevRangeByScore 按分数从大到小获取有序集合成员
-func (r *RedisCache) ZRevRangeByScore(ctx context.Context, key string, max, min string, offset, count int64) ([]string, error) {
-	return ops.ZRevRangeByScore(r.client, ctx, key, max, min, offset, count)
+func (r *RedisCache) ZRevRangeByScore(ctx context.Context, key string, maxScore, minScore string, offset, count int64) ([]string, error) {
+	return ops.ZRevRangeByScore(r.client, ctx, key, maxScore, minScore, offset, count)
 }
 
 // ZRemRangeByRank 移除指定排名区间的成员

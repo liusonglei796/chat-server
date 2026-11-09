@@ -5,6 +5,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Chat Server</title>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    window.__API_BASE__ = params.get('api_base') || (location.port === '8088' ? 'http://localhost:19080' : window.location.origin);
+    window.__WS_BASE__ = params.get('ws_base') || (location.port === '8088' ? 'ws://localhost:18000' : undefined);
+  </script>
   <link rel="stylesheet" href="/web/css/main.css">
 </head>
 

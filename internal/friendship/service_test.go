@@ -2,10 +2,12 @@ package friendship
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"gorm.io/gorm"
 
+	friendshippb "kama_chat_server/api/gen/friendship"
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/event"
@@ -13,6 +15,7 @@ import (
 
 type mockFriendshipStore struct {
 	Store
+	mu        sync.Mutex
 	relations map[string]*Friendship
 }
 
@@ -23,6 +26,8 @@ func newMockFriendshipStore() *mockFriendshipStore {
 }
 
 func (m *mockFriendshipStore) FindByUserIdAndFriendId(_ context.Context, userId, friendId string) (*Friendship, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	key := userId + ":" + friendId
 	if fs, ok := m.relations[key]; ok {
 		cpy := *fs
@@ -32,6 +37,8 @@ func (m *mockFriendshipStore) FindByUserIdAndFriendId(_ context.Context, userId,
 }
 
 func (m *mockFriendshipStore) UpdateStatusWithExpected(_ context.Context, userId, friendId string, expectedStatus, targetStatus int8, expectedVersion int64) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	key := userId + ":" + friendId
 	fs, ok := m.relations[key]
 	if !ok || fs.Status != expectedStatus {
@@ -45,7 +52,32 @@ func (m *mockFriendshipStore) UpdateStatusWithExpected(_ context.Context, userId
 	return true, nil
 }
 
+func (m *mockFriendshipStore) CreateFriendship(_ context.Context, fs *Friendship) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := fs.UserId + ":" + fs.FriendId
+	cpy := *fs
+	m.relations[key] = &cpy
+	return nil
+}
+
+func (m *mockFriendshipStore) UpsertFriendship(_ context.Context, fs *Friendship) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := fs.UserId + ":" + fs.FriendId
+	if existing, ok := m.relations[key]; ok {
+		existing.Status = fs.Status
+		existing.Version++
+		return nil
+	}
+	cpy := *fs
+	m.relations[key] = &cpy
+	return nil
+}
+
 func (m *mockFriendshipStore) SoftDelete(_ context.Context, userId, friendId string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.relations, userId+":"+friendId)
 	return nil
 }
@@ -203,9 +235,8 @@ func TestFriendshipService_ABA_Defense(t *testing.T) {
 		t.Fatal("expected stale request (expectedVersion=1) to fail on ABA check, but it succeeded!")
 	}
 
-	codeErr, ok := errStale.(*errorx.CodeError)
-	if !ok || codeErr.Code != errorx.CodeConflict {
-		t.Fatalf("expected CodeConflict for stale ABA request, got: %v", errStale)
+	if !friendshippb.IsFriendshipConflict(errStale) {
+		t.Fatalf("expected FriendshipConflict for stale ABA request, got: %v", errStale)
 	}
 
 	if fsStore.relations["U1001:U1002"].Status != friendship_status.NORMAL {
@@ -216,5 +247,40 @@ func TestFriendshipService_ABA_Defense(t *testing.T) {
 	}
 	if len(outbox.events) != 1 {
 		t.Fatalf("expected exactly 1 outbox event, got: %d", len(outbox.events))
+	}
+}
+
+func TestFriendshipService_EstablishFriendship_ConcurrentBidirectional(t *testing.T) {
+	ctx := context.Background()
+	fsStore := newMockFriendshipStore()
+	svc := NewFriendshipService(nil, fsStore)
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		errs[0] = svc.EstablishFriendship(ctx, "USER_A", "USER_B")
+	}()
+	go func() {
+		defer wg.Done()
+		errs[1] = svc.EstablishFriendship(ctx, "USER_B", "USER_A")
+	}()
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d returned error: %v", i, err)
+		}
+	}
+
+	ab, ok1 := fsStore.relations["USER_A:USER_B"]
+	ba, ok2 := fsStore.relations["USER_B:USER_A"]
+	if !ok1 || ab.Status != friendship_status.NORMAL {
+		t.Fatalf("expected USER_A:USER_B to be NORMAL, got: %+v", ab)
+	}
+	if !ok2 || ba.Status != friendship_status.NORMAL {
+		t.Fatalf("expected USER_B:USER_A to be NORMAL, got: %+v", ba)
 	}
 }

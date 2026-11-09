@@ -7,8 +7,8 @@ import (
 
 	"gorm.io/gorm"
 
+	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/infra/dberr"
-	"kama_chat_server/pkg/errorx"
 )
 
 type fakeUserStore struct {
@@ -67,7 +67,7 @@ func (f *fakeUserStore) FindByNickname(_ context.Context, nickname string) (*Use
 func (f *fakeUserStore) CreateUser(_ context.Context, user *UserInfo) error {
 	for _, u := range f.users {
 		if u.Nickname == user.Nickname {
-			return errorx.New(errorx.CodeUserExist, "用户名已被占用")
+			return userpb.ErrorUserAlreadyExists("用户名已被占用")
 		}
 	}
 	if f.users == nil {
@@ -212,7 +212,7 @@ func TestUserService_Register_Idempotent(t *testing.T) {
 	if err3 == nil {
 		t.Fatal("expected duplicate username error, got nil")
 	}
-	if !errorx.IsCode(err3, errorx.CodeUserExist) {
-		t.Errorf("expected CodeUserExist, got %v", err3)
+	if !userpb.IsUserAlreadyExists(err3) {
+		t.Errorf("expected UserAlreadyExists, got %v", err3)
 	}
 }

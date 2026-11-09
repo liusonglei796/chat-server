@@ -15,11 +15,14 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	"github.com/redis/go-redis/v9"
 	"github.com/twmb/franz-go/pkg/kgo"
 	mysqldriver "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
+
+	"kama_chat_server/pkg/constants"
 )
 
 // headerValue 从 Kafka 记录头里取值（franz-go 的 kgo.RecordHeader 没有 Get 方法）
@@ -32,23 +35,18 @@ func headerValue(headers []kgo.RecordHeader, key string) string {
 	return ""
 }
 
-// unmarshalData 从统一响应体的 data 字段解析出目标结构
-func unmarshalData(raw json.RawMessage, out any) error {
-	if len(raw) == 0 {
-		return fmt.Errorf("响应中没有 data 字段")
-	}
-	return json.Unmarshal(raw, out)
-}
 
 // ---------------------------------------------------------------------------
 // 环境配置
 // ---------------------------------------------------------------------------
 
 type testEnv struct {
-	EnvoyURL     string // 生产形态边缘：Envoy grpc_json_transcoder
-	GatewayURL   string // Gin 网关（带 JWT 认证）
-	ToxiAPI      string // Toxiproxy REST API
-	MySQLHost    string
+	EnvoyURL              string // 生产形态边缘：Envoy grpc_json_transcoder
+	GatewayURL            string // Gin 网关（带 JWT 认证）
+	EnvoyClientProxyURL     string // 客户端入口 HTTP 弱网代理 (toxiproxy:19080)
+	ConnectorClientProxyURL string // 客户端入口 WS 弱网代理 (toxiproxy:18000)
+	ToxiAPI               string // Toxiproxy REST API
+	MySQLHost             string
 	MySQLPort    string
 	MySQLUser    string
 	MySQLPass    string
@@ -82,22 +80,22 @@ func (e *testEnv) tokenOf(t *testing.T, userID string) string {
 	return tok
 }
 
-// waitGatewayRoute 等待网关把 user:gateway:<userId> 写进 Redis
+// waitConnectorRoute 等待连接服务把 user:conn:<userId> 写进 Redis
 // （ConnHub.RegisterClient 在 WS 连接建立时异步写入，TTL 120s）
-func (e *testEnv) waitGatewayRoute(t *testing.T, userID string, timeout time.Duration) {
+func (e *testEnv) waitConnectorRoute(t *testing.T, userID string, timeout time.Duration) {
 	t.Helper()
 	rdb := e.redisClient(t)
-	key := "user:gateway:" + userID
+	key := constants.CacheKeyUserConn + userID
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		v, err := rdb.Get(context.Background(), key).Result()
 		if err == nil && v != "" {
-			t.Logf("[夹具] 网关路由已登记 %s = %s", key, v)
+			t.Logf("[夹具] 连接服务路由已登记 %s = %s", key, v)
 			return
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	t.Fatalf("等待 Redis 网关路由 %s 超时（WS 未连上？）", key)
+	t.Fatalf("等待 Redis 连接服务路由 %s 超时（WS 未连上？）", key)
 }
 
 func loadEnv(t *testing.T) *testEnv {
@@ -109,9 +107,11 @@ func loadEnv(t *testing.T) *testEnv {
 		return def
 	}
 	return &testEnv{
-		EnvoyURL:     get("E2E_ENVOY_URL", "http://envoy:9080"),
-		GatewayURL:   get("E2E_GATEWAY_URL", "http://chat-server:8000"),
-		ToxiAPI:      get("E2E_TOXIPROXY_API", "http://toxiproxy:8474"),
+		EnvoyURL:              get("E2E_ENVOY_URL", "http://envoy:9080"),
+		GatewayURL:            get("E2E_GATEWAY_URL", "http://chat-server:8000"),
+		EnvoyClientProxyURL:   get("E2E_ENVOY_CLIENT_PROXY_URL", "http://toxiproxy:19080"),
+		ConnectorClientProxyURL: get("E2E_CONNECTOR_CLIENT_PROXY_URL", "http://toxiproxy:18000"),
+		ToxiAPI:               get("E2E_TOXIPROXY_API", "http://toxiproxy:8474"),
 		MySQLHost:    get("E2E_MYSQL_HOST", "mysql"),
 		MySQLPort:    get("E2E_MYSQL_PORT", "3306"),
 		MySQLUser:    get("E2E_MYSQL_USER", "root"),
@@ -195,13 +195,6 @@ func (e *testEnv) call(t *testing.T, method, url, token string, body any, extra 
 // Toxiproxy 控制面
 // ---------------------------------------------------------------------------
 
-type toxiProxy struct {
-	Name     string `json:"name"`
-	Listen   string `json:"listen"`
-	Upstream string `json:"upstream"`
-	Enabled  bool   `json:"enabled"`
-}
-
 func (e *testEnv) toxiRequest(t *testing.T, method, path string, body any) *http.Response {
 	t.Helper()
 	var rdr io.Reader
@@ -265,6 +258,18 @@ func (e *testEnv) toxiClear(t *testing.T, proxy string) {
 	}
 }
 
+// toxiSetProxyEnabled 启用或禁用代理通道
+func (e *testEnv) toxiSetProxyEnabled(t *testing.T, proxy string, enabled bool) {
+	t.Helper()
+	resp := e.toxiRequest(t, http.MethodPost, "/proxies/"+proxy, map[string]any{
+		"enabled": enabled,
+	})
+	if resp != nil {
+		resp.Body.Close()
+	}
+	t.Logf("[Toxiproxy] 代理 %s enabled 状态变更为: %v", proxy, enabled)
+}
+
 // ---------------------------------------------------------------------------
 // 数据库直连（只读断言用；刻意绕过 toxiproxy，避免观测手段干扰被测系统）
 // ---------------------------------------------------------------------------
@@ -281,10 +286,10 @@ func (e *testEnv) openDB(t *testing.T, dbName string) *gorm.DB {
 }
 
 type fsRow struct {
-	UserId   string
-	FriendId string
-	Status   int8
-	Version  int64
+	UserId   string `gorm:"column:user_id"`
+	FriendId string `gorm:"column:friend_id"`
+	Status   int8   `gorm:"column:status"`
+	Version  int64  `gorm:"column:version"`
 }
 
 // friendshipRow 读取单向好友关系行
@@ -481,9 +486,46 @@ func dialWS(t *testing.T, gatewayURL, token string) *wsClient {
 	return c
 }
 
+// dialWSErr 拨号 WebSocket 并返回原始错误，不直接 fatal，用于测试连接拒绝与断开
+func dialWSErr(gatewayURL, token string, timeout time.Duration) (*wsClient, error) {
+	wsURL := strings.Replace(gatewayURL, "http://", "ws://", 1) + "/ws"
+	hdr := http.Header{}
+	if token != "" {
+		hdr.Set("Authorization", "Bearer "+token)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPHeader: hdr,
+	})
+	if err != nil {
+		return nil, err
+	}
+	readCtx, readCancel := context.WithCancel(context.Background())
+	c := &wsClient{conn: conn, cancel: readCancel}
+	go func() {
+		for {
+			_, data, err := conn.Read(readCtx)
+			if err != nil {
+				return
+			}
+			c.mu.Lock()
+			c.msgs = append(c.msgs, data)
+			c.mu.Unlock()
+		}
+	}()
+	return c, nil
+}
+
 func (c *wsClient) close() {
 	c.cancel()
 	c.conn.CloseNow()
+}
+
+func (c *wsClient) writeJSON(v any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return wsjson.Write(ctx, c.conn, v)
 }
 
 // waitMessage 等待满足条件的消息
@@ -531,7 +573,6 @@ func dbPing(t *testing.T, db *gorm.DB) {
 	if err != nil {
 		t.Fatalf("获取 sql.DB 失败: %v", err)
 	}
-	defer sqlDB.Close()
 	if err := sqlDB.Ping(); err != nil {
 		t.Fatalf("MySQL ping 失败: %v", err)
 	}

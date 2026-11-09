@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
+	userpb "kama_chat_server/api/gen/user"
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/errorx"
@@ -16,15 +17,15 @@ func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateR
 	user, err := u.store.FindByUuid(ctx, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeUserNotExist, "用户不存在")
+			return userpb.ErrorUserNotFound("用户不存在")
 		}
 		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return userpb.ErrorServerBusy("服务繁忙")
 	}
 	expectedVersion := user.Version
 	if updateReq.Version != nil && *updateReq.Version > 0 {
 		if user.Version != *updateReq.Version {
-			return errorx.New(errorx.CodeConflict, "用户信息已被修改，请刷新后重试")
+			return userpb.ErrorUserConflict("用户信息已被修改，请刷新后重试")
 		}
 		expectedVersion = *updateReq.Version
 	}
@@ -48,10 +49,10 @@ func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateR
 	ok, err := u.store.UpdateUserInfoWithVersion(ctx, user, expectedVersion)
 	if err != nil {
 		zap.L().Error("更新用户信息事务失败", zap.String("userId", userId), zap.Error(err))
-		return errorx.ErrServerBusy
+		return userpb.ErrorServerBusy("服务繁忙")
 	}
 	if !ok {
-		return errorx.New(errorx.CodeConflict, "用户信息已被修改，请刷新后重试")
+		return userpb.ErrorUserConflict("用户信息已被修改，请刷新后重试")
 	}
 
 	if u.cache != nil {
@@ -73,14 +74,14 @@ func (u *UserService) UpdateUserInfo(ctx context.Context, userId string, updateR
 // GetUserInfo 获取用户完整信息（仅限自己调用）
 func (u *UserService) GetUserInfo(ctx context.Context, requesterId, targetId string) (*GetUserInfoRespond, error) {
 	if requesterId != targetId {
-		return nil, errorx.New(errorx.CodeForbidden, "无权查看他人详细信息")
+		return nil, userpb.ErrorForbidden("无权查看他人详细信息")
 	}
 
 	if u.cacheHelper == nil {
 		user, err := u.store.FindByUuid(ctx, targetId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
-				return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
+				return nil, userpb.ErrorUserNotFound("用户不存在")
 			}
 			return nil, err
 		}
@@ -110,7 +111,7 @@ func (u *UserService) GetUserInfo(ctx context.Context, requesterId, targetId str
 			user, err := u.store.FindByUuid(loaderCtx, targetId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
-					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
+					return nil, userpb.ErrorUserNotFound("用户不存在")
 				}
 				return nil, err
 			}
@@ -145,7 +146,7 @@ func (u *UserService) GetPublicUserInfo(ctx context.Context, targetId string) (*
 		user, err := u.store.FindByUuid(ctx, targetId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
-				return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
+				return nil, userpb.ErrorUserNotFound("用户不存在")
 			}
 			return nil, err
 		}
@@ -169,7 +170,7 @@ func (u *UserService) GetPublicUserInfo(ctx context.Context, targetId string) (*
 			user, err := u.store.FindByUuid(loaderCtx, targetId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
-					return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
+					return nil, userpb.ErrorUserNotFound("用户不存在")
 				}
 				return nil, err
 			}
@@ -200,7 +201,7 @@ func (u *UserService) BatchGetPublicUserInfo(ctx context.Context, userIds []stri
 	userList, err := u.store.FindByUuids(ctx, userIds)
 	if err != nil {
 		zap.L().Error("batch find users error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, userpb.ErrorServerBusy("服务繁忙")
 	}
 	rsp := make([]PublicUserInfoRespond, 0, len(userList))
 	for _, usr := range userList {
@@ -221,9 +222,9 @@ func (u *UserService) GetUserStatus(ctx context.Context, userId string) (int8, e
 	user, err := u.store.FindByUuid(ctx, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return 0, errorx.New(errorx.CodeUserNotExist, "用户不存在")
+			return 0, userpb.ErrorUserNotFound("用户不存在")
 		}
-		return 0, errorx.ErrServerBusy
+		return 0, userpb.ErrorServerBusy("服务繁忙")
 	}
 	return user.Status, nil
 }

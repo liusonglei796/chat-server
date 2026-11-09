@@ -7,6 +7,7 @@ import (
 
 	"go.uber.org/zap"
 
+	userpb "kama_chat_server/api/gen/user"
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/dberr"
 	"kama_chat_server/internal/infra/idempotency"
@@ -20,19 +21,19 @@ import (
 // buildLoginResponse 构建登录的公共响应
 func (u *UserService) buildLoginResponse(ctx context.Context, user *UserInfo, clientIP string) (*LoginRespond, error) {
 	if user.Status == user_status.DISABLE {
-		return nil, errorx.New(errorx.CodeForbidden, "该账号已被禁用，请联系管理员")
+		return nil, userpb.ErrorUserDisabled("该账号已被禁用，请联系管理员")
 	}
 
 	accessToken, err := jwt.GenerateAccessToken(user.Uuid, user.IsAdmin == 1)
 	if err != nil {
 		zap.L().Error("生成 Access Token 失败", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, userpb.ErrorServerBusy("服务繁忙")
 	}
 
 	refreshToken, tokenID, err := jwt.GenerateRefreshToken(user.Uuid)
 	if err != nil {
 		zap.L().Error("生成 Refresh Token 失败", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, userpb.ErrorServerBusy("服务繁忙")
 	}
 
 	if u.cache != nil {
@@ -40,7 +41,7 @@ func (u *UserService) buildLoginResponse(ctx context.Context, user *UserInfo, cl
 		ssoTTL := time.Duration(constants.SSO_TOKEN_EXPIRY_HOURS) * time.Hour
 		if err := u.cache.Set(ctx, ssoTokenKey, accessToken, ssoTTL); err != nil {
 			zap.L().Error("存储 SSO Token 到 Redis 失败", zap.Error(err))
-			return nil, errorx.ErrServerBusy
+			return nil, userpb.ErrorServerBusy("服务繁忙")
 		}
 
 		redisKey := constants.CacheKeyUserToken + user.Uuid
@@ -74,13 +75,13 @@ func (u *UserService) Login(ctx context.Context, loginReq LoginRequest, clientIP
 	user, err := u.store.FindByNickname(ctx, loginReq.Username)
 	if err != nil {
 		if errorx.GetCode(err) == errorx.CodeNotFound {
-			return nil, errorx.New(errorx.CodeUserNotExist, "用户不存在")
+			return nil, userpb.ErrorUserNotFound("用户不存在")
 		}
 		zap.L().Error("service error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, userpb.ErrorServerBusy("服务繁忙")
 	}
 	if !user.CheckPassword(loginReq.Password) {
-		return nil, errorx.New(errorx.CodeInvalidPassword, "密码不正确，请重试")
+		return nil, userpb.ErrorInvalidPassword("密码不正确，请重试")
 	}
 
 	return u.buildLoginResponse(ctx, user, clientIP)
@@ -91,7 +92,7 @@ func (u *UserService) Register(ctx context.Context, registerReq RegisterRequest,
 	action := func(c context.Context) (*RegisterRespond, error) {
 		existing, err := u.store.FindByNickname(c, registerReq.Username)
 		if err == nil && existing != nil {
-			return nil, errorx.New(errorx.CodeUserExist, "用户名已被占用")
+			return nil, userpb.ErrorUserAlreadyExists("用户名已被占用")
 		}
 
 		uuid := "U" + fmt.Sprintf("%d", time.Now().UnixMilli())
@@ -108,10 +109,10 @@ func (u *UserService) Register(ctx context.Context, registerReq RegisterRequest,
 
 		if err := u.store.CreateUser(c, user); err != nil {
 			if dberr.IsDuplicateKey(err) {
-				return nil, errorx.New(errorx.CodeUserExist, "用户名已被占用")
+				return nil, userpb.ErrorUserAlreadyExists("用户名已被占用")
 			}
 			zap.L().Error("创建用户失败", zap.Error(err))
-			return nil, errorx.ErrServerBusy
+			return nil, userpb.ErrorServerBusy("服务繁忙")
 		}
 
 		return &RegisterRespond{
@@ -153,7 +154,7 @@ func (u *UserService) Logout(ctx context.Context, userId string) error {
 		ssoTokenKey := constants.CacheKeySSOToken + userId
 		if err := u.cache.Delete(ctx, ssoTokenKey); err != nil {
 			zap.L().Error("删除 SSO Token 失败", zap.Error(err))
-			return errorx.ErrServerBusy
+			return userpb.ErrorServerBusy("服务繁忙")
 		}
 	}
 	return nil
@@ -164,17 +165,17 @@ func (u *UserService) KickUser(ctx context.Context, userId string) error {
 	_, err := u.store.FindByUuid(ctx, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeUserNotExist, "用户不存在")
+			return userpb.ErrorUserNotFound("用户不存在")
 		}
 		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return userpb.ErrorServerBusy("服务繁忙")
 	}
 
 	if u.cache != nil {
 		ssoTokenKey := constants.CacheKeySSOToken + userId
 		if err := u.cache.Delete(ctx, ssoTokenKey); err != nil {
 			zap.L().Error("删除 SSO Token 失败", zap.Error(err))
-			return errorx.ErrServerBusy
+			return userpb.ErrorServerBusy("服务繁忙")
 		}
 	}
 
@@ -218,7 +219,7 @@ func (s *AuthService) GetUserIsAdmin(ctx context.Context, userID string) (bool, 
 	user, err := s.userStore.FindByUuid(ctx, userID)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return false, errorx.New(errorx.CodeUserNotExist, "用户不存在")
+			return false, userpb.ErrorUserNotFound("用户不存在")
 		}
 		return false, err
 	}

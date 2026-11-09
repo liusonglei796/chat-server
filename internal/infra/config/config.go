@@ -50,7 +50,7 @@ type LogConfig struct {
 }
 
 // KafkaConfig Kafka 消息队列配置
-// 全项目只有一个 topic：domain_events（领域事件），见 internal/common/infrastructure/kafka
+// Kafka 主题常量见 internal/infra/kafka (TopicDomainEvents, TopicGroupFanout)
 type KafkaConfig struct {
 	HostPort string        `toml:"hostPort"`    // Kafka 服务器地址，如 "localhost:9092"
 	Timeout  time.Duration `toml:"timeout"`     // 超时时间

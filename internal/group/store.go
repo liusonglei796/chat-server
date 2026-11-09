@@ -5,11 +5,12 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
+	grouppb "kama_chat_server/api/gen/group"
 	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
 	"kama_chat_server/pkg/enum/group/group_status"
-	"kama_chat_server/pkg/errorx"
 )
 
 // GroupStore 群组信息数据访问接口
@@ -140,7 +141,7 @@ func (r *groupStoreImpl) UpdateWithVersion(ctx context.Context, uuid string, exp
 		return dberr.WrapDBErrorf(result.Error, "乐观锁更新群组 uuid=%s version=%d", uuid, expectedVersion)
 	}
 	if result.RowsAffected == 0 {
-		return errorx.New(errorx.CodeConflict, "群资料已被他人修改，请刷新后重试")
+		return grouppb.ErrorGroupConflict("群资料已被他人修改，请刷新后重试")
 	}
 	return nil
 }
@@ -213,6 +214,7 @@ type GroupMemberStore interface {
 	FindMembersWithUserInfoPaged(ctx context.Context, groupUuid string, page, pageSize int) ([]GroupMemberWithUserInfo, int64, error)
 	FindByGroupAndUser(ctx context.Context, groupUuid, userUuid string) (*GroupMember, error)
 	CreateGroupMember(ctx context.Context, member *GroupMember) error
+	CreateGroupMemberOrIgnore(ctx context.Context, member *GroupMember) (bool, error)
 	DeleteByGroupUuid(ctx context.Context, groupUuid string) error
 	DeleteByUserUuids(ctx context.Context, groupUuid string, userUuids []string) (int64, error)
 	DeleteMemberIfNotOwner(ctx context.Context, groupUuid, userUuid string) (bool, error)
@@ -282,6 +284,14 @@ func (r *groupMemberStoreImpl) CreateGroupMember(ctx context.Context, member *Gr
 		return dberr.WrapDBError(err, "创建群成员")
 	}
 	return nil
+}
+
+func (r *groupMemberStoreImpl) CreateGroupMemberOrIgnore(ctx context.Context, member *GroupMember) (bool, error) {
+	result := database.GetDB(ctx, r.db).Clauses(clause.Insert{Modifier: "IGNORE"}).Create(member)
+	if result.Error != nil {
+		return false, dberr.WrapDBError(result.Error, "创建群成员")
+	}
+	return result.RowsAffected > 0, nil
 }
 
 func (r *groupMemberStoreImpl) DeleteByGroupUuid(ctx context.Context, groupUuid string) error {

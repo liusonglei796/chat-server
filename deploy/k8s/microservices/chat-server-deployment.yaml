@@ -29,7 +29,7 @@ spec:
             # message_service 依此回推下行消息。若为 127.0.0.1，
             # message_service 会连到自己 Pod 的回环地址，推送静默失败。
             - name: GATEWAY_GRPC_ADDR
-              value: "chat-server:8001"
+              value: "chat-server.chat-system.svc.cluster.local:8001"
             - name: GATEWAY_GRPC_PORT
               value: "8001"
             - name: MYSQL_PASSWORD

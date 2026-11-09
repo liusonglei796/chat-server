@@ -47,8 +47,8 @@ func Init(logCfg *config.LogConfig, mode string) error {
 			core = zapcore.NewCore(jsonEncoder, writeSyncer, level)
 		}
 
-		// 创建并替换全局 Logger
-		lg := zap.New(core, zap.AddCaller())
+		// 创建并替换全局 Logger（开启调用方行号与 Error 级别调用堆栈收集，符合 Google 错误排障与可观测性要求）
+		lg := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
 		zap.ReplaceGlobals(lg)
 	})
 	return initErr

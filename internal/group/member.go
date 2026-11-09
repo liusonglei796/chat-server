@@ -2,11 +2,11 @@ package group
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"go.uber.org/zap"
 
+	grouppb "kama_chat_server/api/gen/group"
 	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/grpc_client"
@@ -22,24 +22,24 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 			return nil
 		}
 		zap.L().Error("Check group membership error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	if member.Role == 3 {
-		return errorx.New(errorx.CodeInvalidParam, "群主不能退群，请先转让群主或解散群聊")
+		return grouppb.ErrorInvalidParam("群主不能退群，请先转让群主或解散群聊")
 	}
 
 	err = database.ExecTx(ctx, g.db, func(txCtx context.Context) error {
 		ok, err := g.memberStore.DeleteMemberIfNotOwner(txCtx, groupId, userId)
 		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
+			return grouppb.ErrorServerBusy("服务繁忙")
 		}
 
 		if ok {
 			if err := g.groupStore.DecrementMemberCountBy(txCtx, groupId, 1); err != nil {
 				zap.L().Error("service error", zap.Error(err))
-				return errorx.ErrServerBusy
+				return grouppb.ErrorServerBusy("服务繁忙")
 			}
 
 			return g.recordGroupMemberLeftEvent(txCtx, groupId, userId)
@@ -49,7 +49,7 @@ func (g *GroupService) LeaveGroup(ctx context.Context, userId string, groupId st
 
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	if g.cacheHelper != nil {
@@ -81,16 +81,16 @@ func (g *GroupService) GetGroupMemberList(ctx context.Context, userId, groupId s
 	_, err := g.memberStore.FindByGroupAndUser(ctx, groupId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return nil, 0, errorx.New(errorx.CodeForbidden, "你不是该群成员")
+			return nil, 0, grouppb.ErrorForbidden("你不是该群成员")
 		}
 		zap.L().Error("Find group member error", zap.Error(err))
-		return nil, 0, errorx.ErrServerBusy
+		return nil, 0, grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	members, err := g.memberStore.FindByGroupUuid(ctx, groupId)
 	if err != nil {
 		zap.L().Error("Find group members error", zap.Error(err))
-		return nil, 0, errorx.ErrServerBusy
+		return nil, 0, grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	total := int64(len(members))
@@ -102,7 +102,7 @@ func (g *GroupService) GetGroupMemberList(ctx context.Context, userId, groupId s
 	userList, err := grpc_client.BatchGetPublicUserInfo(ctx, userIds)
 	if err != nil {
 		zap.L().Error("batch get group members info via grpc error", zap.Error(err))
-		return nil, 0, errorx.ErrServerBusy
+		return nil, 0, grouppb.ErrorServerBusy("服务繁忙")
 	}
 	userMap := make(map[string]*userpb.PublicUserInfo, len(userList))
 	for _, u := range userList {
@@ -143,23 +143,23 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 	member, err := g.memberStore.FindByGroupAndUser(ctx, req.GroupId, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
+			return grouppb.ErrorForbidden("你不是该群成员")
 		}
 		zap.L().Error("Find group member error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 	if member.Role < 2 {
-		return errorx.New(errorx.CodeForbidden, "你没有移除成员的权限")
+		return grouppb.ErrorForbidden("你没有移除成员的权限")
 	}
 
 	group, err := g.groupStore.FindByUuid(ctx, req.GroupId)
 	if err != nil {
 		zap.L().Error("Find group error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 	for _, uuid := range req.UuidList {
 		if group.OwnerId == uuid {
-			return errorx.New(errorx.CodeInvalidParam, "不能移除群主")
+			return grouppb.ErrorInvalidParam("不能移除群主")
 		}
 	}
 
@@ -167,13 +167,13 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 		deletedCount, err := g.memberStore.DeleteByUserUuids(txCtx, req.GroupId, req.UuidList)
 		if err != nil {
 			zap.L().Error("Delete group members error", zap.Error(err))
-			return errorx.ErrServerBusy
+			return grouppb.ErrorServerBusy("服务繁忙")
 		}
 
 		if deletedCount > 0 {
 			if err := g.groupStore.DecrementMemberCountBy(txCtx, req.GroupId, int(deletedCount)); err != nil {
 				zap.L().Error("Decrement member count error", zap.Error(err))
-				return errorx.ErrServerBusy
+				return grouppb.ErrorServerBusy("服务繁忙")
 			}
 
 			return g.recordGroupMemberRemovedEvent(txCtx, req.GroupId, operatorId, req.UuidList)
@@ -183,7 +183,7 @@ func (g *GroupService) RemoveGroupMembers(ctx context.Context, operatorId string
 
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	if g.cacheHelper != nil {
@@ -209,31 +209,31 @@ func (g *GroupService) MuteMember(ctx context.Context, operatorId string, req Mu
 	operator, err := g.memberStore.FindByGroupAndUser(ctx, req.GroupId, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
+			return grouppb.ErrorForbidden("你不是该群成员")
 		}
 		zap.L().Error("Find group member error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 	if operator.Role < 2 {
-		return errorx.New(errorx.CodeForbidden, "你没有禁言成员的权限")
+		return grouppb.ErrorForbidden("你没有禁言成员的权限")
 	}
 
 	grp, err := g.groupStore.FindByUuid(ctx, req.GroupId)
 	if err != nil {
 		zap.L().Error("Find group error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 	if grp.OwnerId == req.UserId {
-		return errorx.New(errorx.CodeInvalidParam, "不能禁言群主")
+		return grouppb.ErrorInvalidParam("不能禁言群主")
 	}
 
 	_, err = g.memberStore.FindByGroupAndUser(ctx, req.GroupId, req.UserId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeNotFound, "该用户不是群成员")
+			return grouppb.ErrorMemberNotFound("该用户不是群成员")
 		}
 		zap.L().Error("Find target member error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	var muteUntil *time.Time
@@ -248,7 +248,7 @@ func (g *GroupService) MuteMember(ctx context.Context, operatorId string, req Mu
 			zap.String("user_id", req.UserId),
 			zap.Error(err),
 		)
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	if g.cache != nil {
@@ -268,7 +268,7 @@ func (g *GroupService) IsGroupMember(ctx context.Context, groupId, userId string
 			return false, nil
 		}
 		zap.L().Error("query group member error", zap.Error(err))
-		return false, errorx.ErrServerBusy
+		return false, grouppb.ErrorServerBusy("服务繁忙")
 	}
 	return true, nil
 }
@@ -278,10 +278,10 @@ func (g *GroupService) GetGroupMemberRole(ctx context.Context, groupId, userId s
 	member, err := g.memberStore.FindByGroupAndUser(ctx, groupId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return 0, errorx.New(errorx.CodeNotFound, "该用户不是群成员")
+			return 0, grouppb.ErrorMemberNotFound("该用户不是群成员")
 		}
 		zap.L().Error("find group member error", zap.Error(err))
-		return 0, errorx.ErrServerBusy
+		return 0, grouppb.ErrorServerBusy("服务繁忙")
 	}
 	return member.Role, nil
 }
@@ -291,7 +291,7 @@ func (g *GroupService) ListGroupMemberIds(ctx context.Context, groupId string) (
 	members, err := g.memberStore.FindByGroupUuid(ctx, groupId)
 	if err != nil {
 		zap.L().Error("query group members error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, grouppb.ErrorServerBusy("服务繁忙")
 	}
 	ids := make([]string, 0, len(members))
 	for _, m := range members {
@@ -302,31 +302,31 @@ func (g *GroupService) ListGroupMemberIds(ctx context.Context, groupId string) (
 
 // AddGroupMember 跨服务向群组中添加成员（由 apply 审批通过后直调）
 func (g *GroupService) AddGroupMember(ctx context.Context, groupId, userId string, role int8) error {
-	// 加持群成员容量互斥锁，防止并发拉人超出群人数容量上限
-	if g.lock != nil {
-		token := fmt.Sprintf("%s:%d", userId, time.Now().UnixNano())
-		lockKey := fmt.Sprintf("lock:group:member:%s", groupId)
-		acquired, err := g.lock.Acquire(ctx, lockKey, token, 3*time.Second)
-		if err == nil && acquired {
-			defer func() {
-				_ = g.lock.Release(context.Background(), lockKey, token)
-			}()
-		}
-	}
-
 	err := database.ExecTx(ctx, g.db, func(txCtx context.Context) error {
 		newMember := GroupMember{
 			GroupUuid: groupId,
 			UserUuid:  userId,
 			Role:      role,
 		}
-		if err := g.memberStore.CreateGroupMember(txCtx, &newMember); err != nil {
-			zap.L().Error("CreateGroupMember error", zap.Error(err))
-			return errorx.ErrServerBusy
+		inserted, err := g.memberStore.CreateGroupMemberOrIgnore(txCtx, &newMember)
+		if err != nil {
+			zap.L().Error("CreateGroupMemberOrIgnore error", zap.Error(err))
+			return grouppb.ErrorServerBusy("服务繁忙")
 		}
-		if err := g.groupStore.IncrementMemberCount(txCtx, groupId); err != nil {
-			zap.L().Error("IncrementMemberCount error", zap.Error(err))
-			return errorx.ErrServerBusy
+		// 已经是群成员，幂等返回成功，无需重复自增人数
+		if !inserted {
+			return nil
+		}
+
+		// 只有新成员成功插入，才原子递增群人数；如果超过容量限制（默认 500），返回错误触发事务回滚
+		const maxGroupMembers = 500
+		ok, err := g.groupStore.IncrementMemberCountWithLimit(txCtx, groupId, maxGroupMembers)
+		if err != nil {
+			zap.L().Error("IncrementMemberCountWithLimit error", zap.Error(err))
+			return grouppb.ErrorServerBusy("服务繁忙")
+		}
+		if !ok {
+			return grouppb.ErrorGroupLimitExceeded("群成员已达到人数上限")
 		}
 		return nil
 	})

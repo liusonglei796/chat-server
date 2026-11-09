@@ -21,10 +21,10 @@ func ZAdd(client *redis.Client, ctx context.Context, key string, score float64, 
 
 // ZRevRangeByScore 按分数从大到小获取有序集合成员（支持偏移与数量限制）。
 // max/min 可为 "+inf", "-inf" 或具体分数字符串（支持 "(" 前缀表示开区间）。
-func ZRevRangeByScore(client *redis.Client, ctx context.Context, key string, max, min string, offset, count int64) ([]string, error) {
+func ZRevRangeByScore(client *redis.Client, ctx context.Context, key string, maxScore, minScore string, offset, count int64) ([]string, error) {
 	members, err := client.ZRevRangeByScore(ctx, key, &redis.ZRangeBy{
-		Max:    max,
-		Min:    min,
+		Max:    maxScore,
+		Min:    minScore,
 		Offset: offset,
 		Count:  count,
 	}).Result()

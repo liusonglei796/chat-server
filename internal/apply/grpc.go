@@ -6,7 +6,7 @@ import (
 	"github.com/go-kratos/kratos/v2/transport"
 
 	applypb "kama_chat_server/api/gen/apply"
-	"kama_chat_server/pkg/errorx"
+	"kama_chat_server/pkg/interceptor"
 )
 
 type GrpcServer struct {
@@ -28,6 +28,9 @@ func extractTrustedUserID(ctx context.Context) string {
 			return uid
 		}
 	}
+	if uid := interceptor.GetUserIDFromContext(ctx); uid != "" {
+		return uid
+	}
 	if val := ctx.Value("user_id"); val != nil {
 		if s, ok := val.(string); ok {
 			return s
@@ -45,7 +48,12 @@ func (s *GrpcServer) ApplyFriend(ctx context.Context, req *applypb.ApplyFriendRe
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, applypb.ErrorUnauthorized("请先登录")
+	}
+
+	clientToken := req.ClientToken
+	if clientToken == "" {
+		clientToken = interceptor.GetIdempotencyKeyFromContext(ctx)
 	}
 
 	// Step 1.2: 调用业务层执行好友申请
@@ -54,7 +62,7 @@ func (s *GrpcServer) ApplyFriend(ctx context.Context, req *applypb.ApplyFriendRe
 	err := s.applySvc.ApplyFriend(ctx, userId, ApplyFriendRequest{
 		FriendId:    req.FriendId,
 		Message:     req.Message,
-		ClientToken: req.ClientToken,
+		ClientToken: clientToken,
 	})
 	return &applypb.ApplyFriendResponse{}, err
 }
@@ -68,7 +76,12 @@ func (s *GrpcServer) ApplyGroup(ctx context.Context, req *applypb.ApplyGroupRequ
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, applypb.ErrorUnauthorized("请先登录")
+	}
+
+	clientToken := req.ClientToken
+	if clientToken == "" {
+		clientToken = interceptor.GetIdempotencyKeyFromContext(ctx)
 	}
 
 	// Step 2.2: 调用业务层执行加群申请
@@ -77,7 +90,7 @@ func (s *GrpcServer) ApplyGroup(ctx context.Context, req *applypb.ApplyGroupRequ
 	err := s.applySvc.ApplyGroup(ctx, userId, ApplyGroupRequest{
 		GroupId:     req.GroupId,
 		Message:     req.Message,
-		ClientToken: req.ClientToken,
+		ClientToken: clientToken,
 	})
 	return &applypb.ApplyGroupResponse{}, err
 }
@@ -91,7 +104,7 @@ func (s *GrpcServer) GetFriendApplyList(ctx context.Context, req *applypb.GetFri
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, applypb.ErrorUnauthorized("请先登录")
 	}
 
 	page := int(req.Page)
@@ -135,7 +148,7 @@ func (s *GrpcServer) GetGroupApplyList(ctx context.Context, req *applypb.GetGrou
 		operatorId = extractTrustedUserID(ctx)
 	}
 	if operatorId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, applypb.ErrorUnauthorized("请先登录")
 	}
 
 	page := int(req.Page)
@@ -179,7 +192,7 @@ func (s *GrpcServer) PassFriendApply(ctx context.Context, req *applypb.PassFrien
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, applypb.ErrorUnauthorized("请先登录")
 	}
 
 	// Step 5.2: 调用业务层同意好友申请
@@ -198,7 +211,7 @@ func (s *GrpcServer) PassGroupApply(ctx context.Context, req *applypb.PassGroupA
 		operatorId = extractTrustedUserID(ctx)
 	}
 	if operatorId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, applypb.ErrorUnauthorized("请先登录")
 	}
 
 	// Step 6.2: 调用业务层同 Crypto 入群
@@ -217,7 +230,7 @@ func (s *GrpcServer) RefuseFriendApply(ctx context.Context, req *applypb.RefuseF
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, applypb.ErrorUnauthorized("请先登录")
 	}
 
 	// Step 7.2: 调用业务层拒绝好友申请
@@ -236,7 +249,7 @@ func (s *GrpcServer) RefuseGroupApply(ctx context.Context, req *applypb.RefuseGr
 		operatorId = extractTrustedUserID(ctx)
 	}
 	if operatorId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, applypb.ErrorUnauthorized("请先登录")
 	}
 
 	// Step 8.2: 调用业务层拒绝入群申请
@@ -255,7 +268,7 @@ func (s *GrpcServer) BlackFriendApply(ctx context.Context, req *applypb.BlackFri
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, applypb.ErrorUnauthorized("请先登录")
 	}
 
 	// Step 9.2: 调用业务层拉黑好友申请
@@ -274,7 +287,7 @@ func (s *GrpcServer) BlackGroupApply(ctx context.Context, req *applypb.BlackGrou
 		operatorId = extractTrustedUserID(ctx)
 	}
 	if operatorId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, applypb.ErrorUnauthorized("请先登录")
 	}
 
 	// Step 10.2: 调用业务层拉黑入群申请

@@ -27,11 +27,6 @@ func RequestDebounce(store debounce.Store) middleware.Middleware {
 
 	return func(handler middleware.Handler) middleware.Handler {
 		return func(ctx context.Context, req interface{}) (interface{}, error) {
-			userID := trustedUserID(ctx)
-			if userID == "" {
-				return handler(ctx, req)
-			}
-
 			operation := ""
 			if tr, ok := transport.FromServerContext(ctx); ok {
 				operation = tr.Operation()
@@ -41,6 +36,11 @@ func RequestDebounce(store debounce.Store) middleware.Middleware {
 				} else if key := tr.RequestHeader().Get("X-Idempotency-Key"); key != "" {
 					ctx = idempotency.ContextWithKey(ctx, key)
 				}
+			}
+
+			userID := trustedUserID(ctx)
+			if userID == "" {
+				return handler(ctx, req)
 			}
 			if operation == "" {
 				return handler(ctx, req)

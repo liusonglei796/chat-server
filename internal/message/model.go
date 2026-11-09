@@ -18,10 +18,10 @@ type Message struct {
 	ClientMsgId string `gorm:"column:client_msg_id;uniqueIndex;type:varchar(64);default:null;comment:客户端消息唯一标识"`
 
 	// SessionId 会话 UUID
-	SessionId string `gorm:"column:session_id;type:varchar(64);not null;index:idx_session_uuid,priority:1;index:idx_session_seq,priority:1;comment:会话uuid"`
+	SessionId string `gorm:"column:session_id;type:varchar(64);not null;index:idx_session_uuid,priority:1;uniqueIndex:uk_session_seq,priority:1;comment:会话uuid"`
 
 	// SeqId 会话内单调递增序号
-	SeqId int64 `gorm:"column:seq_id;not null;default:0;index:idx_session_seq,priority:2;comment:会话内单调递增序号"`
+	SeqId int64 `gorm:"column:seq_id;not null;default:0;uniqueIndex:uk_session_seq,priority:2;comment:会话内单调递增序号"`
 
 	// Type 消息类型 (0.文本 2.文件 4.撤回；1/3 为历史保留值)
 	Type int8 `gorm:"column:type;not null;comment:消息类型，0.文本，2.文件，4.撤回"`
@@ -134,20 +134,22 @@ type RecallMessageRequest struct {
 	MessageUuid string `json:"message_uuid" binding:"required"`
 }
 
-// GetMessageListRespond 消息列表项响应
+// GetMessageListRespond 消息列表项响应（兼作方案二下行实时推送与回声确认 Echo ACK 载荷）
 type GetMessageListRespond struct {
-	SendId     string `json:"send_id"`
-	SendName   string `json:"send_name"`
-	SendAvatar string `json:"send_avatar"`
-	ReceiveId  string `json:"receive_id"`
-	Type       int8   `json:"type"`
-	Content    string `json:"content"`
-	Url        string `json:"url"`
-	FileType   string `json:"file_type"`
-	FileName   string `json:"file_name"`
-	FileSize   string `json:"file_size"`
-	SeqId      int64  `json:"seq_id"`
-	CreatedAt  string `json:"created_at"`
+	MessageUuid string `json:"message_uuid,omitempty"`
+	ClientMsgId string `json:"client_msg_id,omitempty"`
+	SendId      string `json:"send_id"`
+	SendName    string `json:"send_name"`
+	SendAvatar  string `json:"send_avatar"`
+	ReceiveId   string `json:"receive_id"`
+	Type        int8   `json:"type"`
+	Content     string `json:"content"`
+	Url         string `json:"url"`
+	FileType    string `json:"file_type"`
+	FileName    string `json:"file_name"`
+	FileSize    string `json:"file_size"`
+	SeqId       int64  `json:"seq_id"`
+	CreatedAt   string `json:"created_at"`
 }
 
 // SendMessageRespond 发送消息成功响应

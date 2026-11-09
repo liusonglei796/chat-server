@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: e2e-client-chaos
+  namespace: chat-system
+  labels:
+    app: e2e-client-chaos
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: e2e-client-chaos
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: e2e
+          image: kama-chat/e2e:latest
+          imagePullPolicy: IfNotPresent
+          args: ["-test.run=Test_Client_Ingress_Chaos"]
+          env:
+            - name: E2E_ENVOY_URL
+              value: "http://envoy:9080"
+            - name: E2E_GATEWAY_URL
+              value: "http://chat-server:8000"
+            - name: E2E_ENVOY_CLIENT_PROXY_URL
+              value: "http://toxiproxy:19080"
+            - name: E2E_GATEWAY_CLIENT_PROXY_URL
+              value: "http://toxiproxy:18000"
+            - name: E2E_TOXIPROXY_API
+              value: "http://toxiproxy:8474"
+            - name: E2E_MYSQL_HOST
+              value: "mysql"
+            - name: E2E_MYSQL_PORT
+              value: "3306"
+            - name: E2E_MYSQL_USER
+              value: "root"
+            - name: E2E_MYSQL_PASSWORD
+              value: "root123456"
+            - name: E2E_KAFKA_BROKERS
+              value: "kafka:9092"
+            - name: E2E_REDIS_HOST
+              value: "redis"
+            - name: E2E_REDIS_PORT
+              value: "6379"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"

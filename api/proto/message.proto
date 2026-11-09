@@ -3,8 +3,25 @@
 package message;
 
 import "google/api/annotations.proto";
+import "errors/errors.proto";
 
 option go_package = "kama_chat_server/api/gen/message";
+
+enum MessageErrorReason {
+    MESSAGE_UNSPECIFIED = 0;
+    MESSAGE_NOT_FOUND = 1 [(errors.code) = 404];
+    SESSION_NOT_FOUND = 2 [(errors.code) = 404];
+    RECALL_TIMEOUT = 3 [(errors.code) = 400];
+    NOT_MESSAGE_SENDER = 4 [(errors.code) = 403];
+    MESSAGE_ALREADY_RECALLED = 5 [(errors.code) = 400];
+    RATE_LIMIT_EXCEEDED = 6 [(errors.code) = 429];
+    USER_NOT_FOUND = 7 [(errors.code) = 404];
+    NOT_IN_SESSION = 8 [(errors.code) = 403];
+    INVALID_PARAM = 9 [(errors.code) = 400];
+    UNAUTHORIZED = 10 [(errors.code) = 401];
+    FORBIDDEN = 11 [(errors.code) = 403];
+    SERVER_BUSY = 12 [(errors.code) = 503];
+}
 
 service MessageService {
     // Message

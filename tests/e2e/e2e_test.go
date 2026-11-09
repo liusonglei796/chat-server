@@ -102,33 +102,10 @@ type friendPair struct {
 	BName   string
 }
 
-// registerAndLogin 走 Gin 网关注册并登录，返回 uuid 与 access_token
+// registerAndLogin 走 Envoy 网关注册并登录，返回 uuid 与 access_token
 func (e *testEnv) registerAndLogin(t *testing.T, username, password string) (string, string) {
 	t.Helper()
-	reg := e.call(t, "POST", e.GatewayURL+"/auth/register", "", map[string]any{
-		"username": username, "password": password, "client_token": "e2e-" + username,
-	}, nil)
-	if reg.Code != 1000 {
-		t.Fatalf("注册 %s 失败: %s", username, reg.Summary())
-	}
-	login := e.call(t, "POST", e.GatewayURL+"/auth/login", "", map[string]any{
-		"username": username, "password": password,
-	}, nil)
-	if login.Code != 1000 {
-		t.Fatalf("登录 %s 失败: %s", username, login.Summary())
-	}
-	var data struct {
-		Uuid        string `json:"uuid"`
-		AccessToken string `json:"access_token"`
-	}
-	if err := unmarshalData(login.Data, &data); err != nil {
-		t.Fatalf("解析登录响应失败: %v (raw=%s)", err, string(login.Raw))
-	}
-	if data.Uuid == "" || data.AccessToken == "" {
-		t.Fatalf("登录响应缺少 uuid/access_token: %s", string(login.Raw))
-	}
-	e.putToken(data.Uuid, data.AccessToken)
-	return data.Uuid, data.AccessToken
+	return e.registerAndLoginViaEnvoy(t, username, password)
 }
 
 // createFriendPair 通过「注册 → 申请 → 审批」真实链路造一对互为好友的用户。
@@ -145,16 +122,16 @@ func (e *testEnv) createFriendPair(t *testing.T, db *gorm.DB) (*friendPair, erro
 	aID, aTok := e.registerAndLogin(t, aname, "Password123!")
 	bID, bTok := e.registerAndLogin(t, bname, "Password123!")
 
-	apply := e.call(t, "POST", e.GatewayURL+"/friends/apply", aTok, map[string]any{
-		"friend_id": bID, "message": "e2e", "client_token": "e2e-apply-" + tag,
-	}, nil)
-	if apply.Code != 1000 {
+	apply := e.call(t, "POST", e.EnvoyURL+"/friends/apply", aTok, map[string]any{
+		"user_id": aID, "friend_id": bID, "message": "e2e", "client_token": "e2e-apply-" + tag,
+	}, map[string]string{"x-user-id": aID})
+	if apply.Status != 200 && apply.Code != 1000 {
 		return nil, fmt.Errorf("发起好友申请失败: %s", apply.Summary())
 	}
-	approve := e.call(t, "POST", e.GatewayURL+"/friends/applies/approve", bTok, map[string]any{
-		"applicant_id": aID,
-	}, nil)
-	if approve.Code != 1000 {
+	approve := e.call(t, "POST", e.EnvoyURL+"/friends/applies/approve", bTok, map[string]any{
+		"user_id": bID, "applicant_id": aID,
+	}, map[string]string{"x-user-id": bID})
+	if approve.Status != 200 && approve.Code != 1000 {
 		return nil, fmt.Errorf("审批好友申请失败: %s", approve.Summary())
 	}
 
@@ -257,10 +234,10 @@ func (e *testEnv) blockViaEnvoy(t *testing.T, userID, friendID string, extra map
 	}, h)
 }
 
-// blockViaGateway 通过 Gin 网关路径拉黑（JWT 认证）
+// blockViaGateway 通过网关路径拉黑
 func (e *testEnv) blockViaGateway(t *testing.T, token, friendID string) *apiResp {
 	t.Helper()
-	return e.call(t, "PUT", e.GatewayURL+"/friends/block", token, map[string]any{
+	return e.call(t, "PUT", e.EnvoyURL+"/friends/block", token, map[string]any{
 		"friend_id": friendID,
 	}, nil)
 }

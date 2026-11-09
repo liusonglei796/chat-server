@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	friendshippb "kama_chat_server/api/gen/friendship"
 	userpb "kama_chat_server/api/gen/user"
 	"kama_chat_server/internal/infra/grpc_client"
 	"kama_chat_server/pkg/enum/friendship/friendship_status"
@@ -26,7 +27,7 @@ func (s *FriendshipService) GetFriendList(ctx context.Context, userId string, pa
 	friendships, total, err := s.store.FindFriendsByUserId(ctx, userId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find friendship list error", zap.Error(err))
-		return nil, 0, errorx.ErrServerBusy
+		return nil, 0, friendshippb.ErrorServerBusy("服务繁忙")
 	}
 
 	if len(friendships) == 0 {
@@ -40,7 +41,7 @@ func (s *FriendshipService) GetFriendList(ctx context.Context, userId string, pa
 	userList, err := grpc_client.BatchGetPublicUserInfo(ctx, friendIds)
 	if err != nil {
 		zap.L().Error("batch get friends info via grpc error", zap.Error(err))
-		return []FriendItem{}, total, errorx.ErrServerBusy
+		return []FriendItem{}, total, friendshippb.ErrorServerBusy("服务繁忙")
 	}
 	userMap := make(map[string]*userpb.PublicUserInfo, len(userList))
 	for _, u := range userList {
@@ -64,37 +65,37 @@ func (s *FriendshipService) GetFriendList(ctx context.Context, userId string, pa
 // GetFriendInfo 获取好友详情 (userId 必须与 friendId 是好友关系)
 func (s *FriendshipService) GetFriendInfo(ctx context.Context, userId, friendId string) (FriendInfo, error) {
 	if len(friendId) == 0 {
-		return FriendInfo{}, errorx.New(errorx.CodeInvalidParam, "好友ID不能为空")
+		return FriendInfo{}, friendshippb.ErrorInvalidParam("好友ID不能为空")
 	}
 
 	isFriend, err := s.store.IsFriend(ctx, userId, friendId)
 	if err != nil {
 		zap.L().Error("Check friend relationship error", zap.Error(err))
-		return FriendInfo{}, errorx.ErrServerBusy
+		return FriendInfo{}, friendshippb.ErrorServerBusy("服务繁忙")
 	}
 	if !isFriend {
-		return FriendInfo{}, errorx.New(errorx.CodeForbidden, "你们还不是好友")
+		return FriendInfo{}, friendshippb.ErrorNotFriends("你们还不是好友")
 	}
 
 	friendStatusRsp, err := grpc_client.UserClient.GetUserStatus(ctx, &userpb.GetUserStatusRequest{UserId: friendId})
 	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			return FriendInfo{}, errorx.New(errorx.CodeUserNotExist, "该用户不存在")
+		if userpb.IsUserNotFound(err) || status.Code(err) == codes.NotFound {
+			return FriendInfo{}, friendshippb.ErrorUserNotFound("该用户不存在")
 		}
 		zap.L().Error("Get friend status error", zap.String("friendId", friendId), zap.Error(err))
-		return FriendInfo{}, errorx.ErrServerBusy
+		return FriendInfo{}, friendshippb.ErrorServerBusy("服务繁忙")
 	}
 	if int8(friendStatusRsp.Status) == user_status.DISABLE {
-		return FriendInfo{}, errorx.New(errorx.CodeInvalidParam, "该用户处于禁用状态")
+		return FriendInfo{}, friendshippb.ErrorInvalidParam("该用户处于禁用状态")
 	}
 
 	userInfo, err := grpc_client.GetPublicUserInfo(ctx, friendId)
 	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			return FriendInfo{}, errorx.New(errorx.CodeUserNotExist, "该用户不存在")
+		if userpb.IsUserNotFound(err) || status.Code(err) == codes.NotFound {
+			return FriendInfo{}, friendshippb.ErrorUserNotFound("该用户不存在")
 		}
 		zap.L().Error("get friend info via grpc error", zap.String("friendId", friendId), zap.Error(err))
-		return FriendInfo{}, errorx.ErrServerBusy
+		return FriendInfo{}, friendshippb.ErrorServerBusy("服务繁忙")
 	}
 
 	var remark string
@@ -123,7 +124,7 @@ func (s *FriendshipService) GetFriendshipStatus(ctx context.Context, userId, fri
 			return 0, nil
 		}
 		zap.L().Error("query sender friendship error", zap.Error(err))
-		return 0, errorx.ErrServerBusy
+		return 0, friendshippb.ErrorServerBusy("服务繁忙")
 	}
 
 	recipientFs, err := s.store.FindByUserIdAndFriendId(ctx, friendId, userId)
@@ -132,7 +133,7 @@ func (s *FriendshipService) GetFriendshipStatus(ctx context.Context, userId, fri
 			return 4, nil
 		}
 		zap.L().Error("query recipient friendship error", zap.Error(err))
-		return 0, errorx.ErrServerBusy
+		return 0, friendshippb.ErrorServerBusy("服务繁忙")
 	}
 
 	if recipientFs.Status == friendship_status.BLACK || senderFs.Status == friendship_status.BE_BLACK {

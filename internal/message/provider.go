@@ -23,6 +23,7 @@ var ProviderSet = wire.NewSet(
 	ProvideSessionService,
 	NewGrpcServer,
 	ProvideEventConsumer,
+	ProvideIncomingMessageConsumer,
 )
 
 // ProvideDB 初始化 chat_message 数据库连接并自动迁移
@@ -31,14 +32,36 @@ func ProvideDB(conf *config.Config) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	migrator := db.Migrator()
+	if migrator.HasTable(&Message{}) && migrator.HasIndex(&Message{}, "idx_session_seq") {
+		_ = migrator.DropIndex(&Message{}, "idx_session_seq")
+	}
 	if err := database.AutoMigrate(db, &Message{}, &Session{}, &idempotency.Record{}); err != nil {
 		return nil, err
 	}
 	return db, nil
 }
 
+// ProvideIncomingMessageConsumer 启动上行聊天消息 Kafka 消费者并导出清理函数
+func ProvideIncomingMessageConsumer(msgSvc *MessageService) (*IncomingMessageConsumer, func()) {
+	if err := kafka.EnsureTopic(context.Background(), kafka.TopicChatMessagesIncoming); err != nil {
+		zap.L().Warn("failed to ensure chat_messages_incoming topic for consumer", zap.Error(err))
+	}
+	consumer := NewIncomingMessageConsumer(msgSvc)
+	consumer.Start()
+	cleanup := func() {
+		consumer.Close()
+	}
+	return consumer, cleanup
+}
+
 // ProvideMessageService 适配 Wire 依赖注入
-func ProvideMessageService(db *gorm.DB, msgStore MessageStore, sessionStore SessionStore, cacheService cacheinfra.AsyncCacheService) *MessageService {
+func ProvideMessageService(
+	db *gorm.DB,
+	msgStore MessageStore,
+	sessionStore SessionStore,
+	cacheService cacheinfra.AsyncCacheService,
+) *MessageService {
 	return NewMessageService(msgStore, sessionStore, cacheService, db)
 }
 

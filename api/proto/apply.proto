@@ -5,6 +5,25 @@ package apply;
 option go_package = "kama_chat_server/api/gen/apply";
 
 import "google/api/annotations.proto";
+import "errors/errors.proto";
+
+enum ApplyErrorReason {
+    APPLY_UNSPECIFIED = 0;
+    APPLY_NOT_FOUND = 1 [(errors.code) = 404];
+    APPLY_ALREADY_PROCESSED = 2 [(errors.code) = 400];
+    CANNOT_APPLY_SELF = 3 [(errors.code) = 400];
+    ALREADY_FRIENDS = 4 [(errors.code) = 400];
+    ALREADY_IN_GROUP = 5 [(errors.code) = 400];
+    BLOCKED_BY_USER = 6 [(errors.code) = 403];
+    APPLY_CONFLICT = 7 [(errors.code) = 409];
+    USER_NOT_FOUND = 8 [(errors.code) = 404];
+    GROUP_NOT_FOUND = 9 [(errors.code) = 404];
+    NO_PERMISSION = 10 [(errors.code) = 403];
+    INVALID_PARAM = 11 [(errors.code) = 400];
+    UNAUTHORIZED = 12 [(errors.code) = 401];
+    FORBIDDEN = 13 [(errors.code) = 403];
+    SERVER_BUSY = 14 [(errors.code) = 503];
+}
 
 service ApplyService {
     rpc ApplyFriend (ApplyFriendRequest) returns (ApplyFriendResponse) {

@@ -34,12 +34,16 @@ your log path/
 /relation_service
 /message_service
 /gateway
+/connector
 /group_service
 /apply_service
 /friendship_service
 
-# OpenCode internal state
+# OpenCode & tool internal state
 /.omo/
+/.omg/
+/.sisyphus/
+/.playwright-mcp/
 
 # One-off refactor / codegen scripts
 /do_refactor.py

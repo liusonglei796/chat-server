@@ -31,13 +31,13 @@ func (h *SessionEventHandler) pushNotice(ctx context.Context, userId, prefix str
 	if h.cache == nil {
 		return
 	}
-	gatewayAddr, err := h.cache.Get(ctx, constants.CacheKeyUserGateway+userId)
-	if err != nil || gatewayAddr == "" {
+	connAddr, err := h.cache.Get(ctx, constants.CacheKeyUserConn+userId)
+	if err != nil || connAddr == "" {
 		return
 	}
 	msgUuid := prefix + "_" + snowflakeinfra.GenerateIDString()
 	noticeBytes, _ := json.Marshal(noticeData)
-	_ = grpcinfra.PushToGateway(ctx, gatewayAddr, userId, msgUuid, noticeBytes)
+	_ = grpcinfra.PushToConnector(ctx, connAddr, userId, msgUuid, noticeBytes)
 }
 
 // Handle 按事件类型分发处理

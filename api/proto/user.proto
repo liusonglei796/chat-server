@@ -5,6 +5,20 @@ package user;
 option go_package = "kama_chat_server/api/gen/user";
 
 import "google/api/annotations.proto";
+import "errors/errors.proto";
+
+enum UserErrorReason {
+    USER_UNSPECIFIED = 0;
+    USER_NOT_FOUND = 1 [(errors.code) = 404];
+    USER_ALREADY_EXISTS = 2 [(errors.code) = 409];
+    INVALID_PASSWORD = 3 [(errors.code) = 401];
+    USER_DISABLED = 4 [(errors.code) = 403];
+    UNAUTHORIZED = 5 [(errors.code) = 401];
+    FORBIDDEN = 6 [(errors.code) = 403];
+    USER_CONFLICT = 7 [(errors.code) = 409];
+    INVALID_PARAM = 8 [(errors.code) = 400];
+    SERVER_BUSY = 9 [(errors.code) = 503];
+}
 
 service UserService {
     rpc UpdateUserInfo (UpdateUserInfoRequest) returns (UpdateUserInfoResponse) {

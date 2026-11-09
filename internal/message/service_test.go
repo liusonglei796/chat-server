@@ -20,6 +20,7 @@ import (
 	grpcinfra "kama_chat_server/internal/infra/grpc_client"
 	"kama_chat_server/pkg/constants"
 	msgtype "kama_chat_server/pkg/enum/message/message_type"
+	messagepb "kama_chat_server/api/gen/message"
 	"kama_chat_server/pkg/errorx"
 )
 
@@ -37,7 +38,7 @@ func (m *mockRecallMessageStore) FindByUuid(_ context.Context, uuid string) (*Me
 		cpy := *m.msg
 		return &cpy, nil
 	}
-	return nil, errorx.New(errorx.CodeNotFound, "消息不存在")
+	return nil, messagepb.ErrorMessageNotFound("消息不存在")
 }
 
 func (m *mockRecallMessageStore) UpdateContent(_ context.Context, uuid, content string, msgType int8) (bool, error) {
@@ -127,7 +128,7 @@ func (s *mockSessStore) FindBySendIdAndReceiveId(ctx context.Context, sendId, re
 	if session, ok := s.sessions[sessionKey(sendId, receiveId)]; ok {
 		return session, nil
 	}
-	return nil, errorx.New(errorx.CodeNotFound, "会话不存在")
+	return nil, messagepb.ErrorSessionNotFound("会话不存在")
 }
 func (s *mockSessStore) FindBySendIdAndReceiveIdUnscoped(ctx context.Context, sendId, receiveId string) (*Session, error) {
 	return s.FindBySendIdAndReceiveId(ctx, sendId, receiveId)
@@ -215,7 +216,7 @@ func (c *mockCache) Execute(ctx context.Context, key string, leaseTTL, successTT
 	}
 	if st == "PROCESSING" {
 		c.mu.Unlock()
-		return "", false, errorx.New(errorx.CodeTooManyRequests, "请求正在处理中，请勿重复提交")
+		return "", false, messagepb.ErrorRateLimitExceeded("请求正在处理中，请勿重复提交")
 	}
 	c.status[key] = "PROCESSING"
 	c.mu.Unlock()
@@ -443,7 +444,7 @@ func TestMessageService_RecallMessage_Atomic(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		if !errorx.IsCode(err, errorx.CodeInvalidParam) {
+		if !messagepb.IsMessageAlreadyRecalled(err) && !errorx.IsCode(err, errorx.CodeInvalidParam) {
 			t.Fatalf("expected CodeInvalidParam, got %v", err)
 		}
 		if notifyCalled {
@@ -598,7 +599,7 @@ func TestSendMessage_InProgress_ReturnsTooManyRequests(t *testing.T) {
 		t.Fatal("expected error on IN_PROGRESS request, got nil")
 	}
 	var codeErr *errorx.CodeError
-	if !errors.As(err, &codeErr) || codeErr.Code != errorx.CodeTooManyRequests {
+	if !messagepb.IsRateLimitExceeded(err) && (!errors.As(err, &codeErr) || codeErr.Code != errorx.CodeTooManyRequests) {
 		t.Fatalf("expected CodeTooManyRequests, got %v", err)
 	}
 }
@@ -746,18 +747,18 @@ func TestGetGroupMemberIds_UsesCache(t *testing.T) {
 
 func TestResolveGatewayTargets_GroupsByGateway(t *testing.T) {
 	cache := newMockCache()
-	cache.setnx[constants.CacheKeyUserGateway+"U1"] = "gateway-1:8001"
-	cache.setnx[constants.CacheKeyUserGateway+"U2"] = "gateway-1:8001"
-	cache.setnx[constants.CacheKeyUserGateway+"U3"] = "gateway-2:8001"
+	cache.setnx[constants.CacheKeyUserConn+"U1"] = "connector-1:8001"
+	cache.setnx[constants.CacheKeyUserConn+"U2"] = "connector-1:8001"
+	cache.setnx[constants.CacheKeyUserConn+"U3"] = "connector-2:8001"
 
 	svc := NewMessageService(nil, nil, cache)
-	got := svc.resolveGatewayTargets([]string{"U1", "U2", "U3", "U4"})
+	got := svc.resolveConnectorTargets(context.Background(), []string{"U1", "U2", "U3", "U4"})
 
-	if len(got["gateway-1:8001"]) != 2 {
-		t.Fatalf("expected 2 users on gateway-1, got %v", got["gateway-1:8001"])
+	if len(got["connector-1:8001"]) != 2 {
+		t.Fatalf("expected 2 users on connector-1, got %v", got["connector-1:8001"])
 	}
-	if len(got["gateway-2:8001"]) != 1 || got["gateway-2:8001"][0] != "U3" {
-		t.Fatalf("expected U3 on gateway-2, got %v", got["gateway-2:8001"])
+	if len(got["connector-2:8001"]) != 1 || got["connector-2:8001"][0] != "U3" {
+		t.Fatalf("expected U3 on connector-2, got %v", got["connector-2:8001"])
 	}
 }
 
@@ -777,20 +778,57 @@ func TestResolveSessionId(t *testing.T) {
 	}
 }
 
-func TestSnowflakeUuidToScore(t *testing.T) {
-	score1 := snowflakeUuidToScore("M1000000000000000000")
-	score2 := snowflakeUuidToScore("M1000000000000000001")
-	if score1 <= 0 || score2 <= 0 {
-		t.Fatalf("scores should be positive: %f, %f", score1, score2)
+func TestSeqIdCursorPagination(t *testing.T) {
+	msgStore := &mockMsgStore{}
+	sessStore := &mockSessStore{}
+	cache := newMockCache()
+	svc := NewMessageService(msgStore, sessStore, cache)
+
+	sessionId := "P_U1001_U1002"
+	key := constants.CacheKeyMessageZSet + sessionId
+
+	msg1 := Message{
+		Uuid:      "M1000000000000000001",
+		SessionId: sessionId,
+		SeqId:     101,
+		SendId:    "U1001",
+		ReceiveId: "U1002",
+		Content:   "msg 1",
+		Type:      int8(msgtype.Text),
 	}
-	if score1 >= score2 {
-		t.Fatalf("snowflake scores must be monotonically increasing: %f >= %f", score1, score2)
+	msg2 := Message{
+		Uuid:      "M1000000000000000002",
+		SessionId: sessionId,
+		SeqId:     102,
+		SendId:    "U1002",
+		ReceiveId: "U1001",
+		Content:   "msg 2",
+		Type:      int8(msgtype.Text),
+	}
+	data1, _ := json.Marshal(msg1)
+	data2, _ := json.Marshal(msg2)
+	_ = cache.ZAdd(context.Background(), key, float64(msg1.SeqId), string(data1))
+	_ = cache.ZAdd(context.Background(), key, float64(msg2.SeqId), string(data2))
+
+	// 查询最新消息（cursor 为空）
+	list, nextCursor, _, err := svc.getMessagesBySessionIdCursorWithCache(context.Background(), sessionId, "", 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(list))
 	}
 
-	tsScore := snowflakeUuidToScore("1700000000")
-	if tsScore != 1700000000*1000000 {
-		t.Fatalf("unexpected timestamp score: %f", tsScore)
+	// 基于 seq_id=102 向上翻页拉取更旧消息
+	list2, nextCursor2, _, err := svc.getMessagesBySessionIdCursorWithCache(context.Background(), sessionId, "102", 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
+	if len(list2) != 1 || list2[0].SeqId != 101 {
+		t.Fatalf("expected msg1 with seq_id 101, got %+v", list2)
+	}
+	_ = nextCursor
+	_ = nextCursor2
 }
 
 func TestBuildMessageFromRequest_SessionId(t *testing.T) {
@@ -865,6 +903,7 @@ func TestGetMessagesBySessionIdCursorWithCache_HitZSet(t *testing.T) {
 	msg1 := Message{
 		Uuid:      "M1000000000000000001",
 		SessionId: sessionId,
+		SeqId:     1,
 		SendId:    "U1001",
 		ReceiveId: "U1002",
 		Content:   "msg 1",
@@ -874,6 +913,7 @@ func TestGetMessagesBySessionIdCursorWithCache_HitZSet(t *testing.T) {
 	msg2 := Message{
 		Uuid:      "M1000000000000000002",
 		SessionId: sessionId,
+		SeqId:     2,
 		SendId:    "U1002",
 		ReceiveId: "U1001",
 		Content:   "msg 2",
@@ -882,8 +922,8 @@ func TestGetMessagesBySessionIdCursorWithCache_HitZSet(t *testing.T) {
 	msg2.CreatedAt = time.Now()
 	data1, _ := json.Marshal(msg1)
 	data2, _ := json.Marshal(msg2)
-	_ = cache.ZAdd(context.Background(), key, snowflakeUuidToScore(msg1.Uuid), string(data1))
-	_ = cache.ZAdd(context.Background(), key, snowflakeUuidToScore(msg2.Uuid), string(data2))
+	_ = cache.ZAdd(context.Background(), key, float64(msg1.SeqId), string(data1))
+	_ = cache.ZAdd(context.Background(), key, float64(msg2.SeqId), string(data2))
 
 	list, _, hasMore, err := svc.getMessagesBySessionIdCursorWithCache(context.Background(), sessionId, "", 10)
 	if err != nil {
@@ -904,6 +944,7 @@ func TestGetMessagesBySessionIdCursorWithCache_FallbackDB(t *testing.T) {
 	dbMsg := Message{
 		Uuid:      "M1000000000000000001",
 		SessionId: "P_U1001_U1002",
+		SeqId:     1,
 		SendId:    "U1001",
 		ReceiveId: "U1002",
 		Content:   "from db",
@@ -1142,7 +1183,7 @@ func TestCheckSendPermission_DependencyErrorFailsClosed(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error when user service is unavailable")
 		}
-		if !errorx.IsCode(err, errorx.CodeServerBusy) {
+		if !messagepb.IsServerBusy(err) && !errorx.IsCode(err, errorx.CodeServerBusy) {
 			t.Fatalf("expected CodeServerBusy, got %v", err)
 		}
 	})
@@ -1156,7 +1197,7 @@ func TestCheckSendPermission_DependencyErrorFailsClosed(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error when friendship service is unavailable")
 		}
-		if !errorx.IsCode(err, errorx.CodeServerBusy) {
+		if !messagepb.IsServerBusy(err) && !errorx.IsCode(err, errorx.CodeServerBusy) {
 			t.Fatalf("expected CodeServerBusy, got %v", err)
 		}
 	})

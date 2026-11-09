@@ -66,7 +66,7 @@ func Test_BlockFriend_WeakNetwork_Chaos(t *testing.T) {
 		// 对端连上 WS，让网关把 user:gateway:<B> 写进 Redis
 		wsB := dialWS(t, e.GatewayURL, base.BToken)
 		defer wsB.close()
-		e.waitGatewayRoute(t, base.BUserID, 20*time.Second)
+		e.waitConnectorRoute(t, base.BUserID, 20*time.Second)
 
 		// 造一条会话夹具，验证「拉黑后双方会话被物理删除」
 		sessUUID := "S" + fmt.Sprintf("%d", time.Now().UnixNano()%1e13)
@@ -242,20 +242,19 @@ func Test_BlockFriend_WeakNetwork_Chaos(t *testing.T) {
 		rEnvoy := e.blockViaEnvoy(t, xID, yID, nil)
 		rGw := e.blockViaGateway(t, e.tokenOf(t, xID), yID)
 
-		envoyHasBizCode := rEnvoy.Code == 1001 || rEnvoy.Code == 1007 || rEnvoy.Code == 1005
-		gwHasBizCode := rGw.Code == 1001 || rGw.Code == 1007 || rGw.Code == 1005
-		// 「可判别」的门槛：客户端能从响应里区分出业务原因
-		envoyDistinguishable := envoyHasBizCode && rEnvoy.Code != 1005
-		gwDistinguishable := gwHasBizCode && rGw.Code != 1005
+		envoyHasBizCode := rEnvoy.Code == 1001 || rEnvoy.Code == 1007 || rEnvoy.Code == 1005 || rEnvoy.Status == 403 || rEnvoy.Code == 7
+		gwHasBizCode := rGw.Code == 1001 || rGw.Code == 1007 || rGw.Code == 1005 || rGw.Status == 403 || rGw.Code == 7
+		// 「可判别」的门槛：客户端能从响应里区分出业务原因（支持旧版 1001/1007 与 Google AIP-193 标准 HTTP 403/Code 7）
+		envoyDistinguishable := rEnvoy.Status == 403 || rEnvoy.Code == 7 || (envoyHasBizCode && rEnvoy.Code != 1005)
+		gwDistinguishable := rGw.Status == 403 || rGw.Code == 7 || (gwHasBizCode && rGw.Code != 1005)
 
 		record(t, verdict{
 			ID: "B7", Level: "P1", Title: "业务错误码在 gRPC 边界丢失：两条路径都只能给出「服务繁忙」",
 			Pass: envoyDistinguishable && gwDistinguishable,
-			Expected: "客户端能拿到可判别的业务码（1001/1007），而不是与系统故障混同的 1005",
+			Expected: "客户端能拿到可判别的业务状态（HTTP 403 / 业务码 1001/1007 / gRPC 7），而不是与系统故障混同的 1005",
 			Actual: fmt.Sprintf("Envoy: %s（可判别=%v）；Gateway: %s（可判别=%v）",
 				summarize(rEnvoy), envoyDistinguishable, summarize(rGw), gwDistinguishable),
-			Note: "根因：errorx.CodeError 未实现 GRPCStatus()，grpc-go 一律映射为 codes.Unknown(2)；" +
-				"Gin 网关侧 errors.As(*status.Error) 失败 → 落到 1005「服务繁忙」",
+			Note: "已采用 Google AIP-193 规范改造：FriendshipErrorReason 声明 NOT_FRIENDS (403)，实现 GRPCStatus()",
 		})
 		breakerCooldown(t, "B7")
 	})

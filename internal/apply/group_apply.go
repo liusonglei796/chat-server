@@ -1,6 +1,7 @@
 package apply
 
 import (
+	applypb "kama_chat_server/api/gen/apply"
 	"context"
 	"errors"
 	"fmt"
@@ -62,7 +63,7 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 					})
 					if err != nil {
 						zap.L().Error("Direct join group error", zap.Error(err))
-						return struct{}{}, errorx.ErrServerBusy
+						return struct{}{}, applypb.ErrorServerBusy("服务繁忙")
 					}
 					return struct{}{}, nil
 				}
@@ -77,17 +78,17 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 							existing.LastApplyAt = time.Now()
 							existing.Status = apply_status.PENDING
 							existing.Message = req.Message
-							existing.Version += 1
+							existing.Version++
 							return struct{}{}, u.store.Update(execCtx, existing)
 						}
 					}
 					zap.L().Error("Create group apply error", zap.Error(err))
-					return struct{}{}, errorx.ErrServerBusy
+					return struct{}{}, applypb.ErrorServerBusy("服务繁忙")
 				}
 				return struct{}{}, nil
 			}
 			zap.L().Error("Find group apply error", zap.Error(err))
-			return struct{}{}, errorx.ErrServerBusy
+			return struct{}{}, applypb.ErrorServerBusy("服务繁忙")
 		}
 
 		if apply.Status == apply_status.BLACK {
@@ -99,7 +100,7 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 			apply.LastApplyAt = time.Now()
 			apply.Status = apply_status.AGREE
 			apply.Message = req.Message
-			apply.Version += 1
+			apply.Version++
 
 			err = database.ExecTx(execCtx, u.db, func(txCtx context.Context) error {
 				if err := u.store.Update(txCtx, apply); err != nil {
@@ -109,7 +110,7 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 			})
 			if err != nil {
 				zap.L().Error("Direct join group error", zap.Error(err))
-				return struct{}{}, errorx.ErrServerBusy
+				return struct{}{}, applypb.ErrorServerBusy("服务繁忙")
 			}
 			return struct{}{}, nil
 		}
@@ -119,15 +120,15 @@ func (u *ApplyService) ApplyGroup(ctx context.Context, userId string, req ApplyG
 		apply.LastApplyAt = time.Now()
 		apply.Status = apply_status.PENDING
 		apply.Message = req.Message
-		apply.Version += 1
+		apply.Version++
 
 		ok, err := u.store.UpdateWithVersion(execCtx, apply, oldVersion)
 		if err != nil {
 			zap.L().Error("Update group apply error", zap.Error(err))
-			return struct{}{}, errorx.ErrServerBusy
+			return struct{}{}, applypb.ErrorServerBusy("服务繁忙")
 		}
 		if !ok {
-			return struct{}{}, errorx.New(errorx.CodeConflict, "申请状态发生变化，请刷新重试")
+			return struct{}{}, applypb.ErrorApplyConflict("申请状态发生变化，请刷新重试")
 		}
 
 		return struct{}{}, nil
@@ -169,10 +170,10 @@ func (u *ApplyService) GetGroupApplyList(ctx context.Context, userId, groupId st
 	role, err := grpc_client.GetGroupMemberRole(ctx, groupId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return nil, errorx.New(errorx.CodeForbidden, "你不是该群成员")
+			return nil, applypb.ErrorForbidden("你不是该群成员")
 		}
 		zap.L().Error("Get group member role error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, applypb.ErrorServerBusy("服务繁忙")
 	}
 	if role < 2 {
 		return nil, errorx.New(errorx.CodeForbidden, "你没有查看加群申请的权限")
@@ -181,7 +182,7 @@ func (u *ApplyService) GetGroupApplyList(ctx context.Context, userId, groupId st
 	applyList, total, err := u.store.FindByTargetIdPendingPaged(ctx, groupId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find pending applies error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, applypb.ErrorServerBusy("服务繁忙")
 	}
 
 	if total == 0 || len(applyList) == 0 {
@@ -199,7 +200,7 @@ func (u *ApplyService) GetGroupApplyList(ctx context.Context, userId, groupId st
 	userList, err := grpc_client.BatchGetPublicUserInfo(ctx, userUuids)
 	if err != nil {
 		zap.L().Error("batch get applicants via grpc error", zap.Error(err))
-		return nil, errorx.ErrServerBusy
+		return nil, applypb.ErrorServerBusy("服务繁忙")
 	}
 
 	userMap := make(map[string]*userpb.PublicUserInfo, len(userList))
@@ -238,26 +239,26 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 	role, err := grpc_client.GetGroupMemberRole(ctx, groupId, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
+			return applypb.ErrorForbidden("你不是该群成员")
 		}
 		zap.L().Error("Get group member role error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return applypb.ErrorServerBusy("服务繁忙")
 	}
 	if role < 2 {
-		return errorx.New(errorx.CodeForbidden, "你没有审批权限")
+		return applypb.ErrorNoPermission("你没有审批权限")
 	}
 
 	apply, err := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 	if err != nil {
 		zap.L().Error("Find group apply error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return applypb.ErrorServerBusy("服务繁忙")
 	}
 
 	if apply.Status == apply_status.AGREE {
 		return nil
 	}
 	if apply.Status != apply_status.PENDING {
-		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+		return applypb.ErrorApplyAlreadyProcessed("该申请已被处理，无法重复操作")
 	}
 
 	isMember, err := grpc_client.CheckGroupMember(ctx, groupId, applicantId)
@@ -270,27 +271,27 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 		ok, err := u.store.UpdateStatusIfPending(txCtx, apply.Uuid, apply_status.AGREE, apply.Version)
 		if err != nil {
 			zap.L().Error("service error", zap.Error(err))
-			return errorx.ErrServerBusy
+			return applypb.ErrorServerBusy("服务繁忙")
 		}
 		if !ok {
 			cur, queryErr := u.store.FindByApplicantIdAndTargetId(txCtx, applicantId, groupId)
 			if queryErr != nil || cur == nil {
-				return errorx.New(errorx.CodeNotFound, "申请记录不存在")
+				return applypb.ErrorApplyNotFound("申请记录不存在")
 			}
 			if cur.TargetId != groupId {
-				return errorx.New(errorx.CodeForbidden, "目标群组不匹配")
+				return applypb.ErrorForbidden("目标群组不匹配")
 			}
 			if cur.Status == apply_status.REFUSE {
-				return errorx.New(errorx.CodeInvalidParam, "该申请已被拒绝")
+				return applypb.ErrorApplyAlreadyProcessed("该申请已被拒绝")
 			}
 			if cur.Status == apply_status.BLACK {
-				return errorx.New(errorx.CodeInvalidParam, "该申请已被拉黑")
+				return applypb.ErrorApplyAlreadyProcessed("该申请已被拉黑")
 			}
 			if cur.Status == apply_status.AGREE {
 				alreadyAgreed = true
 				return nil
 			}
-			return errorx.ErrServerBusy
+			return applypb.ErrorServerBusy("服务繁忙")
 		}
 
 		return u.recordGroupApplyPassedEvent(txCtx, groupId, applicantId)
@@ -302,7 +303,7 @@ func (u *ApplyService) PassGroupApply(ctx context.Context, operatorId, groupId, 
 			return err
 		}
 		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return applypb.ErrorServerBusy("服务繁忙")
 	}
 
 	if alreadyAgreed {
@@ -317,51 +318,51 @@ func (u *ApplyService) RefuseGroupApply(ctx context.Context, operatorId, groupId
 	role, err := grpc_client.GetGroupMemberRole(ctx, groupId, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
+			return applypb.ErrorForbidden("你不是该群成员")
 		}
 		zap.L().Error("Get group member role error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return applypb.ErrorServerBusy("服务繁忙")
 	}
 	if role < 2 {
-		return errorx.New(errorx.CodeForbidden, "你没有审批权限")
+		return applypb.ErrorNoPermission("你没有审批权限")
 	}
 
 	apply, err := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 	if err != nil {
 		zap.L().Error("Find group apply error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return applypb.ErrorServerBusy("服务繁忙")
 	}
 
 	if apply.Status == apply_status.REFUSE {
 		return nil
 	}
 	if apply.Status != apply_status.PENDING {
-		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+		return applypb.ErrorApplyAlreadyProcessed("该申请已被处理，无法重复操作")
 	}
 
 	ok, err := u.store.UpdateStatusIfPending(ctx, apply.Uuid, apply_status.REFUSE, apply.Version)
 	if err != nil {
 		zap.L().Error("Update group apply error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return applypb.ErrorServerBusy("服务繁忙")
 	}
 	if !ok {
 		cur, queryErr := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 		if queryErr != nil || cur == nil {
-			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
+			return applypb.ErrorApplyNotFound("申请记录不存在")
 		}
 		if cur.TargetId != groupId {
-			return errorx.New(errorx.CodeForbidden, "目标群组不匹配")
+			return applypb.ErrorForbidden("目标群组不匹配")
 		}
 		if cur.Status == apply_status.AGREE {
-			return errorx.New(errorx.CodeInvalidParam, "该申请已被同意，无法拒绝")
+			return applypb.ErrorApplyAlreadyProcessed("该申请已被同意，无法拒绝")
 		}
 		if cur.Status == apply_status.BLACK {
-			return errorx.New(errorx.CodeInvalidParam, "该申请已被拉黑")
+			return applypb.ErrorApplyAlreadyProcessed("该申请已被拉黑")
 		}
 		if cur.Status == apply_status.REFUSE {
 			return nil
 		}
-		return errorx.ErrServerBusy
+		return applypb.ErrorServerBusy("服务繁忙")
 	}
 	return nil
 }
@@ -371,54 +372,54 @@ func (u *ApplyService) BlackGroupApply(ctx context.Context, operatorId, groupId,
 	role, err := grpc_client.GetGroupMemberRole(ctx, groupId, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
+			return applypb.ErrorForbidden("你不是该群成员")
 		}
 		zap.L().Error("Get group member role error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return applypb.ErrorServerBusy("服务繁忙")
 	}
 	if role < 2 {
-		return errorx.New(errorx.CodeForbidden, "你没有审批权限")
+		return applypb.ErrorNoPermission("你没有审批权限")
 	}
 
 	apply, err := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
+			return applypb.ErrorApplyNotFound("申请记录不存在")
 		}
 		zap.L().Error("Find group apply error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return applypb.ErrorServerBusy("服务繁忙")
 	}
 
 	if apply.Status == apply_status.BLACK {
 		return nil
 	}
 	if apply.Status != apply_status.PENDING {
-		return errorx.New(errorx.CodeInvalidParam, "该申请已被处理，无法重复操作")
+		return applypb.ErrorApplyAlreadyProcessed("该申请已被处理，无法重复操作")
 	}
 
 	ok, err := u.store.UpdateStatusIfPending(ctx, apply.Uuid, apply_status.BLACK, apply.Version)
 	if err != nil {
 		zap.L().Error("Update group apply status error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return applypb.ErrorServerBusy("服务繁忙")
 	}
 	if !ok {
 		cur, queryErr := u.store.FindByApplicantIdAndTargetId(ctx, applicantId, groupId)
 		if queryErr != nil || cur == nil {
-			return errorx.New(errorx.CodeNotFound, "申请记录不存在")
+			return applypb.ErrorApplyNotFound("申请记录不存在")
 		}
 		if cur.TargetId != groupId {
-			return errorx.New(errorx.CodeForbidden, "目标群组不匹配")
+			return applypb.ErrorForbidden("目标群组不匹配")
 		}
 		if cur.Status == apply_status.AGREE {
-			return errorx.New(errorx.CodeInvalidParam, "该申请已被同意，无法拉黑")
+			return applypb.ErrorApplyAlreadyProcessed("该申请已被同意，无法拉黑")
 		}
 		if cur.Status == apply_status.REFUSE {
-			return errorx.New(errorx.CodeInvalidParam, "该申请已被拒绝，无法拉黑")
+			return applypb.ErrorApplyAlreadyProcessed("该申请已被拒绝，无法拉黑")
 		}
 		if cur.Status == apply_status.BLACK {
 			return nil
 		}
-		return errorx.ErrServerBusy
+		return applypb.ErrorServerBusy("服务繁忙")
 	}
 	return nil
 }

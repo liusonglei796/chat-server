@@ -3,7 +3,6 @@ package infra
 import (
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/debounce"
-	"kama_chat_server/internal/infra/lock"
 	redisinfra "kama_chat_server/internal/infra/redis"
 )
 
@@ -16,11 +15,6 @@ func ProvideCache() (cacheinfra.AsyncCacheService, func(), error) {
 		}
 	}
 	return cacheService, cleanup, nil
-}
-
-// ProvideLock 提供 Redis 分布式互斥锁
-func ProvideLock() lock.Distributed {
-	return lock.NewRedis(redisinfra.NewClient())
 }
 
 // ProvideDebounceStore 提供防抖底层存储

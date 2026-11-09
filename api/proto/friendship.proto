@@ -5,6 +5,22 @@ package friendship;
 option go_package = "kama_chat_server/api/gen/friendship";
 
 import "google/api/annotations.proto";
+import "errors/errors.proto";
+
+enum FriendshipErrorReason {
+    FRIENDSHIP_UNSPECIFIED = 0;
+    FRIEND_NOT_FOUND = 1 [(errors.code) = 404];
+    NOT_FRIENDS = 2 [(errors.code) = 403];
+    CANNOT_OPERATE_SELF = 3 [(errors.code) = 400];
+    ALREADY_BLOCKED = 4 [(errors.code) = 400];
+    NOT_BLOCKED = 5 [(errors.code) = 400];
+    FRIENDSHIP_CONFLICT = 6 [(errors.code) = 409];
+    USER_NOT_FOUND = 7 [(errors.code) = 404];
+    INVALID_PARAM = 8 [(errors.code) = 400];
+    UNAUTHORIZED = 9 [(errors.code) = 401];
+    FORBIDDEN = 10 [(errors.code) = 403];
+    SERVER_BUSY = 11 [(errors.code) = 503];
+}
 
 service FriendshipService {
     rpc GetFriendList (GetFriendListRequest) returns (GetFriendListResponse) {

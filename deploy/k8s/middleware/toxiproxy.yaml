@@ -31,6 +31,11 @@ spec:
         # 无需改动任何 Go 代码。
         - name: grpc-proxy
           containerPort: 50054
+        # 客户端入口代理：注入客户端 HTTP/WS 边缘弱网与切断
+        - name: envoy-client
+          containerPort: 19080
+        - name: ws-client
+          containerPort: 18000
         resources:
           limits:
             cpu: "500m"
@@ -61,6 +66,12 @@ spec:
   - name: grpc-proxy
     port: 50054
     targetPort: 50054
+  - name: envoy-client
+    port: 19080
+    targetPort: 19080
+  - name: ws-client
+    port: 18000
+    targetPort: 18000
 ---
 # 初始化代理路由的 Job（幂等，可重复执行）。
 # Toxiproxy 的 proxy 是运行时通过 REST API 创建的，manifest 里没有也正常。
@@ -119,9 +130,12 @@ spec:
               mk redis_proxy     0.0.0.0:63855  redis:6379
               # gRPC：劫持 friendship-service Service 后，所有 gRPC 客户端经此转发
               mk friendship_grpc 0.0.0.0:50054  friendship-service-real:50054
+              # 客户端入口代理：注入客户端 HTTP/WS 弱网
+              mk envoy_client    0.0.0.0:19080  envoy:9080
+              mk ws_client       0.0.0.0:18000  chat-server:8000
 
               echo "==> 校验代理端口真的在监听（不能只看 enabled 标志）"
-              for p in 33066 63855 50054; do
+              for p in 33066 63855 50054 19080 18000; do
                 nc -z -w 3 toxiproxy $p || { echo "代理端口 $p 未监听"; exit 1; }
                 echo "    toxiproxy:$p 可连接"
               done

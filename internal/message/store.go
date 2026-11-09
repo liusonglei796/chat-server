@@ -13,7 +13,7 @@ import (
 
 	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
-	"kama_chat_server/pkg/errorx"
+	messagepb "kama_chat_server/api/gen/message"
 )
 
 // ==================== 接口定义 ====================
@@ -134,7 +134,7 @@ func (r *messageStoreImpl) FindByUuid(ctx context.Context, uuid string) (*Messag
 	var msg Message
 	if err := database.GetDB(ctx, r.db).Where("uuid = ?", uuid).First(&msg).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, errorx.New(errorx.CodeNotFound, "消息不存在")
+			return nil, messagepb.ErrorMessageNotFound("消息不存在")
 		}
 		return nil, dberr.WrapDBErrorf(err, "查找消息 uuid=%s", uuid)
 	}
@@ -156,16 +156,12 @@ func (r *messageStoreImpl) UpdateContent(ctx context.Context, uuid, content stri
 
 func applyMessageCursor(query *gorm.DB, cursor string) *gorm.DB {
 	if cursor == "" {
-		return query.Order("uuid DESC")
+		return query.Order("seq_id DESC")
 	}
-	if strings.HasPrefix(cursor, "M") {
-		return query.Where("uuid < ?", cursor).Order("uuid DESC")
+	if seqId, err := strconv.ParseInt(cursor, 10, 64); err == nil && seqId > 0 {
+		return query.Where("seq_id < ?", seqId).Order("seq_id DESC")
 	}
-	if timestamp, err := strconv.ParseInt(cursor, 10, 64); err == nil {
-		cursorTime := time.Unix(timestamp, 0)
-		return query.Where("created_at < ?", cursorTime).Order("created_at DESC, uuid DESC")
-	}
-	return query.Where("uuid < ?", cursor).Order("uuid DESC")
+	return query.Order("seq_id DESC")
 }
 
 func resolveNextCursor(messages []Message) string {
@@ -173,10 +169,10 @@ func resolveNextCursor(messages []Message) string {
 		return ""
 	}
 	lastMsg := messages[len(messages)-1]
-	if lastMsg.Uuid != "" {
-		return lastMsg.Uuid
+	if lastMsg.SeqId > 0 {
+		return strconv.FormatInt(lastMsg.SeqId, 10)
 	}
-	return strconv.FormatInt(lastMsg.CreatedAt.Unix(), 10)
+	return ""
 }
 
 func (r *messageStoreImpl) FindByUserIdsCursor(ctx context.Context, userOneId, userTwoId, cursor string, pageSize int) (*CursorPageMessageResult, error) {
@@ -186,8 +182,8 @@ func (r *messageStoreImpl) FindByUserIdsCursor(ctx context.Context, userOneId, u
 		pageSize = 20
 	}
 
-	condition := "(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)"
-	query := database.GetDB(ctx, r.db).Where(condition, userOneId, userTwoId, userTwoId, userOneId)
+	sessionId := ResolveSessionId(userOneId, userTwoId)
+	query := database.GetDB(ctx, r.db).Where("session_id = ?", sessionId)
 	query = applyMessageCursor(query, cursor)
 
 	if err := query.Limit(pageSize + 1).Find(&messages).Error; err != nil {
@@ -218,7 +214,7 @@ func (r *messageStoreImpl) FindByGroupIdCursor(ctx context.Context, receiveId, c
 		pageSize = 20
 	}
 
-	query := database.GetDB(ctx, r.db).Where("receive_id = ?", receiveId)
+	query := database.GetDB(ctx, r.db).Where("session_id = ?", receiveId)
 	query = applyMessageCursor(query, cursor)
 
 	if err := query.Limit(pageSize + 1).Find(&messages).Error; err != nil {

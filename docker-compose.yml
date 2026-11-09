@@ -99,7 +99,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        SERVICE_PATH: ./cmd/gateway
+        SERVICE_PATH: ./cmd/connector
     container_name: chat-server
     ports:
       - "8081:8000"

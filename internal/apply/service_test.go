@@ -2,20 +2,30 @@ package apply
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc"
+
+	applypb "kama_chat_server/api/gen/apply"
+	userpb "kama_chat_server/api/gen/user"
 	cacheinfra "kama_chat_server/internal/infra/cache"
+	"kama_chat_server/internal/infra/grpc_client"
 	"kama_chat_server/pkg/enum/apply/apply_status"
 	"kama_chat_server/pkg/errorx"
 )
 
 type fakeApplyStore struct {
 	Store
+	mu      sync.Mutex
 	applies map[string]*Apply // key: applicantId + ":" + targetId
 	byUuid  map[string]*Apply
 }
 
 func (f *fakeApplyStore) FindByApplicantIdAndTargetId(_ context.Context, applicantId, targetId string) (*Apply, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	key := applicantId + ":" + targetId
 	if a, ok := f.applies[key]; ok {
 		cpy := *a
@@ -25,6 +35,8 @@ func (f *fakeApplyStore) FindByApplicantIdAndTargetId(_ context.Context, applica
 }
 
 func (f *fakeApplyStore) UpdateStatusIfPending(_ context.Context, uuid string, toStatus int8, expectedVersion int32) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	a, ok := f.byUuid[uuid]
 	if !ok {
 		return false, nil
@@ -41,6 +53,8 @@ func (f *fakeApplyStore) UpdateStatusIfPending(_ context.Context, uuid string, t
 }
 
 func (f *fakeApplyStore) UpdateWithVersion(_ context.Context, apply *Apply, expectedVersion int32) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	key := apply.ApplicantId + ":" + apply.TargetId
 	a, ok := f.applies[key]
 	if !ok {
@@ -117,8 +131,8 @@ func TestApplyService_RefuseFriendApply_AtomicStatus(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		if !errorx.IsCode(err, errorx.CodeInvalidParam) {
-			t.Errorf("expected CodeInvalidParam (1001), got code: %d, err: %v", errorx.GetCode(err), err)
+		if !applypb.IsApplyAlreadyProcessed(err) {
+			t.Errorf("expected IsApplyAlreadyProcessed, got: %v", err)
 		}
 	})
 
@@ -178,4 +192,63 @@ func TestApplyService_BlackFriendApply_IdempotentHealing(t *testing.T) {
 			t.Errorf("expected status %d, got %d", apply_status.BLACK, apply.Status)
 		}
 	})
+}
+
+type mockUserServiceClient struct {
+	userpb.UserServiceClient
+}
+
+func (m *mockUserServiceClient) GetUserStatus(_ context.Context, _ *userpb.GetUserStatusRequest, _ ...grpc.CallOption) (*userpb.GetUserStatusResponse, error) {
+	return &userpb.GetUserStatusResponse{Status: 0}, nil
+}
+
+func TestApplyService_PassFriendApply_Concurrent(t *testing.T) {
+	ctx := context.Background()
+	oldClient := grpc_client.UserClient
+	grpc_client.UserClient = &mockUserServiceClient{}
+	defer func() {
+		grpc_client.UserClient = oldClient
+	}()
+
+	apply := &Apply{
+		Uuid:        "APPLY_CONC",
+		ApplicantId: "USER_A",
+		TargetId:    "USER_B",
+		Status:      apply_status.PENDING,
+		Version:     1,
+	}
+	aStore := &fakeApplyStore{
+		applies: map[string]*Apply{
+			"USER_A:USER_B": apply,
+		},
+		byUuid: map[string]*Apply{
+			"APPLY_CONC": apply,
+		},
+	}
+
+	svc := NewApplyService(nil, aStore, &fakeCacheService{})
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			errs[idx] = svc.PassFriendApply(ctx, "USER_B", "USER_A")
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d returned error: %v", i, err)
+		}
+	}
+
+	if apply.Status != apply_status.AGREE {
+		t.Fatalf("expected apply status AGREE, got %d", apply.Status)
+	}
+	if apply.Version != 2 {
+		t.Fatalf("expected apply version 2, got %d", apply.Version)
+	}
 }

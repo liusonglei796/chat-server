@@ -20,7 +20,7 @@ type CacheService interface {
 	GetSetMembers(ctx context.Context, key string) ([]string, error)
 	RemoveFromSet(ctx context.Context, key string, members ...interface{}) error
 	ZAdd(ctx context.Context, key string, score float64, member string) error
-	ZRevRangeByScore(ctx context.Context, key string, max, min string, offset, count int64) ([]string, error)
+	ZRevRangeByScore(ctx context.Context, key string, maxScore, minScore string, offset, count int64) ([]string, error)
 	ZRemRangeByRank(ctx context.Context, key string, start, stop int64) error
 	ZRem(ctx context.Context, key string, members ...interface{}) error
 	ZCard(ctx context.Context, key string) (int64, error)

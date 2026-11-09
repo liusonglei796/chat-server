@@ -86,7 +86,12 @@ func provideRegistrar() (registry.Registrar, func(), error) {
 	return kratosRegistrar, cleanup, nil
 }
 
-func newApp(srv *kgrpc.Server, r registry.Registrar, _ *message.DomainEventConsumer) *kratos.App {
+func newApp(
+	srv *kgrpc.Server,
+	r registry.Registrar,
+	_ *message.DomainEventConsumer,
+	_ *message.IncomingMessageConsumer,
+) *kratos.App {
 	// 初始化内部微服务调用 gRPC 客户端
 	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
 

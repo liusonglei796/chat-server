@@ -17,7 +17,8 @@ import (
 
 // 主题常量：全项目 Kafka 主题的唯一出处
 const (
-	TopicDomainEvents = "domain_events"
+	TopicDomainEvents         = "domain_events"
+	TopicChatMessagesIncoming = "im_chat_messages_incoming"
 )
 
 // NewProducer 创建写入指定主题的生产者。

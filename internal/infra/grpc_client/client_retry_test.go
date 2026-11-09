@@ -17,19 +17,19 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
-	gatewaypb "kama_chat_server/api/gen/gateway"
+	connectorpb "kama_chat_server/api/gen/connector"
 	"kama_chat_server/pkg/interceptor"
 )
 
 type comprehensiveMockServer struct {
-	gatewaypb.UnimplementedGatewayServiceServer
+	connectorpb.UnimplementedConnectorServiceServer
 	callCount     int32
 	receivedKeys  []string
 	mu            sync.Mutex
 	returnErrCode codes.Code
 }
 
-func (s *comprehensiveMockServer) PushMessage(ctx context.Context, req *gatewaypb.PushMessageRequest) (*gatewaypb.PushMessageResponse, error) {
+func (s *comprehensiveMockServer) PushMessage(ctx context.Context, req *connectorpb.PushMessageRequest) (*connectorpb.PushMessageResponse, error) {
 	current := atomic.AddInt32(&s.callCount, 1)
 
 	// 记录每次请求接收到的业务幂等键
@@ -51,7 +51,7 @@ func (s *comprehensiveMockServer) PushMessage(ctx context.Context, req *gatewayp
 		// 模拟前 2 次因网络抖动报 codes.Unavailable
 		return nil, status.Error(codes.Unavailable, "temporary connection reset")
 	}
-	return &gatewaypb.PushMessageResponse{Success: true}, nil
+	return &connectorpb.PushMessageResponse{Success: true}, nil
 }
 
 // 1. 验证重试共享同一个 Deadline、传递同一个业务幂等键、并在临时错误下恢复
@@ -64,7 +64,7 @@ func TestGrpcClient_RetryAndPassSameIdempotencyKey(t *testing.T) {
 		grpc.UnaryInterceptor(interceptor.ServerAuthInterceptor()),
 	)
 	mockSvc := &comprehensiveMockServer{}
-	gatewaypb.RegisterGatewayServiceServer(s, mockSvc)
+	connectorpb.RegisterConnectorServiceServer(s, mockSvc)
 
 	go func() { _ = s.Serve(lis) }()
 	defer s.Stop()
@@ -90,7 +90,7 @@ func TestGrpcClient_RetryAndPassSameIdempotencyKey(t *testing.T) {
 	assert.NoError(t, err)
 	defer conn.Close()
 
-	client := gatewaypb.NewGatewayServiceClient(conn)
+	client := connectorpb.NewConnectorServiceClient(conn)
 
 	// 客户端设置统一的 Parent Deadline (5秒) 并注入同一个业务幂等键
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -99,7 +99,7 @@ func TestGrpcClient_RetryAndPassSameIdempotencyKey(t *testing.T) {
 	const expectedIdempKey = "biz-idemp-key-99999"
 	ctx = interceptor.ContextWithIdempotencyKey(ctx, expectedIdempKey)
 
-	resp, err := client.PushMessage(ctx, &gatewaypb.PushMessageRequest{
+	resp, err := client.PushMessage(ctx, &connectorpb.PushMessageRequest{
 		TargetUserId: "U_retry_test",
 		MessageUuid:  "msg-123",
 	})
@@ -125,7 +125,7 @@ func TestGrpcClient_AbortRetryWhenBudgetExhausted(t *testing.T) {
 
 	s := grpc.NewServer()
 	mockSvc := &comprehensiveMockServer{}
-	gatewaypb.RegisterGatewayServiceServer(s, mockSvc)
+	connectorpb.RegisterConnectorServiceServer(s, mockSvc)
 
 	go func() { _ = s.Serve(lis) }()
 	defer s.Stop()
@@ -149,13 +149,13 @@ func TestGrpcClient_AbortRetryWhenBudgetExhausted(t *testing.T) {
 	assert.NoError(t, err)
 	defer conn.Close()
 
-	client := gatewaypb.NewGatewayServiceClient(conn)
+	client := connectorpb.NewConnectorServiceClient(conn)
 
 	// 设置一个仅剩 20ms 的超短 Deadline（远低于 100ms 最小预算）
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 
-	_, err = client.PushMessage(ctx, &gatewaypb.PushMessageRequest{
+	_, err = client.PushMessage(ctx, &connectorpb.PushMessageRequest{
 		TargetUserId: "U_retry_test",
 	})
 
@@ -174,7 +174,7 @@ func TestGrpcClient_DoNotRetryBusinessErrors(t *testing.T) {
 	mockSvc := &comprehensiveMockServer{
 		returnErrCode: codes.InvalidArgument, // 业务参数错误
 	}
-	gatewaypb.RegisterGatewayServiceServer(s, mockSvc)
+	connectorpb.RegisterConnectorServiceServer(s, mockSvc)
 
 	go func() { _ = s.Serve(lis) }()
 	defer s.Stop()
@@ -197,12 +197,12 @@ func TestGrpcClient_DoNotRetryBusinessErrors(t *testing.T) {
 	assert.NoError(t, err)
 	defer conn.Close()
 
-	client := gatewaypb.NewGatewayServiceClient(conn)
+	client := connectorpb.NewConnectorServiceClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	_, err = client.PushMessage(ctx, &gatewaypb.PushMessageRequest{
+	_, err = client.PushMessage(ctx, &connectorpb.PushMessageRequest{
 		TargetUserId: "U_retry_test",
 	})
 

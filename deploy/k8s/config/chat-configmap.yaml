@@ -13,8 +13,8 @@ data:
     grpcPort = 8001
     # 【关键】网关向 Redis 注册的自身 gRPC 地址。
     # message_service 读取 Redis 的 user:gateway:<userId> 后按此地址回推消息，
-    # 若填 127.0.0.1 则推送方（message_service 的 Pod）会连到自己 Pod 的回环地址而失败。
-    grpcAddr = "chat-server:8001"
+    # 使用完整集群域名避免 Alpine musl libc ndots 导致的 DNS 查询超时。
+    grpcAddr = "chat-server.chat-system.svc.cluster.local:8001"
 
     [mysqlConfig]
     host = "mysql"

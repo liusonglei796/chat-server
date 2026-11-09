@@ -6,7 +6,6 @@ import (
 	"github.com/go-kratos/kratos/v2/transport"
 
 	grouppb "kama_chat_server/api/gen/group"
-	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/interceptor"
 )
 
@@ -27,6 +26,9 @@ func extractTrustedUserID(ctx context.Context) string {
 			return uid
 		}
 	}
+	if uid := interceptor.GetUserIDFromContext(ctx); uid != "" {
+		return uid
+	}
 	if val := ctx.Value("user_id"); val != nil {
 		if s, ok := val.(string); ok {
 			return s
@@ -41,7 +43,7 @@ func (s *GrpcServer) CreateGroup(ctx context.Context, req *grouppb.CreateGroupRe
 		ownerId = extractTrustedUserID(ctx)
 	}
 	if ownerId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, grouppb.ErrorUnauthorized("请先登录")
 	}
 
 	clientToken := req.ClientToken
@@ -68,7 +70,7 @@ func (s *GrpcServer) LoadMyGroup(ctx context.Context, req *grouppb.LoadMyGroupRe
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, grouppb.ErrorUnauthorized("请先登录")
 	}
 
 	page := int(req.Page)
@@ -102,7 +104,7 @@ func (s *GrpcServer) GetGroupListByMember(ctx context.Context, req *grouppb.GetG
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, grouppb.ErrorUnauthorized("请先登录")
 	}
 
 	page := int(req.Page)
@@ -144,7 +146,7 @@ func (s *GrpcServer) LeaveGroup(ctx context.Context, req *grouppb.LeaveGroupRequ
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, grouppb.ErrorUnauthorized("请先登录")
 	}
 
 	err := s.groupSvc.LeaveGroup(ctx, userId, req.GroupId)
@@ -157,7 +159,7 @@ func (s *GrpcServer) DismissGroup(ctx context.Context, req *grouppb.DismissGroup
 		operatorId = extractTrustedUserID(ctx)
 	}
 	if operatorId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, grouppb.ErrorUnauthorized("请先登录")
 	}
 
 	err := s.groupSvc.DismissGroup(ctx, operatorId, req.GroupId)
@@ -170,7 +172,7 @@ func (s *GrpcServer) UpdateGroupInfo(ctx context.Context, req *grouppb.UpdateGro
 		operatorId = extractTrustedUserID(ctx)
 	}
 	if operatorId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, grouppb.ErrorUnauthorized("请先登录")
 	}
 
 	updateReq := UpdateGroupInfoRequest{
@@ -200,7 +202,7 @@ func (s *GrpcServer) GetGroupMemberList(ctx context.Context, req *grouppb.GetGro
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, grouppb.ErrorUnauthorized("请先登录")
 	}
 
 	page := int(req.Page)
@@ -234,7 +236,7 @@ func (s *GrpcServer) RemoveGroupMembers(ctx context.Context, req *grouppb.Remove
 		operatorId = extractTrustedUserID(ctx)
 	}
 	if operatorId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, grouppb.ErrorUnauthorized("请先登录")
 	}
 
 	err := s.groupSvc.RemoveGroupMembers(ctx, operatorId, RemoveGroupMembersRequest{
@@ -250,7 +252,7 @@ func (s *GrpcServer) GetGroupDetail(ctx context.Context, req *grouppb.GetGroupDe
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, grouppb.ErrorUnauthorized("请先登录")
 	}
 
 	detail, err := s.groupSvc.GetGroupDetail(ctx, userId, req.GroupId)
@@ -275,7 +277,7 @@ func (s *GrpcServer) MuteMember(ctx context.Context, req *grouppb.MuteMemberRequ
 		operatorId = extractTrustedUserID(ctx)
 	}
 	if operatorId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, grouppb.ErrorUnauthorized("请先登录")
 	}
 
 	err := s.groupSvc.MuteMember(ctx, operatorId, MuteMemberRequest{

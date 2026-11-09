@@ -10,6 +10,7 @@ import (
 
 	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/pkg/errorx"
+	"kama_chat_server/pkg/interceptor"
 )
 
 var (
@@ -53,13 +54,6 @@ type GormStore struct {
 
 func NewGormStore(db *gorm.DB) Store {
 	return &GormStore{db: db}
-}
-
-func Migrate(db *gorm.DB) error {
-	if db == nil {
-		return errors.New("idempotency database is nil")
-	}
-	return db.AutoMigrate(&Record{})
 }
 
 func (s *GormStore) Begin(ctx context.Context, userID, operation, key string) (*Record, error) {
@@ -235,12 +229,9 @@ func ExecuteJSON[T any](
 }
 
 func ContextWithKey(ctx context.Context, key string) context.Context {
-	return context.WithValue(ctx, contextKey{}, key)
+	return interceptor.ContextWithIdempotencyKey(ctx, key)
 }
 
 func KeyFromContext(ctx context.Context) string {
-	key, _ := ctx.Value(contextKey{}).(string)
-	return key
+	return interceptor.GetIdempotencyKeyFromContext(ctx)
 }
-
-type contextKey struct{}

@@ -1,0 +1,99 @@
+//go:build wireinject
+// +build wireinject
+
+package main
+
+import (
+	"fmt"
+	"net"
+
+	"github.com/google/wire"
+	"google.golang.org/grpc"
+
+	connectorpb "kama_chat_server/api/gen/connector"
+	"kama_chat_server/internal/connector"
+	"kama_chat_server/internal/infra"
+	"kama_chat_server/internal/infra/config"
+	"kama_chat_server/internal/infra/grpc_client"
+	"kama_chat_server/pkg/interceptor"
+	otelinit "kama_chat_server/pkg/otel"
+)
+
+// GrpcServerWrapper 连接服务内部 gRPC 服务包装（监听 8001 端口）
+type GrpcServerWrapper struct {
+	Server   *grpc.Server
+	Listener net.Listener
+	Port     int
+	Addr     string
+}
+
+// ConnectorApp 聚合连接服务所有的运行时服务器与生命周期：
+// 1. HttpServer: 真实网络端口监听服务，监听 8000 端口（承载 HTTP /ws 升级、/health 探活与 /metrics）
+// 2. GrpcWrap: 真实网络端口监听服务，监听 8001 端口（供业务微服务下推消息至当前 Connector 节点）
+// 3. ConnectorServer: 内存长连接状态中枢与生命周期管理器（负责 30s 惰性心跳清理与协程池调度，不监听端口）
+type ConnectorApp struct {
+	ConnectorServer *connector.ConnectorServer
+	HttpServer      *connector.HttpServer
+	GrpcWrap        *GrpcServerWrapper
+}
+
+func provideGrpcComponents(conf *config.Config, srvImpl *connector.ConnectorGrpcServer) (*GrpcServerWrapper, func(), error) {
+	grpcPort := conf.MainConfig.GrpcPort
+	if grpcPort == 0 {
+		grpcPort = 8001
+	}
+	grpcAddr := conf.MainConfig.GrpcAddr
+	if grpcAddr == "" {
+		grpcAddr = fmt.Sprintf("127.0.0.1:%d", grpcPort)
+	}
+
+	grpcLis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", grpcPort))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to listen on connector grpc port: %w", err)
+	}
+
+	connectorGrpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(
+			interceptor.ServerAuthInterceptor(),
+			interceptor.ServerDeadlineBudgetInterceptor(interceptor.DefaultServerMinBudget),
+			otelinit.ServerTraceInterceptor(),
+		),
+	)
+	connectorpb.RegisterConnectorServiceServer(connectorGrpcServer, srvImpl)
+
+	cleanup := func() {
+		connectorGrpcServer.GracefulStop()
+	}
+
+	wrapper := &GrpcServerWrapper{
+		Server:   connectorGrpcServer,
+		Listener: grpcLis,
+		Port:     grpcPort,
+		Addr:     grpcAddr,
+	}
+	return wrapper, cleanup, nil
+}
+
+func newConnectorApp(
+	connectorServer *connector.ConnectorServer,
+	httpServer *connector.HttpServer,
+	grpcWrap *GrpcServerWrapper,
+) *ConnectorApp {
+	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
+
+	return &ConnectorApp{
+		ConnectorServer: connectorServer,
+		HttpServer:      httpServer,
+		GrpcWrap:        grpcWrap,
+	}
+}
+
+// wireApp 依赖注入入口，由 Google Wire 编译生成 wire_gen.go
+func wireApp(conf *config.Config) (*ConnectorApp, func(), error) {
+	panic(wire.Build(
+		infra.ProvideCache,
+		connector.ProviderSet,
+		provideGrpcComponents,
+		newConnectorApp,
+	))
+}

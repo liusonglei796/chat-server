@@ -15,6 +15,8 @@ import (
 	"kama_chat_server/internal/infra/snowflake"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/enum/group/group_status"
+	grouppb "kama_chat_server/api/gen/group"
+	kerrors "github.com/go-kratos/kratos/v2/errors"
 	"kama_chat_server/pkg/errorx"
 )
 
@@ -35,15 +37,15 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 		err := database.ExecTx(c, g.db, func(txCtx context.Context) error {
 			existing, err := g.groupStore.FindByOwnerIdAndName(txCtx, ownerId, newGroup.Name)
 			if err == nil && existing != nil {
-				return errorx.New(errorx.CodeInvalidParam, "您已拥有同名的正常群聊，请勿重复创建")
+				return grouppb.ErrorInvalidParam("您已拥有同名的正常群聊，请勿重复创建")
 			}
 
 			if err := g.groupStore.CreateGroup(txCtx, &newGroup); err != nil {
 				if dberr.IsDuplicateKey(err) {
-					return errorx.New(errorx.CodeInvalidParam, "您已拥有同名的正常群聊，请勿重复创建")
+					return grouppb.ErrorInvalidParam("您已拥有同名的正常群聊，请勿重复创建")
 				}
 				zap.L().Error("service error", zap.Error(err))
-				return errorx.ErrServerBusy
+				return grouppb.ErrorServerBusy("服务繁忙")
 			}
 
 			member := GroupMember{
@@ -53,19 +55,20 @@ func (g *GroupService) CreateGroup(ctx context.Context, ownerId string, groupReq
 			}
 			if err := g.memberStore.CreateGroupMember(txCtx, &member); err != nil {
 				zap.L().Error("service error", zap.Error(err))
-				return errorx.ErrServerBusy
+				return grouppb.ErrorServerBusy("服务繁忙")
 			}
 
 			return g.recordGroupCreatedEvent(txCtx, &newGroup)
 		})
 
 		if err != nil {
+			var kerr *kerrors.Error
 			var codeErr *errorx.CodeError
-			if errors.As(err, &codeErr) {
+			if errors.As(err, &kerr) || errors.As(err, &codeErr) {
 				return "", err
 			}
 			zap.L().Error("service error", zap.Error(err))
-			return "", errorx.ErrServerBusy
+			return "", grouppb.ErrorServerBusy("服务繁忙")
 		}
 		return newGroup.Uuid, nil
 	}
@@ -115,7 +118,7 @@ func (g *GroupService) LoadMyGroup(ctx context.Context, userId string, page, pag
 	groups, total, err := g.groupStore.FindByOwnerIdPaged(ctx, userId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find my groups by owner id error", zap.Error(err))
-		return nil, 0, errorx.ErrServerBusy
+		return nil, 0, grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	myGroups := make([]MyGroupListRespond, 0, len(groups))
@@ -142,7 +145,7 @@ func (g *GroupService) GetGroupListByMember(ctx context.Context, userId string, 
 	groupUuids, total, err := g.memberStore.FindGroupUuidsByUserPaged(ctx, userId, page, pageSize)
 	if err != nil {
 		zap.L().Error("Find group uuids by user paged error", zap.Error(err))
-		return nil, 0, errorx.ErrServerBusy
+		return nil, 0, grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	if len(groupUuids) == 0 {
@@ -152,7 +155,7 @@ func (g *GroupService) GetGroupListByMember(ctx context.Context, userId string, 
 	groups, err := g.groupStore.FindByUuids(ctx, groupUuids)
 	if err != nil {
 		zap.L().Error("Batch find groups error", zap.Error(err))
-		return nil, 0, errorx.ErrServerBusy
+		return nil, 0, grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	groupListRsp := make([]MyGroupListRespond, 0, len(groups))
@@ -173,7 +176,7 @@ func (g *GroupService) CheckGroupAddMode(ctx context.Context, groupId string) (i
 		group, err := g.groupStore.FindByUuid(ctx, groupId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
-				return -1, errorx.New(errorx.CodeNotFound, "群组不存在")
+				return -1, grouppb.ErrorGroupNotFound("群组不存在")
 			}
 			return -1, err
 		}
@@ -190,7 +193,7 @@ func (g *GroupService) CheckGroupAddMode(ctx context.Context, groupId string) (i
 			group, err := g.groupStore.FindByUuid(loaderCtx, groupId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
-					return nil, errorx.New(errorx.CodeNotFound, "群组不存在")
+					return nil, grouppb.ErrorGroupNotFound("群组不存在")
 				}
 				return nil, err
 			}
@@ -227,10 +230,10 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 			return nil
 		}
 		zap.L().Error("Find group error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 	if group.OwnerId != operatorId {
-		return errorx.New(errorx.CodeForbidden, "只有群主才能解散群聊")
+		return grouppb.ErrorForbidden("只有群主才能解散群聊")
 	}
 	if group.Status == group_status.DISMISS {
 		return nil
@@ -240,7 +243,7 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 		ok, err := g.groupStore.DismissGroupWithCAS(txCtx, groupId, operatorId)
 		if err != nil {
 			zap.L().Error("Dismiss group with CAS error", zap.Error(err))
-			return errorx.ErrServerBusy
+			return grouppb.ErrorServerBusy("服务繁忙")
 		}
 		if !ok {
 			return nil
@@ -248,7 +251,7 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 
 		if err := g.memberStore.DeleteByGroupUuid(txCtx, groupId); err != nil {
 			zap.L().Error("Delete members error", zap.Error(err))
-			return errorx.ErrServerBusy
+			return grouppb.ErrorServerBusy("服务繁忙")
 		}
 
 		return g.recordGroupDismissedEvent(txCtx, groupId)
@@ -256,7 +259,7 @@ func (g *GroupService) DismissGroup(ctx context.Context, operatorId, groupId str
 
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	if g.cacheHelper != nil {
@@ -282,17 +285,17 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 	member, err := g.memberStore.FindByGroupAndUser(ctx, req.Uuid, operatorId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeForbidden, "你不是该群成员")
+			return grouppb.ErrorForbidden("你不是该群成员")
 		}
 		zap.L().Error("Find group member error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 	if member.Role < 2 {
-		return errorx.New(errorx.CodeForbidden, "你没有修改权限")
+		return grouppb.ErrorForbidden("你没有修改权限")
 	}
 
 	if req.Version == nil {
-		return errorx.New(errorx.CodeInvalidParam, "缺少版本号")
+		return grouppb.ErrorInvalidParam("缺少版本号")
 	}
 
 	updates := make(map[string]interface{})
@@ -314,7 +317,7 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 	}
 
 	if err := g.groupStore.UpdateWithVersion(ctx, req.Uuid, *req.Version, updates); err != nil {
-		if errorx.IsCode(err, errorx.CodeConflict) {
+		if grouppb.IsGroupConflict(err) || errorx.IsCode(err, errorx.CodeConflict) {
 			currentGroup, queryErr := g.groupStore.FindByUuid(ctx, req.Uuid)
 			if queryErr == nil && currentGroup != nil {
 				matched := true
@@ -342,7 +345,7 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 			return err
 		}
 		zap.L().Error("service error", zap.Error(err))
-		return errorx.ErrServerBusy
+		return grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	groupId := req.Uuid
@@ -358,28 +361,28 @@ func (g *GroupService) UpdateGroupInfo(ctx context.Context, operatorId string, r
 // GetGroupDetail 获取群聊详情 (userId 必须是群成员)
 func (g *GroupService) GetGroupDetail(ctx context.Context, userId, groupId string) (PublicGroupInfoRespond, error) {
 	if len(groupId) == 0 {
-		return PublicGroupInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "群聊ID不能为空")
+		return PublicGroupInfoRespond{}, grouppb.ErrorInvalidParam("群聊ID不能为空")
 	}
 
 	_, err := g.memberStore.FindByGroupAndUser(ctx, groupId, userId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return PublicGroupInfoRespond{}, errorx.New(errorx.CodeForbidden, "你不是该群成员")
+			return PublicGroupInfoRespond{}, grouppb.ErrorForbidden("你不是该群成员")
 		}
 		zap.L().Error("Check group membership error", zap.Error(err))
-		return PublicGroupInfoRespond{}, errorx.ErrServerBusy
+		return PublicGroupInfoRespond{}, grouppb.ErrorServerBusy("服务繁忙")
 	}
 
 	if g.cacheHelper == nil {
 		grp, err := g.groupStore.FindByUuid(ctx, groupId)
 		if err != nil {
 			if errorx.IsNotFound(err) {
-				return PublicGroupInfoRespond{}, errorx.New(errorx.CodeNotFound, "该群聊不存在")
+				return PublicGroupInfoRespond{}, grouppb.ErrorGroupNotFound("该群聊不存在")
 			}
 			return PublicGroupInfoRespond{}, err
 		}
 		if grp.Status == group_status.DISABLE {
-			return PublicGroupInfoRespond{}, errorx.New(errorx.CodeInvalidParam, "该群聊处于禁用状态")
+			return PublicGroupInfoRespond{}, grouppb.ErrorInvalidParam("该群聊处于禁用状态")
 		}
 		return PublicGroupInfoRespond{
 			GroupId:     grp.Uuid,
@@ -402,12 +405,12 @@ func (g *GroupService) GetGroupDetail(ctx context.Context, userId, groupId strin
 			grp, err := g.groupStore.FindByUuid(loaderCtx, groupId)
 			if err != nil {
 				if errorx.IsNotFound(err) {
-					return nil, errorx.New(errorx.CodeNotFound, "该群聊不存在")
+					return nil, grouppb.ErrorGroupNotFound("该群聊不存在")
 				}
 				return nil, err
 			}
 			if grp.Status == group_status.DISABLE {
-				return nil, errorx.New(errorx.CodeInvalidParam, "该群聊处于禁用状态")
+				return nil, grouppb.ErrorInvalidParam("该群聊处于禁用状态")
 			}
 			return GetGroupInfoRespond{
 				Uuid:      grp.Uuid,

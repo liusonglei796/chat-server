@@ -149,12 +149,11 @@ func (e *testEnv) registerAndLoginViaEnvoy(t *testing.T, username, password stri
 
 func (e *testEnv) makeFriendsDirectly(t *testing.T, fsDB *gorm.DB, aID, bID string) {
 	t.Helper()
-	now := time.Now()
 	err := fsDB.Exec(`
-		INSERT INTO user_friendship (user_id, friend_id, status, version, created_at, updated_at)
-		VALUES (?, ?, 0, 1, ?, ?), (?, ?, 0, 1, ?, ?)
-		ON DUPLICATE KEY UPDATE status = 0, updated_at = VALUES(updated_at)
-	`, aID, bID, now, now, bID, aID, now, now).Error
+		INSERT INTO user_friendship (user_id, friend_id, status, version)
+		VALUES (?, ?, 0, 1), (?, ?, 0, 1)
+		ON DUPLICATE KEY UPDATE status = 0
+	`, aID, bID, bID, aID).Error
 	if err != nil {
 		t.Fatalf("插入好友关系夹具失败: %v", err)
 	}
@@ -176,7 +175,7 @@ func Test_OfflineMessageSync_CatchUp(t *testing.T) {
 	defer wsA.close()
 
 	// 等待网关注册用户 A 路由
-	e.waitGatewayRoute(t, userA, 10*time.Second)
+	e.waitConnectorRoute(t, userA, 10*time.Second)
 
 	// 2. 用户 A 连续向离线的用户 B 发送 3 条消息
 	for i := 1; i <= 3; i++ {
@@ -187,7 +186,7 @@ func Test_OfflineMessageSync_CatchUp(t *testing.T) {
 			"type":          0,
 			"client_msg_id": clientMsgId,
 		}
-		if err := wsA.conn.WriteJSON(sendPayload); err != nil {
+		if err := wsA.writeJSON(sendPayload); err != nil {
 			t.Fatalf("用户 A 发送消息 %d 失败: %v", i, err)
 		}
 		// 等待网关返回确认 ACK (精准匹配当前 client_msg_id，忽略欢迎消息及其他消息)
@@ -288,7 +287,7 @@ func Test_OfflineMessageSync_CatchUp(t *testing.T) {
 	t.Run("WebSocket_Sync_Command", func(t *testing.T) {
 		wsB := dialWS(t, e.GatewayURL, tokenB)
 		defer wsB.close()
-		e.waitGatewayRoute(t, userB, 10*time.Second)
+		e.waitConnectorRoute(t, userB, 10*time.Second)
 
 		// 发送 sync 指令
 		syncCmd := map[string]any{
@@ -297,7 +296,7 @@ func Test_OfflineMessageSync_CatchUp(t *testing.T) {
 			"after_seq": 1,
 			"limit":     10,
 		}
-		if err := wsB.conn.WriteJSON(syncCmd); err != nil {
+		if err := wsB.writeJSON(syncCmd); err != nil {
 			t.Fatalf("发送 WS sync 指令失败: %v", err)
 		}
 
@@ -336,11 +335,11 @@ func Test_OfflineMessageSync_CatchUp(t *testing.T) {
 		t.Logf("[WS Sync 指令] 补齐成功 (Seq: %d, %d): %s", s1, s2, string(respMsg))
 
 		// 7. 测试心跳 ping -> pong
-		if err := wsB.conn.WriteJSON(map[string]any{"type": "ping"}); err != nil {
+		if err := wsB.writeJSON(map[string]any{"action": "ping"}); err != nil {
 			t.Fatalf("发送 ping 失败: %v", err)
 		}
 		pong, ok := wsB.waitMessage(t, 3*time.Second, func(b []byte) bool {
-			return string(b) == `{"type":"pong"}`
+			return string(b) == `{"action":"pong"}`
 		})
 		if !ok {
 			t.Fatalf("未在超时时间内收到 WS pong 响应")

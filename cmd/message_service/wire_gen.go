@@ -56,8 +56,10 @@ func wireApp(conf *config.Config) (*kratos.App, func(), error) {
 		return nil, nil, err
 	}
 	domainEventConsumer, cleanup3 := message.ProvideEventConsumer(sessionStore, asyncCacheService)
-	app := newApp(server, registrar, domainEventConsumer)
+	incomingMessageConsumer, cleanup4 := message.ProvideIncomingMessageConsumer(messageService)
+	app := newApp(server, registrar, domainEventConsumer, incomingMessageConsumer)
 	return app, func() {
+		cleanup4()
 		cleanup3()
 		cleanup2()
 		cleanup()
@@ -112,7 +114,12 @@ func provideRegistrar() (registry.Registrar, func(), error) {
 	return kratosRegistrar, cleanup, nil
 }
 
-func newApp(srv *grpc.Server, r registry.Registrar, _ *message.DomainEventConsumer) *kratos.App {
+func newApp(
+	srv *grpc.Server,
+	r registry.Registrar,
+	_ *message.DomainEventConsumer,
+	_ *message.IncomingMessageConsumer,
+) *kratos.App {
 	grpc_client.Init([]string{"etcd:2379", "127.0.0.1:2379"})
 
 	return kratos.New(kratos.Name("message_service"), kratos.Version("v1.0.0"), kratos.Server(srv), kratos.Registrar(r))

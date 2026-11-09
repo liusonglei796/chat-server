@@ -2,15 +2,11 @@ package user
 
 import (
 	"context"
-	"errors"
 
 	"github.com/go-kratos/kratos/v2/transport"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	authpb "kama_chat_server/api/gen/auth"
 	userpb "kama_chat_server/api/gen/user"
-	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/interceptor"
 )
 
@@ -21,6 +17,9 @@ func extractTrustedUserID(ctx context.Context) string {
 		if uid != "" {
 			return uid
 		}
+	}
+	if uid := interceptor.GetUserIDFromContext(ctx); uid != "" {
+		return uid
 	}
 	if val := ctx.Value("user_id"); val != nil {
 		if s, ok := val.(string); ok {
@@ -59,7 +58,7 @@ func (s *UserGrpcServer) UpdateUserInfo(ctx context.Context, req *userpb.UpdateU
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, userpb.ErrorUnauthorized("请先登录")
 	}
 
 	updateReq := UpdateUserInfoRequest{
@@ -83,7 +82,7 @@ func (s *UserGrpcServer) GetUserInfo(ctx context.Context, req *userpb.GetUserInf
 		requesterId = extractTrustedUserID(ctx)
 	}
 	if requesterId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, userpb.ErrorUnauthorized("请先登录")
 	}
 
 	targetId := req.TargetId
@@ -148,10 +147,6 @@ func (s *UserGrpcServer) BatchGetPublicUserInfo(ctx context.Context, req *userpb
 func (s *UserGrpcServer) GetUserStatus(ctx context.Context, req *userpb.GetUserStatusRequest) (*userpb.GetUserStatusResponse, error) {
 	userStatus, err := s.svc.GetUserStatus(ctx, req.UserId)
 	if err != nil {
-		var codeErr *errorx.CodeError
-		if errors.As(err, &codeErr) && codeErr.Code == errorx.CodeUserNotExist {
-			return nil, status.Error(codes.NotFound, codeErr.Msg)
-		}
 		return nil, err
 	}
 	return &userpb.GetUserStatusResponse{Status: int32(userStatus)}, nil
@@ -227,7 +222,7 @@ func (s *AuthGrpcServer) Logout(ctx context.Context, req *authpb.LogoutRequest) 
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, userpb.ErrorUnauthorized("请先登录")
 	}
 
 	err := s.userSvc.Logout(ctx, userId)

@@ -27,7 +27,7 @@ func TestExecute_NilGuardOrEmptyKey(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Guard 为 nil 时正常直连执行
-	var g Guard = nil
+	var g Guard
 	called := false
 	res, isReplay, err := ExecuteJSON(ctx, g, "any-key", time.Second, time.Minute, func(c context.Context) (map[string]string, error) {
 		called = true

@@ -26,6 +26,14 @@ func (f *fakeFriendshipStore) CreateFriendship(_ context.Context, fs *Friendship
 	return nil
 }
 
+func (f *fakeFriendshipStore) UpsertFriendship(_ context.Context, fs *Friendship) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.created = append(f.created, *fs)
+	return nil
+}
+
 
 
 func TestHandleFriendApplyPassed_CreatesBidirectional(t *testing.T) {

@@ -11,7 +11,7 @@ RUN go mod download
 
 # 编译应用
 COPY . .
-ARG SERVICE_PATH=./cmd/gateway
+ARG SERVICE_PATH=./cmd/connector
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app ${SERVICE_PATH}
 
 # 运行阶段 - 使用精简镜像

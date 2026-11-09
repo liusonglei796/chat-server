@@ -10,7 +10,6 @@ import (
 
 	messagepb "kama_chat_server/api/gen/message"
 	"kama_chat_server/internal/infra/jwt"
-	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/interceptor"
 )
 
@@ -47,16 +46,16 @@ func resolveSendID(ctx context.Context, requested string) (string, error) {
 	hasAuthorization := requestHeader(ctx, "Authorization") != ""
 	trusted := extractTrustedUserID(ctx)
 	if hasAuthorization && trusted == "" {
-		return "", errorx.New(errorx.CodeUnauthorized, "登录状态无效，请重新登录")
+		return "", messagepb.ErrorUnauthorized("登录状态无效，请重新登录")
 	}
 	if trusted != "" {
 		if requested != "" && requested != trusted {
-			return "", errorx.New(errorx.CodeForbidden, "发送者身份与登录用户不一致")
+			return "", messagepb.ErrorForbidden("发送者身份与登录用户不一致")
 		}
 		return trusted, nil
 	}
 	if requested == "" {
-		return "", errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return "", messagepb.ErrorUnauthorized("请先登录")
 	}
 	return requested, nil
 }
@@ -84,7 +83,7 @@ func (s *GrpcServer) CheckOpenSessionAllowed(ctx context.Context, req *messagepb
 		sendId = extractTrustedUserID(ctx)
 	}
 	if sendId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, messagepb.ErrorUnauthorized("请先登录")
 	}
 
 	receiveId := req.ReceiveId
@@ -92,7 +91,7 @@ func (s *GrpcServer) CheckOpenSessionAllowed(ctx context.Context, req *messagepb
 		receiveId = req.TargetId
 	}
 	if receiveId == "" {
-		return nil, errorx.New(errorx.CodeInvalidParam, "目标ID不能为空")
+		return nil, messagepb.ErrorInvalidParam("目标ID不能为空")
 	}
 
 	allowed, err := s.sessionSvc.CheckOpenSessionAllowed(ctx, sendId, receiveId)
@@ -105,7 +104,7 @@ func (s *GrpcServer) OpenSession(ctx context.Context, req *messagepb.OpenSession
 		sendId = extractTrustedUserID(ctx)
 	}
 	if sendId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, messagepb.ErrorUnauthorized("请先登录")
 	}
 
 	allowed, err := s.sessionSvc.CheckOpenSessionAllowed(ctx, sendId, req.ReceiveId)
@@ -113,12 +112,17 @@ func (s *GrpcServer) OpenSession(ctx context.Context, req *messagepb.OpenSession
 		return nil, err
 	}
 	if !allowed {
-		return nil, errorx.New(errorx.CodeForbidden, "不允许发起会话")
+		return nil, messagepb.ErrorForbidden("不允许发起会话")
+	}
+
+	clientToken := req.ClientToken
+	if clientToken == "" {
+		clientToken = interceptor.GetIdempotencyKeyFromContext(ctx)
 	}
 
 	sid, err := s.sessionSvc.OpenSession(ctx, sendId, OpenSessionRequest{
 		ReceiveId:   req.ReceiveId,
-		ClientToken: req.ClientToken,
+		ClientToken: clientToken,
 	})
 	return &messagepb.OpenSessionResponse{SessionId: sid}, err
 }
@@ -144,7 +148,7 @@ func (s *GrpcServer) GetUserSessionListCursor(ctx context.Context, req *messagep
 		ownerId = extractTrustedUserID(ctx)
 	}
 	if ownerId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, messagepb.ErrorUnauthorized("请先登录")
 	}
 
 	pageSize := int(req.PageSize)
@@ -178,7 +182,7 @@ func (s *GrpcServer) GetGroupSessionListCursor(ctx context.Context, req *message
 		ownerId = extractTrustedUserID(ctx)
 	}
 	if ownerId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, messagepb.ErrorUnauthorized("请先登录")
 	}
 
 	pageSize := int(req.PageSize)
@@ -262,7 +266,7 @@ func (s *GrpcServer) PinSession(ctx context.Context, req *messagepb.PinSessionRe
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, messagepb.ErrorUnauthorized("请先登录")
 	}
 
 	err := s.sessionSvc.PinSession(ctx, userId, req.SessionId, req.IsPinned)
@@ -275,7 +279,7 @@ func (s *GrpcServer) DeleteSession(ctx context.Context, req *messagepb.DeleteSes
 		ownerId = extractTrustedUserID(ctx)
 	}
 	if ownerId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, messagepb.ErrorUnauthorized("请先登录")
 	}
 
 	err := s.sessionSvc.DeleteSession(ctx, ownerId, req.SessionId)
@@ -336,7 +340,7 @@ func (s *GrpcServer) GetMessages(ctx context.Context, req *messagepb.GetMessages
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, messagepb.ErrorUnauthorized("请先登录")
 	}
 
 	pageSize := req.PageSize
@@ -355,7 +359,7 @@ func (s *GrpcServer) GetMessages(ctx context.Context, req *messagepb.GetMessages
 			return nil, err
 		}
 		var rspList []*messagepb.GetMessageListRespond
-		var maxSeq int64 = afterSeq
+		maxSeq := afterSeq
 		for _, v := range list {
 			if v.SeqId > maxSeq {
 				maxSeq = v.SeqId
@@ -421,7 +425,7 @@ func (s *GrpcServer) GetMessageListCursor(ctx context.Context, req *messagepb.Ge
 		requesterId = extractTrustedUserID(ctx)
 	}
 	if requesterId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, messagepb.ErrorUnauthorized("请先登录")
 	}
 
 	pageSize := int(req.PageSize)
@@ -459,7 +463,7 @@ func (s *GrpcServer) GetGroupMessageListCursor(ctx context.Context, req *message
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, messagepb.ErrorUnauthorized("请先登录")
 	}
 
 	pageSize := int(req.PageSize)
@@ -545,7 +549,7 @@ func (s *GrpcServer) RecallMessage(ctx context.Context, req *messagepb.RecallMes
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, messagepb.ErrorUnauthorized("请先登录")
 	}
 
 	err := s.msgSvc.RecallMessage(ctx, userId, RecallMessageRequest{MessageUuid: req.MessageUuid})

@@ -2,36 +2,45 @@ package group
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
+	grouppb "kama_chat_server/api/gen/group"
 	"kama_chat_server/pkg/errorx"
 )
 
 type fakeGroupStore struct {
 	GroupStore
+	mu     sync.Mutex
 	groups map[string]*GroupInfo
 }
 
 func (f *fakeGroupStore) FindByUuid(_ context.Context, uuid string) (*GroupInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if g, ok := f.groups[uuid]; ok {
 		cpy := *g
 		return &cpy, nil
 	}
-	return nil, errorx.New(errorx.CodeNotFound, "群组不存在")
+	return nil, grouppb.ErrorGroupNotFound("群组不存在")
 }
 
 func (f *fakeGroupStore) FindByOwnerIdAndName(_ context.Context, ownerId, name string) (*GroupInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	for _, g := range f.groups {
 		if g.OwnerId == ownerId && g.Name == name && g.Status == 0 {
 			cpy := *g
 			return &cpy, nil
 		}
 	}
-	return nil, errorx.New(errorx.CodeNotFound, "群组不存在")
+	return nil, grouppb.ErrorGroupNotFound("群组不存在")
 }
 
 func (f *fakeGroupStore) CreateGroup(_ context.Context, group *GroupInfo) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.groups == nil {
 		f.groups = make(map[string]*GroupInfo)
 	}
@@ -40,17 +49,21 @@ func (f *fakeGroupStore) CreateGroup(_ context.Context, group *GroupInfo) error 
 }
 
 func (f *fakeGroupStore) Update(_ context.Context, group *GroupInfo) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.groups[group.Uuid] = group
 	return nil
 }
 
 func (f *fakeGroupStore) UpdateWithVersion(_ context.Context, uuid string, expectedVersion int32, updates map[string]interface{}) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	current, ok := f.groups[uuid]
 	if !ok {
-		return errorx.New(errorx.CodeNotFound, "群组不存在")
+		return grouppb.ErrorGroupNotFound("群组不存在")
 	}
 	if current.Version != expectedVersion {
-		return errorx.New(errorx.CodeConflict, "群资料已被他人修改，请刷新后重试")
+		return grouppb.ErrorGroupConflict("群资料已被他人修改，请刷新后重试")
 	}
 	for k, v := range updates {
 		switch k {
@@ -69,6 +82,8 @@ func (f *fakeGroupStore) UpdateWithVersion(_ context.Context, uuid string, expec
 }
 
 func (f *fakeGroupStore) DismissGroupWithCAS(_ context.Context, uuid, ownerId string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	current, ok := f.groups[uuid]
 	if !ok || current.OwnerId != ownerId || current.Status != 0 {
 		return false, nil
@@ -79,6 +94,8 @@ func (f *fakeGroupStore) DismissGroupWithCAS(_ context.Context, uuid, ownerId st
 }
 
 func (f *fakeGroupStore) IncrementMemberCountWithLimit(_ context.Context, uuid string, maxLimit int) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	current, ok := f.groups[uuid]
 	if !ok || current.MemberCnt >= maxLimit {
 		return false, nil
@@ -89,18 +106,23 @@ func (f *fakeGroupStore) IncrementMemberCountWithLimit(_ context.Context, uuid s
 
 type fakeGroupMemberStore struct {
 	GroupMemberStore
+	mu      sync.Mutex
 	members map[string]*GroupMember
 }
 
 func (f *fakeGroupMemberStore) FindByGroupAndUser(_ context.Context, groupUuid, userUuid string) (*GroupMember, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	key := groupUuid + ":" + userUuid
 	if m, ok := f.members[key]; ok {
 		return m, nil
 	}
-	return nil, errorx.New(errorx.CodeNotFound, "成员不存在")
+	return nil, grouppb.ErrorMemberNotFound("成员不存在")
 }
 
 func (f *fakeGroupMemberStore) FindByGroupUuid(_ context.Context, groupUuid string) ([]GroupMember, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	var result []GroupMember
 	for _, m := range f.members {
 		if m.GroupUuid == groupUuid {
@@ -111,6 +133,8 @@ func (f *fakeGroupMemberStore) FindByGroupUuid(_ context.Context, groupUuid stri
 }
 
 func (f *fakeGroupMemberStore) CreateGroupMember(_ context.Context, member *GroupMember) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.members == nil {
 		f.members = make(map[string]*GroupMember)
 	}
@@ -118,7 +142,23 @@ func (f *fakeGroupMemberStore) CreateGroupMember(_ context.Context, member *Grou
 	return nil
 }
 
+func (f *fakeGroupMemberStore) CreateGroupMemberOrIgnore(_ context.Context, member *GroupMember) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.members == nil {
+		f.members = make(map[string]*GroupMember)
+	}
+	key := member.GroupUuid + ":" + member.UserUuid
+	if _, ok := f.members[key]; ok {
+		return false, nil
+	}
+	f.members[key] = member
+	return true, nil
+}
+
 func (f *fakeGroupMemberStore) DeleteMemberIfNotOwner(_ context.Context, groupUuid, userUuid string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	key := groupUuid + ":" + userUuid
 	m, ok := f.members[key]
 	if !ok || m.Role == 3 {
@@ -195,7 +235,7 @@ func TestGroupService_UpdateGroupInfo_OptimisticLock(t *testing.T) {
 			t.Fatal("expected conflict error, got nil")
 		}
 
-		if !errorx.IsCode(err, errorx.CodeConflict) {
+		if !grouppb.IsGroupConflict(err) && !errorx.IsCode(err, errorx.CodeConflict) {
 			t.Errorf("expected CodeConflict (1013), got code: %d, err: %v", errorx.GetCode(err), err)
 		}
 	})
@@ -229,7 +269,7 @@ func TestGroupService_UpdateGroupInfo_OptimisticLock(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for missing version, got nil")
 		}
-		if !errorx.IsCode(err, errorx.CodeInvalidParam) {
+		if !grouppb.IsInvalidParam(err) && !errorx.IsCode(err, errorx.CodeInvalidParam) {
 			t.Errorf("expected CodeInvalidParam, got: %v", err)
 		}
 	})
@@ -326,7 +366,92 @@ func TestGroupService_CreateGroup_Idempotent(t *testing.T) {
 	if err3 == nil {
 		t.Fatal("expected duplicate name error, got nil")
 	}
-	if !errorx.IsCode(err3, errorx.CodeInvalidParam) {
+	if !grouppb.IsInvalidParam(err3) && !errorx.IsCode(err3, errorx.CodeInvalidParam) {
 		t.Errorf("expected CodeInvalidParam, got %v", err3)
+	}
+}
+
+func TestGroupService_AddGroupMember_CapacityLimit(t *testing.T) {
+	ctx := context.Background()
+	gStore := &fakeGroupStore{
+		groups: map[string]*GroupInfo{
+			"G1001": {
+				Uuid:      "G1001",
+				Name:      "满人群",
+				MemberCnt: 499,
+				OwnerId:   "U_OWNER",
+				Status:    0,
+			},
+		},
+	}
+	mStore := &fakeGroupMemberStore{members: make(map[string]*GroupMember)}
+	svc := NewGroupService(nil, gStore, mStore, nil)
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		errs[0] = svc.AddGroupMember(ctx, "G1001", "USER_1", 1)
+	}()
+	go func() {
+		defer wg.Done()
+		errs[1] = svc.AddGroupMember(ctx, "G1001", "USER_2", 1)
+	}()
+	wg.Wait()
+
+	var successCount, limitCount int
+	for _, err := range errs {
+		if err == nil {
+			successCount++
+		} else if grouppb.IsGroupLimitExceeded(err) {
+			limitCount++
+		} else {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	if successCount != 1 || limitCount != 1 {
+		t.Fatalf("expected 1 success and 1 limit exceeded, got %d successes and %d limit errors", successCount, limitCount)
+	}
+
+	if gStore.groups["G1001"].MemberCnt != 500 {
+		t.Fatalf("expected MemberCnt to be 500, got %d", gStore.groups["G1001"].MemberCnt)
+	}
+}
+
+func TestGroupService_AddGroupMember_Idempotent(t *testing.T) {
+	ctx := context.Background()
+	gStore := &fakeGroupStore{
+		groups: map[string]*GroupInfo{
+			"G1001": {
+				Uuid:      "G1001",
+				Name:      "测试群",
+				MemberCnt: 1,
+				OwnerId:   "U_OWNER",
+				Status:    0,
+			},
+		},
+	}
+	mStore := &fakeGroupMemberStore{members: make(map[string]*GroupMember)}
+	svc := NewGroupService(nil, gStore, mStore, nil)
+
+	// 第一次添加
+	err1 := svc.AddGroupMember(ctx, "G1001", "USER_1", 1)
+	if err1 != nil {
+		t.Fatalf("first AddGroupMember failed: %v", err1)
+	}
+	if gStore.groups["G1001"].MemberCnt != 2 {
+		t.Fatalf("expected MemberCnt 2, got %d", gStore.groups["G1001"].MemberCnt)
+	}
+
+	// 重复添加同一成员：幂等成功，且人数不重复自增
+	err2 := svc.AddGroupMember(ctx, "G1001", "USER_1", 1)
+	if err2 != nil {
+		t.Fatalf("idempotent AddGroupMember failed: %v", err2)
+	}
+	if gStore.groups["G1001"].MemberCnt != 2 {
+		t.Fatalf("expected MemberCnt still 2 after duplicate add, got %d", gStore.groups["G1001"].MemberCnt)
 	}
 }

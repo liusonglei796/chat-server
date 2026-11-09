@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
 	cacheinfra "kama_chat_server/internal/infra/cache"
 	"kama_chat_server/internal/infra/database"
-	"kama_chat_server/internal/infra/lock"
 	"kama_chat_server/internal/infra/outbox"
 	"kama_chat_server/pkg/event"
 )
@@ -19,7 +17,6 @@ type FriendshipService struct {
 	db          *gorm.DB
 	store       Store
 	cache       cacheinfra.AsyncCacheService
-	lock        lock.Distributed
 	eventRecord func(ctx context.Context, tx *gorm.DB, aggregateId, eventType string, payload []byte) error
 }
 
@@ -29,15 +26,10 @@ func NewFriendshipService(db *gorm.DB, store Store, cacheService ...cacheinfra.A
 	if len(cacheService) > 0 {
 		c = cacheService[0]
 	}
-	var distLock lock.Distributed
-	if rc, ok := c.(interface{ Client() *redis.Client }); ok && rc != nil && rc.Client() != nil {
-		distLock = lock.NewRedis(rc.Client())
-	}
 	return &FriendshipService{
 		db:    db,
 		store: store,
 		cache: c,
-		lock:  distLock,
 	}
 }
 

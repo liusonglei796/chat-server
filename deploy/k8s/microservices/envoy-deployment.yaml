@@ -25,7 +25,7 @@ spec:
           env:
             # Envoy 侧无需认证，身份靠下游处理；见报告中的越权结论。
             - name: GATEWAY_GRPC_ADDR
-              value: "chat-server:8001"
+              value: "chat-server.chat-system.svc.cluster.local:8001"
           resources:
             requests:
               cpu: "100m"

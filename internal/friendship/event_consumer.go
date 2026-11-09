@@ -98,31 +98,35 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 	if err := json.Unmarshal(payload, &e); err != nil {
 		return err
 	}
+	zap.L().Info("friendship-service handleEvent: received friend_apply_passed",
+		zap.String("userId", e.UserId),
+		zap.String("friendId", e.FriendId),
+	)
+
+	// 固定按主键排序顺序加锁和插入，彻底杜绝双向并发死锁
+	u1, u2 := e.UserId, e.FriendId
+	if u1 > u2 {
+		u1, u2 = u2, u1
+	}
 
 	err := database.ExecTx(ctx, c.db, func(txCtx context.Context) error {
-		newFriendship := Friendship{
-			UserId:   e.UserId,
-			FriendId: e.FriendId,
+		firstFriendship := Friendship{
+			UserId:   u1,
+			FriendId: u2,
 			Status:   friendship_status.NORMAL,
 			Version:  1,
 		}
-		if err := c.store.CreateFriendship(txCtx, &newFriendship); err != nil {
-			if dberr.IsDuplicateKey(err) {
-				return nil
-			}
+		if err := c.store.UpsertFriendship(txCtx, &firstFriendship); err != nil {
 			return err
 		}
 
-		anotherFriendship := Friendship{
-			UserId:   e.FriendId,
-			FriendId: e.UserId,
+		secondFriendship := Friendship{
+			UserId:   u2,
+			FriendId: u1,
 			Status:   friendship_status.NORMAL,
 			Version:  1,
 		}
-		if err := c.store.CreateFriendship(txCtx, &anotherFriendship); err != nil {
-			if dberr.IsDuplicateKey(err) {
-				return nil
-			}
+		if err := c.store.UpsertFriendship(txCtx, &secondFriendship); err != nil {
 			return err
 		}
 		return nil
@@ -134,9 +138,13 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 		}
 		return err
 	}
+	zap.L().Info("friendship-service handleEvent: successfully created mutual friendship",
+		zap.String("userId", e.UserId),
+		zap.String("friendId", e.FriendId),
+	)
 
 	if c.cache != nil {
-		if gatewayAddr, err := c.cache.Get(ctx, constants.CacheKeyUserGateway+e.FriendId); err == nil && gatewayAddr != "" {
+		if connAddr, err := c.cache.Get(ctx, constants.CacheKeyUserConn+e.FriendId); err == nil && connAddr != "" {
 			notice, _ := json.Marshal(map[string]interface{}{
 				"type":      "system",
 				"event":     "friend_apply_passed",
@@ -144,7 +152,7 @@ func (c *DomainEventConsumer) handleEvent(ctx context.Context, eventType string,
 				"friend_id": e.FriendId,
 			})
 			msgUuid := "FRND_PASS_" + snowflake.GenerateIDString()
-			_ = grpc_client.PushToGateway(ctx, gatewayAddr, e.FriendId, msgUuid, notice)
+			_ = grpc_client.PushToConnector(ctx, connAddr, e.FriendId, msgUuid, notice)
 		}
 	}
 	return nil

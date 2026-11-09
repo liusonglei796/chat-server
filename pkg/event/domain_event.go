@@ -3,13 +3,13 @@
 package event
 
 const (
-	EventGroupCreated   = "group_created"
-	EventGroupJoined    = "group_joined"
-	EventGroupDismissed = "group_dismissed"
-	EventGroupApplyPassed = "group_apply_passed"
-	EventFriendApplyPassed = "friend_apply_passed"
-	EventFriendBlacked   = "friend_blacked"
-	EventFriendDeleted   = "friend_deleted"
+	EventGroupCreated       = "group_created"
+	EventGroupJoined        = "group_joined"
+	EventGroupDismissed     = "group_dismissed"
+	EventGroupApplyPassed   = "group_apply_passed"
+	EventFriendApplyPassed  = "friend_apply_passed"
+	EventFriendBlacked      = "friend_blacked"
+	EventFriendDeleted      = "friend_deleted"
 	EventGroupMemberRemoved = "group_member_removed"
 	EventGroupMemberLeft    = "group_member_left"
 )

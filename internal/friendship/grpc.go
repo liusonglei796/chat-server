@@ -6,7 +6,7 @@ import (
 	"github.com/go-kratos/kratos/v2/transport"
 
 	friendshippb "kama_chat_server/api/gen/friendship"
-	"kama_chat_server/pkg/errorx"
+	"kama_chat_server/pkg/interceptor"
 )
 
 type GrpcServer struct {
@@ -26,6 +26,9 @@ func extractTrustedUserID(ctx context.Context) string {
 			return uid
 		}
 	}
+	if uid := interceptor.GetUserIDFromContext(ctx); uid != "" {
+		return uid
+	}
 	if val := ctx.Value("user_id"); val != nil {
 		if s, ok := val.(string); ok {
 			return s
@@ -40,7 +43,7 @@ func (s *GrpcServer) GetFriendList(ctx context.Context, req *friendshippb.GetFri
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, friendshippb.ErrorUnauthorized("请先登录")
 	}
 
 	page := int(req.Page)
@@ -74,7 +77,7 @@ func (s *GrpcServer) GetFriendInfo(ctx context.Context, req *friendshippb.GetFri
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, friendshippb.ErrorUnauthorized("请先登录")
 	}
 
 	info, err := s.friendshipSvc.GetFriendInfo(ctx, userId, req.FriendId)
@@ -101,7 +104,7 @@ func (s *GrpcServer) DeleteFriend(ctx context.Context, req *friendshippb.DeleteF
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, friendshippb.ErrorUnauthorized("请先登录")
 	}
 
 	err := s.friendshipSvc.DeleteFriend(ctx, userId, req.FriendId)
@@ -114,7 +117,7 @@ func (s *GrpcServer) BlackFriend(ctx context.Context, req *friendshippb.BlackFri
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, friendshippb.ErrorUnauthorized("请先登录")
 	}
 
 	err := s.friendshipSvc.BlackFriend(ctx, userId, req.FriendId)
@@ -127,7 +130,7 @@ func (s *GrpcServer) UnblackFriend(ctx context.Context, req *friendshippb.Unblac
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, friendshippb.ErrorUnauthorized("请先登录")
 	}
 
 	err := s.friendshipSvc.UnblackFriend(ctx, userId, req.FriendId)
@@ -140,7 +143,7 @@ func (s *GrpcServer) UpdateRemark(ctx context.Context, req *friendshippb.UpdateR
 		userId = extractTrustedUserID(ctx)
 	}
 	if userId == "" {
-		return nil, errorx.New(errorx.CodeUnauthorized, "请先登录")
+		return nil, friendshippb.ErrorUnauthorized("请先登录")
 	}
 
 	err := s.friendshipSvc.UpdateRemark(ctx, userId, req.FriendId, req.Remark)

@@ -35,3 +35,23 @@ _Avoid_: StatusCheck, WorkflowGuard
 **AntiIdempotency**:
 Security-critical operations (e.g. Login, Token Refresh) that must explicitly generate fresh cryptographic tokens and session states upon every call, strictly forbidding response replay.
 _Avoid_: NonIdempotent, UncachedAction
+
+**CanonicalErrorCode**:
+A standard gRPC status code (out of 16 defined by Google AIP-193) mapped 1:1 to HTTP 4xx/5xx transport semantics by edge gateways.
+_Avoid_: HttpCode, SystemCode, ErrorType
+
+**ErrorReason**:
+A machine-readable, uppercase identifier carried in `google.rpc.ErrorInfo` to convey fine-grained domain failure conditions without arbitrary numeric codes.
+_Avoid_: BizCode, ErrorTag, ErrMsg
+
+**ConnectionService**:
+A stateful service responsible for maintaining physical WebSocket client sessions, heartbeat liveliness, and pushing real-time messages to connected users.
+_Avoid_: Gateway, ApiGateway, WsGateway
+
+**UserConn**:
+The in-memory abstraction representing an authenticated online client's physical WebSocket connection, managing single-connection read/write loops, application-level backpressure queues, and lifecycle cancellation.
+_Avoid_: ClientConn, WsGatewayClient, GatewaySession
+
+**EdgeGateway**:
+A stateless 7-layer ingress proxy (Envoy) responsible for SSL termination, HTTP-to-gRPC transcoding, and routing external traffic into internal microservices.
+_Avoid_: IngressGateway, ConnectGateway, ProxyGateway

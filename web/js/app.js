@@ -1,6 +1,7 @@
     /* ==================== Config ==================== */
-    const API_BASE = window.location.origin;
+    const API_BASE = window.__API_BASE__ || window.location.origin;
     function wsBaseUrl() {
+      if (window.__WS_BASE__) return window.__WS_BASE__;
       const p = location.protocol === 'https:' ? 'wss:' : 'ws:';
       return p + '//' + location.host;
     }
@@ -177,7 +178,7 @@
           if (res.status >= 400 && res.status < 500 && res.status !== 429) {
             let errData = null;
             try { errData = await res.json(); } catch (_) {}
-            throw new Error(errData?.msg || ('客户端请求错误 HTTP ' + res.status));
+            throw new Error(errData?.message || errData?.msg || ('客户端请求错误 HTTP ' + res.status));
           }
 
           // 3. HTTP 429 限流处理
@@ -200,13 +201,14 @@
             }
             let errData = null;
             try { errData = await res.json(); } catch (_) {}
-            throw new Error(errData?.msg || ('服务繁忙，请稍后重试 (HTTP ' + res.status + ')'));
+            throw new Error(errData?.message || errData?.msg || ('服务繁忙，请稍后重试 (HTTP ' + res.status + ')'));
           }
 
           const data = await res.json();
 
-          // 5. 业务处理成功
+          // 5. 业务处理成功 (兼容 Envoy 原生 JSON 与 Gin {code:1000, data} 包装信封)
           if (data.code === 1000) return data.data;
+          if (data.code === undefined && !data.error && !data.message) return data;
 
           // 6. 业务级瞬态服务繁忙 (1005)：在配额内允许重试
           if (data.code === 1005 && allowAutoRetry && retryCount < maxRetries) {
@@ -254,6 +256,9 @@
           if (d.code === 1000) {
             localStorage.setItem('access_token', d.data.access_token);
             return d.data.access_token;
+          } else if (d.access_token) {
+            localStorage.setItem('access_token', d.access_token);
+            return d.access_token;
           }
         } catch { }
         App.logout();
@@ -284,7 +289,17 @@
           } catch (e) { reject(e); }
         });
       },
-      getFriendList() { return this.req('/friends'); },
+      getFriendList() {
+        const q = App.me?.uuid ? '?user_id=' + encodeURIComponent(App.me.uuid) : '';
+        return this.req('/friends' + q).then(res => {
+          const raw = res?.list || res?.friends || (Array.isArray(res) ? res : []);
+          return raw.map(f => ({
+            friend_id: f.userId || f.user_id || f.friendId || f.friend_id,
+            friend_name: f.userName || f.user_name || f.friendName || f.friend_name || f.username || '好友',
+            friend_avatar: f.avatar || f.friendAvatar || f.friend_avatar
+          }));
+        });
+      },
       addFriend(friendId) { return this.req('/friends/apply', { method: 'POST', body: { friend_id: friendId } }); },
       deleteFriend(friendId) { return this.req('/friends?friend_id=' + encodeURIComponent(friendId), { method: 'DELETE' }); },
       getGroups() { return this.req('/groups/joined'); },
@@ -308,11 +323,8 @@
         const uid = App.me?.uuid;
         if (!uid) return;
         const tok = localStorage.getItem('access_token');
-        try {
-          this.conn = new WebSocket(wsBaseUrl() + '/ws', ['Bearer', tok]);
-        } catch {
-          this.conn = new WebSocket(wsBaseUrl() + '/ws?token=' + tok);
-        }
+        if (!tok || tok === 'undefined') return;
+        this.conn = new WebSocket(wsBaseUrl() + '/ws?token=' + encodeURIComponent(tok));
         this.conn.onopen = () => {
           this.attempts = 0;
           this.startHB();
@@ -323,7 +335,21 @@
           try {
             const d = JSON.parse(e.data);
             if (d.type === 'kick') { App.showToast('您的账号在其他地方登录', 'error'); App.logout(); return; }
-            if (d.type === 'pong') return;
+            if (d.action === 'pong') return;
+            if (d.type === 'error') {
+              if (d.client_msg_id && WS.ackRejectCallbacks?.[d.client_msg_id]) {
+                WS.ackRejectCallbacks[d.client_msg_id](new Error(d.message || '消息发送失败'));
+                delete WS.ackRejectCallbacks[d.client_msg_id];
+                delete WS.ackCallbacks?.[d.client_msg_id];
+              }
+              return;
+            }
+            if (d.client_msg_id && WS.ackCallbacks?.[d.client_msg_id]) {
+              WS.ackCallbacks[d.client_msg_id]();
+              delete WS.ackCallbacks[d.client_msg_id];
+              delete WS.ackRejectCallbacks?.[d.client_msg_id];
+              if (d.type === 'ack') return;
+            }
             if (d.type === 'sync_resp') { App.onSyncResp(d); return; }
             if (d.content || d.send_id) App.onIncoming(d);
           } catch { }
@@ -344,7 +370,7 @@
         if (this.conn && this.conn.readyState === WebSocket.OPEN) { this.conn.send(JSON.stringify(d)); return true; }
         return false;
       },
-      startHB() { this.stopHB(); this.hbTimer = setInterval(() => { if (this.conn?.readyState === 1) this.conn.send(JSON.stringify({ type: 'ping' })); }, 30000); },
+      startHB() { this.stopHB(); this.hbTimer = setInterval(() => { if (this.conn?.readyState === 1) this.conn.send(JSON.stringify({ action: 'ping' })); }, 30000); },
       stopHB() { if (this.hbTimer) { clearInterval(this.hbTimer); this.hbTimer = null; } },
       reconnect() {
         if (this.attempts >= this.maxAttempts) { App.setStatus('连接失败'); return; }
@@ -438,8 +464,10 @@
         btn.disabled = true; btnText.classList.add('hidden'); spinner.classList.remove('hidden'); errEl.classList.remove('show');
         try {
           const d = await api.login(username, pwd);
-          localStorage.setItem('access_token', d.access_token);
-          localStorage.setItem('refresh_token', d.refresh_token);
+          const tok = d.accessToken || d.access_token;
+          const rtok = d.refreshToken || d.refresh_token;
+          localStorage.setItem('access_token', tok);
+          localStorage.setItem('refresh_token', rtok);
           this.me = { uuid: d.uuid, nickname: d.nickname, telephone: d.telephone, avatar: d.avatar, email: d.email, signature: d.signature, birthday: d.birthday };
           this.showApp();
           this.showToast('登录成功', 'success');
@@ -824,10 +852,28 @@
             send_avatar: this.me.avatar,
             receive_id: pending.targetId,
             client_msg_id,
-            timeout_ms: 6000,
+            timeout_ms: 4000,
           });
 
-          if (!wsSent) {
+          if (wsSent) {
+            await new Promise((resolve, reject) => {
+              const timer = setTimeout(() => {
+                delete WS.ackCallbacks?.[client_msg_id];
+                delete WS.ackRejectCallbacks?.[client_msg_id];
+                reject(new Error('WebSocket 确认超时'));
+              }, 4000);
+              WS.ackCallbacks = WS.ackCallbacks || {};
+              WS.ackRejectCallbacks = WS.ackRejectCallbacks || {};
+              WS.ackCallbacks[client_msg_id] = () => {
+                clearTimeout(timer);
+                resolve();
+              };
+              WS.ackRejectCallbacks[client_msg_id] = (err) => {
+                clearTimeout(timer);
+                reject(err);
+              };
+            });
+          } else {
             // WS 未连接时使用 HTTP POST 兜底，传递完全相同的 client_msg_id
             await api.req('/messages/send', {
               method: 'POST',
@@ -998,10 +1044,9 @@
       /* --- Chat shortcuts --- */
       async chatWithFriend(fid, name, av) {
         try {
-          await api.openSession(fid);
-          await this.loadSessions();
-          const s = this.sessions.find(s => s.targetId === fid);
-          if (s) this.openSession(s.sessionId, s.type, s.targetId, s.name, s.avatar);
+          try { await api.openSession(fid); } catch (_) {}
+          const sid = 'P_' + (this.me?.uuid < fid ? this.me.uuid + '_' + fid : fid + '_' + this.me?.uuid);
+          this.openSession(sid, 'direct', fid, name, av);
         } catch (e) { this.showToast('无法打开会话: ' + e.message, 'error'); }
       },
       async chatWithGroup(gid, name, av) {

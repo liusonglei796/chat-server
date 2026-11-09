@@ -17,7 +17,7 @@ import (
 	applypb "kama_chat_server/api/gen/apply"
 	authpb "kama_chat_server/api/gen/auth"
 	friendshippb "kama_chat_server/api/gen/friendship"
-	gatewaypb "kama_chat_server/api/gen/gateway"
+	connectorpb "kama_chat_server/api/gen/connector"
 	grouppb "kama_chat_server/api/gen/group"
 	messagepb "kama_chat_server/api/gen/message"
 	userpb "kama_chat_server/api/gen/user"
@@ -247,19 +247,19 @@ func GetMessages(ctx context.Context, req *messagepb.GetMessagesRequest) (*messa
 }
 
 var (
-	gatewayClients sync.Map // map[string]gatewaypb.GatewayServiceClient
-	gatewayMu      sync.Mutex
+	connectorClients sync.Map // map[string]connectorpb.ConnectorServiceClient
+	connectorMu      sync.Mutex
 )
 
-// GetGatewayClient 获取指定网关地址的 gRPC 客户端（连接复用池）
-func GetGatewayClient(addr string) (gatewaypb.GatewayServiceClient, error) {
-	if val, ok := gatewayClients.Load(addr); ok {
-		return val.(gatewaypb.GatewayServiceClient), nil
+// GetConnectorClient 获取指定连接服务地址的 gRPC 客户端（连接复用池）
+func GetConnectorClient(addr string) (connectorpb.ConnectorServiceClient, error) {
+	if val, ok := connectorClients.Load(addr); ok {
+		return val.(connectorpb.ConnectorServiceClient), nil
 	}
-	gatewayMu.Lock()
-	defer gatewayMu.Unlock()
-	if val, ok := gatewayClients.Load(addr); ok {
-		return val.(gatewaypb.GatewayServiceClient), nil
+	connectorMu.Lock()
+	defer connectorMu.Unlock()
+	if val, ok := connectorClients.Load(addr); ok {
+		return val.(connectorpb.ConnectorServiceClient), nil
 	}
 
 	retryOpts := []retry.CallOption{
@@ -283,18 +283,18 @@ func GetGatewayClient(addr string) (gatewaypb.GatewayServiceClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := gatewaypb.NewGatewayServiceClient(conn)
-	gatewayClients.Store(addr, client)
+	client := connectorpb.NewConnectorServiceClient(conn)
+	connectorClients.Store(addr, client)
 	return client, nil
 }
 
-// PushToGateway 向指定网关实例直推消息
-func PushToGateway(ctx context.Context, gatewayAddr string, targetUserId string, messageUuid string, payload []byte) error {
-	client, err := GetGatewayClient(gatewayAddr)
+// PushToConnector 向指定连接服务实例直推消息
+func PushToConnector(ctx context.Context, connectorAddr string, targetUserId string, messageUuid string, payload []byte) error {
+	client, err := GetConnectorClient(connectorAddr)
 	if err != nil {
 		return err
 	}
-	rsp, err := client.PushMessage(ctx, &gatewaypb.PushMessageRequest{
+	rsp, err := client.PushMessage(ctx, &connectorpb.PushMessageRequest{
 		TargetUserId: targetUserId,
 		MessageUuid:  messageUuid,
 		Payload:      payload,
@@ -303,19 +303,19 @@ func PushToGateway(ctx context.Context, gatewayAddr string, targetUserId string,
 		return err
 	}
 	if !rsp.Success {
-		return fmt.Errorf("gateway push failed: %s", rsp.ErrorMsg)
+		return fmt.Errorf("connector push failed: %s", rsp.ErrorMsg)
 	}
 	return nil
 }
 
-// BatchPushToGateway 向指定网关实例批量直推消息。
-// 返回 FailedUserIds：这些用户不在该网关（路由过期/已下线），调用方可据此清理路由缓存。
-func BatchPushToGateway(ctx context.Context, gatewayAddr string, targetUserIds []string, messageUuid string, payload []byte) ([]string, error) {
-	client, err := GetGatewayClient(gatewayAddr)
+// BatchPushToConnector 向指定连接服务实例批量直推消息。
+// 返回 FailedUserIds：这些用户不在该连接服务（路由过期/已下线），调用方可据此清理路由缓存。
+func BatchPushToConnector(ctx context.Context, connectorAddr string, targetUserIds []string, messageUuid string, payload []byte) ([]string, error) {
+	client, err := GetConnectorClient(connectorAddr)
 	if err != nil {
 		return nil, err
 	}
-	rsp, err := client.BatchPushMessage(ctx, &gatewaypb.BatchPushMessageRequest{
+	rsp, err := client.BatchPushMessage(ctx, &connectorpb.BatchPushMessageRequest{
 		TargetUserIds: targetUserIds,
 		MessageUuid:   messageUuid,
 		Payload:       payload,
@@ -324,7 +324,7 @@ func BatchPushToGateway(ctx context.Context, gatewayAddr string, targetUserIds [
 		return nil, err
 	}
 	if rsp == nil {
-		return nil, fmt.Errorf("gateway batch push returned empty response")
+		return nil, fmt.Errorf("connector batch push returned empty response")
 	}
 	return rsp.FailedUserIds, nil
 }

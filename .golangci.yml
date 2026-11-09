@@ -1,0 +1,76 @@
+run:
+  concurrency: 4
+  timeout: 5m
+  tests: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 50
+  exclude-dirs:
+    - api/gen
+    - third_party
+  exclude-files:
+    - ".*_gen\\.go$"
+  exclude-rules:
+    # 测试用例常包含连续流程和断言，放宽圈复杂度与常量检测
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - goconst
+        - revive
+
+linters:
+  disable-all: true
+  enable:
+    # 语法与正确性（govet 由原生 go vet 执行）
+    - ineffassign
+    - copyloopvar
+
+    # 规范与风格
+    - revive
+    - misspell
+    - asciicheck
+    - bidichk
+    - dupword
+
+    # 复杂度与常量优化
+    - gocyclo
+    - goconst
+
+linters-settings:
+  gocyclo:
+    min-complexity: 35
+  goconst:
+    min-len: 3
+    min-occurrences: 5
+  dupword:
+    ignore:
+      - "end"
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+        disabled: true
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+        disabled: true
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+        disabled: true
+      - name: var-declaration
+      - name: package-comments
+        disabled: true
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unreachable-code
+      - name: redefines-builtin-id

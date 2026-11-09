@@ -64,8 +64,6 @@ func Wrapf(err error, code int, format string, args ...any) *CodeError {
 	}
 }
 
-// WrapDBError 包装数据库错误
-
 // GetCode 从错误中提取业务错误码，如果不是 CodeError 则返回默认码
 func GetCode(err error) int {
 	var codeErr *CodeError
@@ -106,14 +104,11 @@ func IsCode(err error, code int) bool {
 	return GetCode(err) == code
 }
 
-// IsNotFound 检查错误是否为"未找到"类型（包括 gorm.ErrRecordNotFound）
+// IsNotFound 检查错误是否为"未找到"类型（包括 CodeNotFound）
 func IsNotFound(err error) bool {
-	// 检查是否是 CodeError 且 Code == CodeNotFound
 	var codeErr *CodeError
 	if errors.As(err, &codeErr) && codeErr.Code == CodeNotFound {
 		return true
 	}
-	// 检查是否是 gorm.ErrRecordNotFound
-	// return errors.Is(err, gorm.ErrRecordNotFound)
 	return false
 }

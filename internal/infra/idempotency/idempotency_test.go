@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"kama_chat_server/pkg/errorx"
+	"kama_chat_server/pkg/interceptor"
 )
 
 func TestIsRetryable(t *testing.T) {
@@ -93,5 +94,25 @@ func TestRecordStatusConstants(t *testing.T) {
 	}
 	if StatusFail != "FAIL" {
 		t.Errorf("expected FAIL, got %s", StatusFail)
+	}
+}
+
+func TestContextKeyUnification(t *testing.T) {
+	ctx := context.Background()
+	key := "test-idempotency-key-123"
+
+	// 验证 ContextWithKey 注入后能被 interceptor 读取
+	ctxWithKey := ContextWithKey(ctx, key)
+	if got := interceptor.GetIdempotencyKeyFromContext(ctxWithKey); got != key {
+		t.Errorf("interceptor.GetIdempotencyKeyFromContext() = %v, want %v", got, key)
+	}
+	if got := KeyFromContext(ctxWithKey); got != key {
+		t.Errorf("KeyFromContext() = %v, want %v", got, key)
+	}
+
+	// 验证 interceptor.ContextWithIdempotencyKey 注入后能被 KeyFromContext 读取
+	ctxWithInter := interceptor.ContextWithIdempotencyKey(ctx, key)
+	if got := KeyFromContext(ctxWithInter); got != key {
+		t.Errorf("KeyFromContext() from interceptor context = %v, want %v", got, key)
 	}
 }

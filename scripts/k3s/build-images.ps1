@@ -25,7 +25,7 @@ Set-Location $root
 $ctx = Join-Path $root 'build/k3s'
 
 $all = [ordered]@{
-    'chat-server'        = 'gateway'
+    'chat-server'        = 'connector'
     'user-service'       = 'user_service'
     'apply-service'      = 'apply_service'
     'friendship-service' = 'friendship_service'

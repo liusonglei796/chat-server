@@ -29,33 +29,31 @@ spec:
 
           echo "== 1/2 注册 A/B"
           wget -q -O- --header='Content-Type: application/json' \
-            --post-data="{\"username\":\"$U1\",\"password\":\"$PWD\",\"client_token\":\"c1\"}" "$GW/auth/register" || echo "  (注册 A 失败)"
+            --post-data="{\"username\":\"$U1\",\"password\":\"$PWD\",\"client_token\":\"c1\"}" "$EN/auth/register"
+          echo
           wget -q -O- --header='Content-Type: application/json' \
-            --post-data="{\"username\":\"$U2\",\"password\":\"$PWD\",\"client_token\":\"c2\"}" "$GW/auth/register" || echo "  (注册 B 失败)"
+            --post-data="{\"username\":\"$U2\",\"password\":\"$PWD\",\"client_token\":\"c2\"}" "$EN/auth/register"
+          echo
 
           echo "== 3/4 登录"
           R1=$(wget -q -O- --header='Content-Type: application/json' \
-            --post-data="{\"username\":\"$U1\",\"password\":\"$PWD\"}" "$GW/auth/login")
-          ID1=$(echo "$R1" | sed -n 's/.*"uuid":"\([^"]*\)".*/\1/p')
-          TOK1=$(echo "$R1" | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+            --post-data="{\"username\":\"$U1\",\"password\":\"$PWD\"}" "$EN/auth/login")
+          ID1=$(echo "$R1" | grep -o '"uuid": *"[^"]*"' | head -1 | sed 's/"uuid": *"//;s/"//')
+          TOK1=$(echo "$R1" | grep -o '"accessToken": *"[^"]*"' | head -1 | sed 's/"accessToken": *"//;s/"//')
           R2=$(wget -q -O- --header='Content-Type: application/json' \
-            --post-data="{\"username\":\"$U2\",\"password\":\"$PWD\"}" "$GW/auth/login")
-          ID2=$(echo "$R2" | sed -n 's/.*"uuid":"\([^"]*\)".*/\1/p')
-          TOK2=$(echo "$R2" | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+            --post-data="{\"username\":\"$U2\",\"password\":\"$PWD\"}" "$EN/auth/login")
+          ID2=$(echo "$R2" | grep -o '"uuid": *"[^"]*"' | head -1 | sed 's/"uuid": *"//;s/"//')
+          TOK2=$(echo "$R2" | grep -o '"accessToken": *"[^"]*"' | head -1 | sed 's/"accessToken": *"//;s/"//')
           echo "  A=$ID1 B=$ID2"
           echo "SMOKE_IDS id1=$ID1 id2=$ID2"
 
           echo "== 5 A 申请加 B"
           wget -q -O- --header='Content-Type: application/json' --header="Authorization: Bearer $TOK1" \
-            --post-data="{\"friend_id\":\"$ID2\",\"message\":\"hi\",\"client_token\":\"ap$TAG\"}" "$GW/friends/apply"; echo
+            --post-data="{\"user_id\":\"$ID1\",\"friend_id\":\"$ID2\",\"message\":\"hi\",\"client_token\":\"ap$TAG\"}" "$EN/friends/apply"; echo
 
           echo "== 6 B 审批"
           wget -q -O- --header='Content-Type: application/json' --header="Authorization: Bearer $TOK2" \
-            --post-data="{\"applicant_id\":\"$ID1\"}" "$GW/friends/applies/approve"; echo
-
-          echo "== 8 Envoy 路径拉黑"
-          wget -q -O- --header='Content-Type: application/json' --header="x-user-id: $ID1" \
-            --post-data="{\"user_id\":\"$ID1\",\"friend_id\":\"$ID2\"}" "$EN/friends/block"; echo
+            --post-data="{\"user_id\":\"$ID2\",\"applicant_id\":\"$ID1\"}" "$EN/friends/applies/approve"; echo
           echo "== SMOKE_HTTP_DONE"
 EOF
 

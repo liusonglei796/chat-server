@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"kama_chat_server/internal/infra/database"
 	"kama_chat_server/internal/infra/dberr"
@@ -15,6 +16,7 @@ type Store interface {
 	IsFriend(ctx context.Context, userId1, userId2 string) (bool, error)
 	FindFriendsByUserId(ctx context.Context, userId string, page, pageSize int) ([]Friendship, int64, error)
 	CreateFriendship(ctx context.Context, fs *Friendship) error
+	UpsertFriendship(ctx context.Context, fs *Friendship) error
 	UpdateStatus(ctx context.Context, userId, friendId string, status int8) error
 	UpdateStatusWithExpected(ctx context.Context, userId, friendId string, expectedStatus, targetStatus int8, expectedVersion int64) (bool, error)
 	SoftDelete(ctx context.Context, userId, friendId string) error
@@ -83,6 +85,21 @@ func (r *storeImpl) FindFriendsByUserId(ctx context.Context, userId string, page
 func (r *storeImpl) CreateFriendship(ctx context.Context, fs *Friendship) error {
 	if err := database.GetDB(ctx, r.db).Create(fs).Error; err != nil {
 		return dberr.WrapDBError(err, "创建好友关系")
+	}
+	return nil
+}
+
+// UpsertFriendship 插入或更新好友关系记录（基于主键冲突进行更新）
+func (r *storeImpl) UpsertFriendship(ctx context.Context, fs *Friendship) error {
+	err := database.GetDB(ctx, r.db).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "user_id"}, {Name: "friend_id"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"status":  fs.Status,
+			"version": gorm.Expr("version + 1"),
+		}),
+	}).Create(fs).Error
+	if err != nil {
+		return dberr.WrapDBError(err, "更新或创建好友关系")
 	}
 	return nil
 }

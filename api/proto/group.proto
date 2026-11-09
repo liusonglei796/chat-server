@@ -5,6 +5,23 @@ package group;
 option go_package = "kama_chat_server/api/gen/group";
 
 import "google/api/annotations.proto";
+import "errors/errors.proto";
+
+enum GroupErrorReason {
+    GROUP_UNSPECIFIED = 0;
+    GROUP_NOT_FOUND = 1 [(errors.code) = 404];
+    NOT_GROUP_MEMBER = 2 [(errors.code) = 403];
+    NOT_GROUP_OWNER = 3 [(errors.code) = 403];
+    NO_PERMISSION = 4 [(errors.code) = 403];
+    GROUP_CONFLICT = 5 [(errors.code) = 409];
+    CANNOT_OPERATE_OWNER = 6 [(errors.code) = 400];
+    GROUP_LIMIT_EXCEEDED = 7 [(errors.code) = 400];
+    MEMBER_NOT_FOUND = 8 [(errors.code) = 404];
+    INVALID_PARAM = 9 [(errors.code) = 400];
+    UNAUTHORIZED = 10 [(errors.code) = 401];
+    FORBIDDEN = 11 [(errors.code) = 403];
+    SERVER_BUSY = 12 [(errors.code) = 503];
+}
 
 service GroupService {
     rpc CreateGroup (CreateGroupRequest) returns (CreateGroupResponse) {

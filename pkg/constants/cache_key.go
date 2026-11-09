@@ -15,14 +15,12 @@ const (
 	CacheKeyGroupMemberIDs = "group:member_ids:" // 群成员 ID 列表（消息扇出/撤回用，成员变更时失效）
 
 	// 消息相关
-	CacheKeyMessageList      = "message:list:"       // 私聊消息列表
-	CacheKeyGroupMessageList = "message:group_list:" // 群聊消息列表
 	CacheKeyMessageZSet      = "msg:zset:"           // 消息有序集合（游标分页热点缓存）
 
 	// 会话相关
 	CacheKeySessionOpen = "session:open:" // 单个会话缓存（OpenSession）
 	CacheKeySessionSeq  = "session:seq:"  // 会话内单调递增 SeqID 发号器 (INCR)
 
-	// 网关路由相关
-	CacheKeyUserGateway = "user:gateway:" // 用户所在网关实例地址 (Value: gateway_grpc_addr)
+	// 连接服务路由相关
+	CacheKeyUserConn = "user:conn:" // 用户所在连接服务节点地址 (Value: conn_grpc_addr)
 )

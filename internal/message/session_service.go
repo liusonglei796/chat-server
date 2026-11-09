@@ -20,6 +20,7 @@ import (
 	"kama_chat_server/pkg/constants"
 	group_status "kama_chat_server/pkg/enum/group/group_status"
 	"kama_chat_server/pkg/enum/user/user_status"
+	messagepb "kama_chat_server/api/gen/message"
 	"kama_chat_server/pkg/errorx"
 	"kama_chat_server/pkg/idempotent"
 )
@@ -59,13 +60,13 @@ func NewSessionService(
 func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId string) (string, error) {
 	existingSession, err := s.sessionStore.FindBySendIdAndReceiveId(ctx, sendId, receiveId)
 	if err != nil {
-		if errorx.GetCode(err) != errorx.CodeNotFound {
+		if errorx.GetCode(err) != errorx.CodeNotFound && !messagepb.IsSessionNotFound(err) {
 			zap.L().Error("查询已有会话失败",
 				zap.String("send_id", sendId),
 				zap.String("receive_id", receiveId),
 				zap.Error(err),
 			)
-			return "", errorx.ErrServerBusy
+			return "", messagepb.ErrorServerBusy("服务繁忙")
 		}
 	} else {
 		zap.L().Info("会话已存在，返回已有会话",
@@ -83,20 +84,20 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 				zap.String("send_id", sendId),
 				zap.String("operation", "create_session"),
 			)
-			return "", errorx.New(errorx.CodeUserNotExist, "发送用户不存在")
+			return "", messagepb.ErrorUserNotFound("发送用户不存在")
 		}
 		zap.L().Error("查询发送用户失败",
 			zap.String("send_id", sendId),
 			zap.Error(err),
 		)
-		return "", errorx.ErrServerBusy
+		return "", messagepb.ErrorServerBusy("服务繁忙")
 	}
 	if sendStatus == user_status.DISABLE {
 		zap.L().Warn("发送用户已被禁用",
 			zap.String("send_id", sendId),
 			zap.String("operation", "create_session"),
 		)
-		return "", errorx.New(errorx.CodeUserNotExist, "发送用户不存在")
+		return "", messagepb.ErrorUserNotFound("发送用户不存在")
 	}
 
 	var session Session
@@ -114,30 +115,30 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 					zap.String("receive_id", receiveId),
 					zap.String("operation", "create_session"),
 				)
-				return "", errorx.New(errorx.CodeUserNotExist, "接收用户不存在")
+				return "", messagepb.ErrorUserNotFound("接收用户不存在")
 			}
 			zap.L().Error("查询接收用户失败",
 				zap.String("send_id", sendId),
 				zap.String("receive_id", receiveId),
 				zap.Error(err),
 			)
-			return "", errorx.ErrServerBusy
+			return "", messagepb.ErrorServerBusy("服务繁忙")
 		}
 		if recvStatus == user_status.DISABLE {
 			zap.L().Warn("接收用户已被禁用",
 				zap.String("send_id", sendId),
 				zap.String("receive_id", receiveId),
 			)
-			return "", errorx.New(errorx.CodeInvalidParam, "该用户被禁用了")
+			return "", messagepb.ErrorInvalidParam("该用户被禁用了")
 		}
 
 		isFriend, err := grpcinfra.CheckFriendshipStatus(ctx, sendId, receiveId)
 		if err != nil {
 			zap.L().Error("Check friend relationship error", zap.Error(err))
-			return "", errorx.ErrServerBusy
+			return "", messagepb.ErrorServerBusy("服务繁忙")
 		}
 		if isFriend != 1 {
-			return "", errorx.New(errorx.CodeForbidden, "你们还不是好友")
+			return "", messagepb.ErrorForbidden("你们还不是好友")
 		}
 	} else {
 		_, err := grpcinfra.GetGroupDetail(ctx, sendId, receiveId)
@@ -159,7 +160,7 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 			zap.String("session_id", session.Uuid),
 			zap.Error(err),
 		)
-		return "", errorx.ErrServerBusy
+		return "", messagepb.ErrorServerBusy("服务繁忙")
 	}
 
 	zap.L().Info("会话创建成功",
@@ -174,7 +175,7 @@ func (s *SessionService) CreateSession(ctx context.Context, sendId, receiveId st
 // CheckOpenSessionAllowed 检查是否允许发起会话
 func (s *SessionService) CheckOpenSessionAllowed(ctx context.Context, sendId, receiveId string) (bool, error) {
 	if len(receiveId) == 0 {
-		return false, errorx.New(errorx.CodeInvalidParam, "接收方ID不能为空")
+		return false, messagepb.ErrorInvalidParam("接收方ID不能为空")
 	}
 
 	if receiveId[0] == 'U' {
@@ -185,14 +186,14 @@ func (s *SessionService) CheckOpenSessionAllowed(ctx context.Context, sendId, re
 				zap.String("receive_id", receiveId),
 				zap.Error(err),
 			)
-			return false, errorx.ErrServerBusy
+			return false, messagepb.ErrorServerBusy("服务繁忙")
 		}
 		if fsStatus == 0 {
-			return false, errorx.New(errorx.CodeForbidden, "你们还不是好友，无法发起会话")
+			return false, messagepb.ErrorForbidden("你们还不是好友，无法发起会话")
 		} else if fsStatus == 3 {
-			return false, errorx.New(errorx.CodeInvalidParam, "已被对方拉黑，无法发起会话")
+			return false, messagepb.ErrorInvalidParam("已被对方拉黑，无法发起会话")
 		} else if fsStatus == 2 {
-			return false, errorx.New(errorx.CodeInvalidParam, "已拉黑对方，先解除拉黑状态才能发起会话")
+			return false, messagepb.ErrorInvalidParam("已拉黑对方，先解除拉黑状态才能发起会话")
 		}
 	} else if receiveId[0] == 'G' {
 		isMember, err := grpcinfra.CheckGroupMember(ctx, receiveId, sendId)
@@ -202,13 +203,13 @@ func (s *SessionService) CheckOpenSessionAllowed(ctx context.Context, sendId, re
 				zap.String("receive_id", receiveId),
 				zap.Error(err),
 			)
-			return false, errorx.ErrServerBusy
+			return false, messagepb.ErrorServerBusy("服务繁忙")
 		}
 		if !isMember {
-			return false, errorx.New(errorx.CodeForbidden, "你不是该群成员，无法发起会话")
+			return false, messagepb.ErrorForbidden("你不是该群成员，无法发起会话")
 		}
 	} else {
-		return false, errorx.New(errorx.CodeInvalidParam, "无效的接收方ID格式")
+		return false, messagepb.ErrorInvalidParam("无效的接收方ID格式")
 	}
 
 	if err := s.checkTargetStatusWithCache(ctx, sendId, receiveId); err != nil {
@@ -230,7 +231,7 @@ type cachedTargetStatus struct {
 
 func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, sendId, targetId string) error {
 	if len(targetId) == 0 {
-		return errorx.New(errorx.CodeInvalidParam, "目标ID为空")
+		return messagepb.ErrorInvalidParam("目标ID为空")
 	}
 
 	if targetId[0] == 'U' {
@@ -244,9 +245,9 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, sendId,
 				userStatus, err := grpcinfra.GetUserStatus(loaderCtx, targetId)
 				if err != nil {
 					if status.Code(err) == codes.NotFound {
-						return nil, errorx.New(errorx.CodeUserNotExist, "对方用户不存在")
+						return nil, messagepb.ErrorUserNotFound("对方用户不存在")
 					}
-					return nil, errorx.ErrServerBusy
+					return nil, messagepb.ErrorServerBusy("服务繁忙")
 				}
 				return cachedTargetStatus{
 					Uuid:   targetId,
@@ -261,7 +262,7 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, sendId,
 			return err
 		}
 		if userRsp.Status == user_status.DISABLE {
-			return errorx.New(errorx.CodeInvalidParam, "对方已被禁用，无法发起会话")
+			return messagepb.ErrorInvalidParam("对方已被禁用，无法发起会话")
 		}
 		return nil
 	}
@@ -289,7 +290,7 @@ func (s *SessionService) checkTargetStatusWithCache(ctx context.Context, sendId,
 		return nil
 	}
 
-	return errorx.New(errorx.CodeInvalidParam, "无效的目标ID格式")
+	return messagepb.ErrorInvalidParam("无效的目标ID格式")
 }
 
 // OpenSession 打开会话
@@ -308,12 +309,12 @@ func (s *SessionService) OpenSession(ctx context.Context, sendId string, req Ope
 
 		session, err := s.sessionStore.FindBySendIdAndReceiveId(execCtx, sendId, req.ReceiveId)
 		if err != nil {
-			if errorx.GetCode(err) == errorx.CodeNotFound {
+			if errorx.GetCode(err) == errorx.CodeNotFound || messagepb.IsSessionNotFound(err) {
 				zap.L().Info("会话没有找到，将新建会话")
 				return s.CreateSession(execCtx, sendId, req.ReceiveId)
 			}
 			zap.L().Error("service error", zap.Error(err))
-			return "", errorx.ErrServerBusy
+			return "", messagepb.ErrorServerBusy("服务繁忙")
 		}
 
 		s.cache.SubmitTask(func() {
@@ -351,7 +352,7 @@ func (s *SessionService) GetUserSessionList(ctx context.Context, ownerId string,
 	sessionList, total, err := s.sessionStore.FindBySendIdAndTypePaged(ctx, ownerId, "U", page, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
-		return nil, 0, errorx.ErrServerBusy
+		return nil, 0, messagepb.ErrorServerBusy("服务繁忙")
 	}
 
 	return s.hydrateUserSessions(ctx, sessionList), total, nil
@@ -369,7 +370,7 @@ func (s *SessionService) GetGroupSessionList(ctx context.Context, ownerId string
 	sessionList, total, err := s.sessionStore.FindBySendIdAndTypePaged(ctx, ownerId, "G", page, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
-		return nil, 0, errorx.ErrServerBusy
+		return nil, 0, messagepb.ErrorServerBusy("服务繁忙")
 	}
 
 	return s.hydrateGroupSessions(ctx, ownerId, sessionList), total, nil
@@ -384,7 +385,7 @@ func (s *SessionService) GetUserSessionListCursor(ctx context.Context, ownerId, 
 	result, err := s.sessionStore.FindBySendIdAndTypeCursor(ctx, ownerId, "U", cursor, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
-		return nil, "", false, errorx.ErrServerBusy
+		return nil, "", false, messagepb.ErrorServerBusy("服务繁忙")
 	}
 
 	return s.hydrateUserSessions(ctx, result.Sessions), result.NextCursor, result.HasMore, nil
@@ -399,7 +400,7 @@ func (s *SessionService) GetGroupSessionListCursor(ctx context.Context, ownerId,
 	result, err := s.sessionStore.FindBySendIdAndTypeCursor(ctx, ownerId, "G", cursor, pageSize)
 	if err != nil {
 		zap.L().Error("service error", zap.Error(err))
-		return nil, "", false, errorx.ErrServerBusy
+		return nil, "", false, messagepb.ErrorServerBusy("服务繁忙")
 	}
 
 	return s.hydrateGroupSessions(ctx, ownerId, result.Sessions), result.NextCursor, result.HasMore, nil
@@ -498,10 +499,10 @@ func (s *SessionService) DeleteSession(ctx context.Context, ownerId, sessionId s
 			return nil
 		}
 		zap.L().Error("查询会话失败", zap.String("session_id", sessionId), zap.Error(err))
-		return errorx.ErrServerBusy
+		return messagepb.ErrorServerBusy("服务繁忙")
 	}
 	if session.SendId != ownerId {
-		return errorx.New(errorx.CodeForbidden, "无权删除该会话")
+		return messagepb.ErrorForbidden("无权删除该会话")
 	}
 
 	if err := s.sessionStore.SoftDeleteByUuids(ctx, []string{sessionId}); err != nil {
@@ -510,7 +511,7 @@ func (s *SessionService) DeleteSession(ctx context.Context, ownerId, sessionId s
 			zap.String("session_id", sessionId),
 			zap.Error(err),
 		)
-		return errorx.ErrServerBusy
+		return messagepb.ErrorServerBusy("服务繁忙")
 	}
 
 	cacheKey := constants.CacheKeySessionOpen + ownerId + "_" + session.ReceiveId
@@ -526,13 +527,13 @@ func (s *SessionService) PinSession(ctx context.Context, userId, sessionId strin
 	session, err := s.sessionStore.FindByUuid(ctx, sessionId)
 	if err != nil {
 		if errorx.IsNotFound(err) {
-			return errorx.New(errorx.CodeNotFound, "会话不存在")
+			return messagepb.ErrorSessionNotFound("会话不存在")
 		}
 		zap.L().Error("查询会话失败", zap.String("session_id", sessionId), zap.Error(err))
-		return errorx.ErrServerBusy
+		return messagepb.ErrorServerBusy("服务繁忙")
 	}
 	if session.SendId != userId {
-		return errorx.New(errorx.CodeForbidden, "无权操作该会话")
+		return messagepb.ErrorForbidden("无权操作该会话")
 	}
 
 	if err := s.sessionStore.UpdatePinStatus(ctx, sessionId, isPinned); err != nil {
@@ -541,7 +542,7 @@ func (s *SessionService) PinSession(ctx context.Context, userId, sessionId strin
 			zap.Bool("is_pinned", isPinned),
 			zap.Error(err),
 		)
-		return errorx.ErrServerBusy
+		return messagepb.ErrorServerBusy("服务繁忙")
 	}
 
 	return nil
